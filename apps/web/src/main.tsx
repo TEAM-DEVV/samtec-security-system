@@ -1,0 +1,51 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { App } from './app/app';
+import { MockApiStartError } from './app/mock-api-start-error';
+import { env } from './lib/env';
+import './index.css';
+
+/** In mock mode, start the pretend API before the app sends its first request. */
+async function startMockApi(): Promise<void> {
+  // Vite replaces `import.meta.env.DEV` with `false` in production builds, so
+  // the bundler can see that the code below never runs and leaves the whole
+  // mock API out of the build.
+  if (!import.meta.env.DEV || !env.useMocks) {
+    return;
+  }
+  const { worker } = await import('./mocks/browser');
+  await worker.start({
+    // A request to the SAMTEC API that no mock handler answers is a bug: add a
+    // handler in src/mocks/handlers/. The request fails and the browser console
+    // explains why. Other requests, such as fonts, pass through untouched.
+    onUnhandledRequest(request, print) {
+      if (request.url.startsWith(env.apiBaseUrl)) {
+        print.error();
+      }
+    },
+  });
+}
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('index.html is missing <div id="root">.');
+}
+const root = createRoot(rootElement);
+
+try {
+  await startMockApi();
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+} catch (error) {
+  // Without its mock API, every page would fail in confusing ways, so show one
+  // clear explanation instead.
+  console.error('The mock API could not start.', error);
+  root.render(
+    <StrictMode>
+      <MockApiStartError />
+    </StrictMode>,
+  );
+}

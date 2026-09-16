@@ -1,0 +1,25 @@
+# Store text files with LF line endings, so Windows machines and the Linux CI
+# see exactly the same files.
+* text=auto eol=lf
+
+# Windows-only scripts need CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.woff2 binary
+
+# Generated types: GitHub collapses these in pull request diffs, because
+# `pnpm contracts:check` in CI proves they match openapi.yaml.
+packages/contracts/src/generated/** linguist-generated=true
+
+# pnpm-lock.yaml and apps/web/public/mockServiceWorker.js are generated too, but
+# stay expanded on purpose: a reviewer must see which package versions and
+# which service worker code a pull request brings in.

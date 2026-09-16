@@ -1,0 +1,17 @@
+# Code owners are asked to review pull requests that touch these paths.
+# GitHub enforces it once the repository owner turns on "Require review from
+# Code Owners" in the branch rules (see docs/guides/06-git-and-pull-requests.md).
+# The author of a pull request cannot approve it, so in practice the other
+# developer must approve.
+
+# Everything in the repository
+*                                   @AnnorFrancis @ALPHA-TEAM-dev
+
+# Security-sensitive files, listed so the rule is explicit
+/pnpm-workspace.yaml                @AnnorFrancis @ALPHA-TEAM-dev
+/pnpm-lock.yaml                     @AnnorFrancis @ALPHA-TEAM-dev
+/.github/                           @AnnorFrancis @ALPHA-TEAM-dev
+/.claude/                           @AnnorFrancis @ALPHA-TEAM-dev
+/apps/api/prisma/migrations/        @AnnorFrancis @ALPHA-TEAM-dev
+/packages/contracts/openapi.yaml    @AnnorFrancis @ALPHA-TEAM-dev
+/SECURITY.md                        @AnnorFrancis @ALPHA-TEAM-dev

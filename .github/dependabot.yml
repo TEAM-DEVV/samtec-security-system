@@ -1,0 +1,12 @@
+# Dependabot opens a pull request when a GitHub Action used by CI releases a
+# new version, so the commit-SHA pins in .github/workflows/ci.yml still receive
+# security fixes. Review these pull requests like any other change.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

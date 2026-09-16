@@ -1,0 +1,146 @@
+# Continuous integration (CI): GitHub runs these checks on every pull request
+# and on every push to main. A red cross on a pull request means a step failed.
+# Click it to read the log, fix the problem on your computer, and push again.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: these jobs can only read the repository.
+permissions:
+  contents: read
+
+# Pushing again to the same branch cancels the older, now pointless, run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, contract, types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm (the version comes from package.json)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js (the version comes from .nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies exactly as locked
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint and formatting
+        run: pnpm lint
+
+      - name: API contract is valid and its generated types are up to date
+        run: pnpm contracts:check
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  database:
+    name: Migrations, seed data and a live health check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: samtec
+          POSTGRES_PASSWORD: samtec-ci-only
+          POSTGRES_DB: samtec_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U samtec -d samtec_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://samtec:samtec-ci-only@localhost:5432/samtec_ci
+      CORS_ORIGINS: http://localhost:5173
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm (the version comes from package.json)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js (the version comes from .nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies exactly as locked
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply every migration to an empty database
+        run: pnpm db:deploy
+
+      - name: Check that schema.prisma has no change without a migration
+        run: pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - name: Load the demo data twice (seeding must be safe to repeat)
+        run: |
+          pnpm db:seed
+          pnpm db:seed
+
+      - name: Build the API
+        run: pnpm build
+
+      - name: Start the API and check that it reaches the database
+        run: |
+          pnpm start > api.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail --output health.json http://localhost:3000/api/v1/health; then
+              break
+            fi
+            sleep 1
+          done
+          cat health.json || { echo "The API did not answer. Its log:"; cat api.log; exit 1; }
+          grep -q '"database":"up"' health.json
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm (the version comes from package.json)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js (the version comes from .nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check production dependencies for known vulnerabilities
+        run: pnpm audit --prod --audit-level high

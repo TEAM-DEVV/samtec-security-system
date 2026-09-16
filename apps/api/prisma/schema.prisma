@@ -1,0 +1,166 @@
+// =============================================================================
+// SAMTEC database schema (PostgreSQL, managed with Prisma)
+// -----------------------------------------------------------------------------
+// This file describes every table. After changing it, run `pnpm db:migrate` to
+// create a migration: a SQL file that updates the real database.
+// The rules behind these tables live in docs/plan/04-data-model.md.
+//
+// Naming: TypeScript uses camelCase (firstName). `@map` and `@@map` store the
+// same names in snake_case (first_name), the usual PostgreSQL convention, so
+// hand-written SQL in later phases stays readable.
+//
+// Every migration that creates a table must also enable row-level security on
+// it (see the end of the first migration and docs/plan/04-data-model.md).
+// =============================================================================
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Where an employee is in their working life. Mirrors `EmployeeStatus` in the API contract.
+enum EmployeeStatus {
+  PENDING_ENROLLMENT
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+/// Why an employee left. Mirrors `TerminationReason` in the API contract.
+enum TerminationReason {
+  RESIGNED
+  DISMISSED
+  CONTRACT_ENDED
+  ABSCONDED
+  DECEASED
+  OTHER
+}
+
+enum SiteStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// The 16 administrative regions of Ghana.
+enum GhanaRegion {
+  AHAFO
+  ASHANTI
+  BONO
+  BONO_EAST
+  CENTRAL
+  EASTERN
+  GREATER_ACCRA
+  NORTH_EAST
+  NORTHERN
+  OTI
+  SAVANNAH
+  UPPER_EAST
+  UPPER_WEST
+  VOLTA
+  WESTERN
+  WESTERN_NORTH
+}
+
+/// The security company using SAMTEC. Version 1 has exactly one company, but
+/// every business table stores `companyId` so more companies can be added later.
+model Company {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employees   Employee[]
+  sites       Site[]
+  assignments SiteAssignment[]
+
+  @@map("companies")
+}
+
+/// A client location where guards are posted, for example an office complex.
+model Site {
+  id         String      @id @default(uuid(7)) @db.Uuid
+  companyId  String      @map("company_id") @db.Uuid
+  /// Short code such as ACC-01: three letters for the town, then a number.
+  code       String
+  name       String
+  /// The client company that pays for guarding this site.
+  clientName String      @map("client_name")
+  region     GhanaRegion
+  city       String
+  status     SiteStatus  @default(ACTIVE)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments SiteAssignment[]
+
+  @@unique([companyId, code])
+  @@map("sites")
+}
+
+/// A guard or staff member on the payroll. Employees are never deleted: when
+/// someone leaves, `status` becomes TERMINATED so audit and pay history survive.
+model Employee {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  companyId           String             @map("company_id") @db.Uuid
+  /// Number printed on the ID card, for example SMT-00042.
+  staffNumber         String             @map("staff_number")
+  firstName           String             @map("first_name")
+  lastName            String             @map("last_name")
+  otherNames          String?            @map("other_names")
+  /// International format, for example +233241234567.
+  phone               String
+  email               String?
+  /// Ghana Card PIN, for example GHA-123456789-0. It is also the SSNIT number. Sensitive.
+  ghanaCardNumber     String             @map("ghana_card_number")
+  position            String
+  status              EmployeeStatus     @default(PENDING_ENROLLMENT)
+  /// When biometrics were enrolled and passed the duplicate check. Empty until
+  /// then, and emptied again if the templates are deleted. The workforce module
+  /// owns this column; the attendance module updates it through the workforce service.
+  biometricEnrolledAt DateTime?          @map("biometric_enrolled_at") @db.Timestamptz(3)
+  hireDate            DateTime           @map("hire_date") @db.Date
+  terminationDate     DateTime?          @map("termination_date") @db.Date
+  terminationReason   TerminationReason? @map("termination_reason")
+  terminationNote     String?            @map("termination_note")
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments SiteAssignment[]
+
+  /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
+  @@unique([companyId, ghanaCardNumber])
+  @@unique([companyId, staffNumber])
+  @@index([companyId, status])
+  @@map("employees")
+}
+
+/// Where an employee is posted and for which dates. History is kept: moving a
+/// guard ends one assignment and starts a new one. `endsOn = null` means current.
+/// `companyId` must match the employee's and the site's company; the workforce
+/// service checks this before saving.
+model SiteAssignment {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  employeeId String    @map("employee_id") @db.Uuid
+  siteId     String    @map("site_id") @db.Uuid
+  startsOn   DateTime  @map("starts_on") @db.Date
+  endsOn     DateTime? @map("ends_on") @db.Date
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  site     Site     @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([employeeId, endsOn])
+  @@index([siteId, endsOn])
+  @@map("site_assignments")
+}

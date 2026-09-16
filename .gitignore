@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment files: NEVER commit real secrets (see SECURITY.md)
+.env
+.env.*
+!.env.example
+
+# Generated Prisma client (recreated by `pnpm install`)
+apps/api/src/generated/
+
+# Local development database files (created by `pnpm db:start`)
+apps/api/.local-db/
+
+# Logs
+*.log
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Obsidian workspace state (the notes in docs/ ARE committed)
+.obsidian/
+
+# Personal Claude Code settings (shared ones live in .claude/settings.json)
+.claude/settings.local.json

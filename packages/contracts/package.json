@@ -1,0 +1,25 @@
+{
+  "name": "@samtec/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The SAMTEC API contract (OpenAPI) and the TypeScript types generated from it.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts"
+    },
+    "./openapi.yaml": "./openapi.yaml"
+  },
+  "scripts": {
+    "generate": "openapi-typescript openapi.yaml --output src/generated/api.d.ts --root-types --root-types-no-schema-prefix",
+    "check": "redocly lint openapi.yaml && openapi-typescript openapi.yaml --output src/generated/api.d.ts --root-types --root-types-no-schema-prefix --check",
+    "lint": "redocly lint openapi.yaml",
+    "docs": "redocly build-docs openapi.yaml --output dist/api-docs.html",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.50.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "~6.0.3"
+  }
+}

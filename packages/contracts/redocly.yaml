@@ -1,0 +1,13 @@
+# Redocly CLI settings, used to check openapi.yaml by `pnpm contracts:check`
+# (or `pnpm --filter @samtec/contracts lint` for the lint step alone).
+# Rule reference: https://redocly.com/docs/cli/rules
+extends:
+  - recommended
+
+rules:
+  # SAMTEC's API is private to the company, so it has no public licence.
+  info-license: off
+  info-license-strict: off
+  # /health and /auth/logout have no client errors by design.
+  # Every other endpoint lists its 4xx responses explicitly.
+  operation-4xx-response: off

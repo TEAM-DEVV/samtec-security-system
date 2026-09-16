@@ -1,0 +1,35 @@
+{
+  "name": "samtec-security-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Biometric attendance and payroll system that eliminates ghost workers in security companies.",
+  "type": "module",
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @samtec/api --filter @samtec/web dev",
+    "dev:api": "pnpm --filter @samtec/api dev",
+    "dev:web": "pnpm --filter @samtec/web dev:mock",
+    "dev:web:live": "pnpm --filter @samtec/web dev",
+    "build": "pnpm --recursive build",
+    "typecheck": "pnpm --recursive typecheck",
+    "test": "pnpm --recursive test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "contracts:generate": "pnpm --filter @samtec/contracts generate",
+    "contracts:check": "pnpm --filter @samtec/contracts check",
+    "contracts:docs": "pnpm --filter @samtec/contracts docs",
+    "db:start": "pnpm --filter @samtec/api db:start",
+    "db:migrate": "pnpm --filter @samtec/api db:migrate",
+    "db:deploy": "pnpm --filter @samtec/api db:deploy",
+    "db:seed": "pnpm --filter @samtec/api db:seed",
+    "db:reset": "pnpm --filter @samtec/api db:reset",
+    "db:studio": "pnpm --filter @samtec/api db:studio",
+    "check": "pnpm lint && pnpm contracts:check && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13"
+  }
+}

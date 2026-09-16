@@ -1,0 +1,46 @@
+import type { Type } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Test } from '@nestjs/testing';
+import { AppModule } from '../src/app.module.js';
+import { configureApp } from '../src/app.setup.js';
+import { AppConfig } from '../src/config/app-config.js';
+import { PrismaService } from '../src/database/prisma.service.js';
+
+interface TestAppOptions {
+  /** What the pretend database answers to the health check. Defaults to true. */
+  databaseUp?: boolean;
+  /** Extra controllers that exist only in a test, for example to try the validation pipe. */
+  controllers?: Type[];
+}
+
+/**
+ * Starts the real application for an end-to-end test, with the same security
+ * settings as production. The database is replaced by a fake, so these tests
+ * run anywhere, including CI, without PostgreSQL.
+ *
+ * Remember to call `await app.close()` when the tests finish.
+ */
+export async function createTestApp(options: TestAppOptions = {}): Promise<NestExpressApplication> {
+  const config = new AppConfig({
+    NODE_ENV: 'test',
+    PORT: 3000,
+    DATABASE_URL: 'postgresql://samtec@localhost:5432/samtec_test',
+    CORS_ORIGINS: ['http://localhost:5173'],
+  });
+  const databaseUp = options.databaseUp ?? true;
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+    controllers: options.controllers ?? [],
+  })
+    .overrideProvider(AppConfig)
+    .useValue(config)
+    .overrideProvider(PrismaService)
+    .useValue({ isReachable: async () => databaseUp, $disconnect: async () => undefined })
+    .compile();
+
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  configureApp(app, config);
+  await app.init();
+  return app;
+}

@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "biomejs.biome",
+    "prisma.prisma",
+    "bradlc.vscode-tailwindcss",
+    "editorconfig.editorconfig",
+    "redhat.vscode-yaml",
+    "42crunch.vscode-openapi",
+    "vitest.explorer",
+    "anthropic.claude-code"
+  ]
+}
