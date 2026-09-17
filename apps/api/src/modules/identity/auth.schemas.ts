@@ -1,0 +1,35 @@
+import { z } from 'zod';
+
+/**
+ * The rules for every sign-in request body. `strictObject` rejects fields we
+ * did not ask for, exactly as the contract's `additionalProperties: false`
+ * promises.
+ */
+
+export const loginSchema = z.strictObject({
+  email: z.email('Enter a valid email address.').max(254),
+  password: z.string().min(1, 'Enter your password.').max(128),
+});
+export type LoginBody = z.infer<typeof loginSchema>;
+
+const oneTimeToken = z.string().min(1).max(512);
+const sixDigitCode = z
+  .string()
+  .regex(/^\d{6}$/, 'Enter the 6-digit code from your authenticator app.');
+
+export const verifyTwoFactorSchema = z.strictObject({
+  challengeToken: oneTimeToken,
+  code: sixDigitCode,
+});
+export type VerifyTwoFactorBody = z.infer<typeof verifyTwoFactorSchema>;
+
+export const twoFactorSetupSchema = z.strictObject({
+  setupToken: oneTimeToken,
+});
+export type TwoFactorSetupBody = z.infer<typeof twoFactorSetupSchema>;
+
+export const enableTwoFactorSchema = z.strictObject({
+  setupToken: oneTimeToken,
+  code: sixDigitCode,
+});
+export type EnableTwoFactorBody = z.infer<typeof enableTwoFactorSchema>;

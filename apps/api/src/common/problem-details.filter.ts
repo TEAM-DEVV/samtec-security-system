@@ -46,6 +46,17 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       problem.detail = problem.detail.replaceAll(request.originalUrl, path);
     }
 
+    // A rate-limited caller is told how long to wait (see RateLimitException).
+    if (
+      'retryAfterSeconds' in (exception as object) &&
+      typeof (exception as { retryAfterSeconds: unknown }).retryAfterSeconds === 'number'
+    ) {
+      response.setHeader(
+        'Retry-After',
+        String((exception as { retryAfterSeconds: number }).retryAfterSeconds),
+      );
+    }
+
     const summary = `${request.method} ${path} answered ${problem.status} (traceId ${problem.traceId})`;
     if (problem.status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(`${summary}: ${describeForLogs(exception)}`);

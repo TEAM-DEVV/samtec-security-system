@@ -26,12 +26,14 @@ This page is the authoritative checklist for every phase. The timing assumes par
 
 **Goal: sign in, see employees, model the company.**
 
-- Sign-in: JWT and refresh cookie, role guards, two-factor setup and verification for ADMIN and HR_PAYROLL, rate limiting
-- Admin-only system information endpoint (API version and environment), because the public health check no longer shares them
-- Audit log on every change to important data
-- Employees: create, update, terminate; employment periods for rehired guards; sites, posts, shift patterns and assignments
-- Dashboard: sign-in and two-factor screens, employee list and detail, site pages (the mock API already supports all of them)
-- Dashboard: once the API serves `/employees`, remove the "Phase 1" notice for live mode in `apps/web/src/app/router.tsx`
+- [x] Sign-in: JWT and refresh cookie with rotation and reuse detection, role guards on every route, two-factor setup and verification for ADMIN and HR_PAYROLL, per-email lockout
+- [x] Admin-only system information endpoint (API version and environment), because the public health check no longer shares them
+- [x] Append-only audit log (database-enforced), recording sign-in events; coverage grows with each write endpoint
+- [x] Read endpoints: employees and sites with role scoping (supervisors see their sites, guards themselves)
+- [ ] Employees: create, update, terminate; employment periods for rehired guards
+- [ ] Posts, shift patterns and assignments (contract first)
+- [ ] Dashboard (Samuel): sign-in and two-factor screens, employee list and detail, site pages — the mock API already supports all of them
+- [ ] Dashboard (Samuel): once the sign-in screens work against the live API, remove the live-mode notice in `apps/web/src/app/router.tsx`
 - **Exit demo:** create an employee, assign them to a site and shift, and see the change in the audit trail
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)

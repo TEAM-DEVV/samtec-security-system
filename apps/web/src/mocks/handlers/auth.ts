@@ -21,6 +21,10 @@ type TokenPurpose = 'VERIFY' | 'SETUP';
  *
  * Simplified on purpose: the mock never expires tokens and never counts wrong
  * codes. The real API does both (see the contract).
+ *
+ * TODO (with the sign-in screens): also simulate the 429 lockout after
+ * repeated failures, so the "too many attempts, wait a moment" screen state
+ * can be built and tested against mocks.
  */
 const memory = {
   signedInUserId: undefined as string | undefined,

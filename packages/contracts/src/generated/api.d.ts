@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get version details about the running API
+         * @description **Roles:** ADMIN. The public `/health` endpoint deliberately reveals nothing about the system, so administrators read the version, environment and uptime here instead.
+         */
+        get: operations["getSystemInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -344,6 +364,18 @@ export interface components {
                 /** @enum {string} */
                 database: "up" | "down";
             };
+        };
+        /** @description Details about the running API. Only administrators may read them. */
+        SystemInfo: {
+            /**
+             * @description The version of the API that is running.
+             * @example 0.1.0
+             */
+            version: string;
+            /** @enum {string} */
+            environment: "development" | "test" | "production";
+            /** @description Seconds since the API process started. */
+            uptimeSeconds: number;
         };
         /** @description A standard error response (RFC 9457). Show `detail` to the user, and include `traceId` when reporting a bug so the backend developer can find the exact request in the logs. */
         ProblemDetails: {
@@ -742,6 +774,7 @@ export interface components {
     pathItems: never;
 }
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type SystemInfo = components['schemas']['SystemInfo'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 export type ValidationIssue = components['schemas']['ValidationIssue'];
 export type UserRole = components['schemas']['UserRole'];
@@ -817,6 +850,28 @@ export interface operations {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
+        };
+    };
+    getSystemInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Details about the running API. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemInfo"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     login: {

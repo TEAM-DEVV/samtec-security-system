@@ -46,6 +46,22 @@ enum SiteStatus {
   INACTIVE
 }
 
+/// What a user account is allowed to do. Mirrors `UserRole` in the API contract.
+enum UserRole {
+  ADMIN
+  HR_PAYROLL
+  SUPERVISOR
+  GUARD
+}
+
+/// Why a sign-in challenge token was issued (see the `auth_challenges` table).
+enum AuthChallengePurpose {
+  /// The user typed the right password and must now enter a two-factor code.
+  VERIFY_CODE
+  /// The user typed the right password and must now set up two-factor authentication.
+  SET_UP
+}
+
 /// The 16 administrative regions of Ghana.
 enum GhanaRegion {
   AHAFO
@@ -77,8 +93,135 @@ model Company {
   employees   Employee[]
   sites       Site[]
   assignments SiteAssignment[]
+  users       User[]
+  auditLogs   AuditLog[]
 
   @@map("companies")
+}
+
+/// Someone who can sign in to the dashboard. Owned by the identity module.
+/// A user may be linked to an employee record (guards and supervisors), or
+/// stand alone (office-only accounts).
+model User {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  /// Stored lower-case, so sign-in is not case-sensitive.
+  email        String
+  /// A scrypt hash. The password itself is never stored (see modules/identity/password.ts).
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  role         UserRole
+  /// A disabled account cannot sign in, and its refresh tokens stop working.
+  isActive     Boolean  @default(true) @map("is_active")
+  /// The employee this account belongs to, or null for office-only accounts.
+  employeeId   String?  @unique @map("employee_id") @db.Uuid
+
+  /// The authenticator-app secret, encrypted with AES-256-GCM (never stored as
+  /// plain text). Null until the user finishes two-factor setup.
+  twoFactorSecretEncrypted String?   @map("two_factor_secret_encrypted")
+  twoFactorEnabledAt       DateTime? @map("two_factor_enabled_at") @db.Timestamptz(3)
+  /// The time step of the last accepted code. A code for this step or earlier
+  /// is refused, so an overheard code cannot be replayed.
+  twoFactorLastUsedStep    BigInt?   @map("two_factor_last_used_step")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions   UserSession[]
+  challenges AuthChallenge[]
+
+  @@unique([companyId, email])
+  @@map("users")
+}
+
+/// One signed-in browser: the record behind a refresh token cookie.
+/// Owned by the identity module.
+///
+/// Rotation: every use of a refresh token revokes this row and creates a new
+/// one (`replacedById` points forward). If a token arrives for a row that was
+/// already replaced, someone copied it, and every session of that user is revoked.
+model UserSession {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// SHA-256 of the refresh token. The token itself only exists in the cookie.
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// The session that replaced this one when the token was rotated.
+  replacedById String? @map("replaced_by_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+/// A half-finished sign-in: the password was right, but a two-factor step is
+/// still needed. Owned by the identity module. Rows expire within minutes and
+/// are deleted once used.
+model AuthChallenge {
+  id      String               @id @default(uuid(7)) @db.Uuid
+  userId  String               @map("user_id") @db.Uuid
+  purpose AuthChallengePurpose
+  /// SHA-256 of the challenge or setup token sent to the browser.
+  tokenHash String @unique @map("token_hash")
+  /// For SET_UP: the new authenticator secret (encrypted), moved to the user
+  /// only after they prove their app works by entering a correct code.
+  pendingSecretEncrypted String? @map("pending_secret_encrypted")
+  /// Wrong codes entered so far. At 5 the challenge is cancelled.
+  failedAttempts Int      @default(0) @map("failed_attempts")
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_challenges")
+}
+
+/// Counts failed sign-in steps — wrong passwords per email, wrong two-factor
+/// codes per account — so guessing gets locked out. Rows are written with one
+/// atomic SQL statement (see SignInThrottleService), so parallel attempts
+/// cannot slip past the counter.
+model SignInThrottle {
+  /// An HMAC (keyed with a key derived from AUTH_SECRET) of what is being
+  /// throttled, for example `password:<email>` or `totp:<user id>`. A keyed
+  /// hash, so this table can never be turned back into a list of emails.
+  keyHash        String    @id @map("key_hash")
+  failedCount    Int       @default(0) @map("failed_count")
+  windowStartsAt DateTime  @map("window_starts_at") @db.Timestamptz(3)
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("sign_in_throttles")
+}
+
+/// Who changed what, and when. Append-only: a database trigger (see the
+/// migration) rejects every UPDATE and DELETE, so history cannot be rewritten.
+/// Owned by the identity module; other modules write through AuditService.
+model AuditLog {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  /// Who did it. Null for actions without a signed-in user, such as a lockout.
+  actorUserId String? @map("actor_user_id") @db.Uuid
+  /// A short dotted name, for example `auth.two_factor_enabled`.
+  action     String
+  /// What kind of record was affected, for example `user` or `employee`.
+  entityType String @map("entity_type")
+  entityId   String? @map("entity_id") @db.Uuid
+  /// Extra details as JSON. Never personal data — IDs and field names only.
+  detail    Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, entityType, entityId])
+  @@map("audit_logs")
 }
 
 /// A client location where guards are posted, for example an office complex.
@@ -133,6 +276,7 @@ model Employee {
 
   company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   assignments SiteAssignment[]
+  user        User?
 
   /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
   @@unique([companyId, ghanaCardNumber])

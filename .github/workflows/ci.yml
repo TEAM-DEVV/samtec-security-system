@@ -76,6 +76,9 @@ jobs:
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://samtec:samtec-ci-only@localhost:5432/samtec_ci
+      # The same database again: this switches on the API's real-database
+      # tests (apps/api/test/db.e2e-spec.ts), which the quality job skips.
+      TEST_DATABASE_URL: postgresql://samtec:samtec-ci-only@localhost:5432/samtec_ci
       CORS_ORIGINS: http://localhost:5173
     defaults:
       run:
@@ -109,6 +112,9 @@ jobs:
           pnpm db:seed
           pnpm db:seed
 
+      - name: Run the API tests against the real database
+        run: pnpm test
+
       - name: Build the API
         run: pnpm build
 
@@ -123,6 +129,20 @@ jobs:
           done
           cat health.json || { echo "The API did not answer. Its log:"; cat api.log; exit 1; }
           grep -q '"database":"up"' health.json
+
+      - name: Sign in and read employees through the running API
+        run: |
+          TOKEN=$(curl --silent --fail -X POST -H 'Content-Type: application/json' \
+            -d '{"email":"supervisor@samtec.example","password":"demo-password"}' \
+            http://localhost:3000/api/v1/auth/login \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          curl --silent --fail -H "Authorization: Bearer $TOKEN" \
+            'http://localhost:3000/api/v1/employees?limit=5' > employees.json
+          python3 -c "import json; page = json.load(open('employees.json')); \
+            assert page['items'], 'no employees came back'; \
+            assert all('ghanaCardNumber' not in item for item in page['items']), 'identity data leaked into a list'; \
+            print('employees list OK:', [item['staffNumber'] for item in page['items']])"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3000/api/v1/employees)" = "401"
 
   audit:
     name: Dependency audit

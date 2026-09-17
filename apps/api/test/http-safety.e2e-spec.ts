@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { Public } from '../src/common/auth.decorators.js';
 import { createTestApp } from './create-test-app.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -12,7 +13,11 @@ const probeSchema = z.strictObject({
   phone: z.string().regex(/^\+233\d{9}$/, 'Must look like +233241234567.'),
 });
 
-/** A route that exists only in this test, so the real validation pipe can be tried. */
+/**
+ * A route that exists only in this test, so the real validation pipe can be
+ * tried. `@Public()` because these tests are about validation, not sign-in.
+ */
+@Public()
 @Controller('validation-probe')
 class ValidationProbeController {
   @Post()

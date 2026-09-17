@@ -21,8 +21,10 @@ export const router = createBrowserRouter([
       { index: true, element: <SystemStatusPage /> },
       {
         path: 'employees',
-        // The real API serves /employees from Phase 1. Until then, live mode
-        // shows a notice. Phase 1: replace this with `element: <EmployeesPage />`.
+        // The real /employees endpoint exists, but it requires sign-in and
+        // the dashboard has no sign-in screens yet — so live mode would only
+        // show 401 errors. Keep this notice until the sign-in screens work
+        // against the live API, then use `element: <EmployeesPage />` for both.
         element: env.useMocks ? (
           <EmployeesPage />
         ) : (

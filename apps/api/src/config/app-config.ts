@@ -12,17 +12,23 @@ export class AppConfig {
   readonly port: number;
   readonly databaseUrl: string;
   readonly corsOrigins: readonly string[];
+  /** The master secret behind sign-in. Never log it. */
+  readonly authSecret: string;
+  /** The version from package.json. pnpm sets `npm_package_version` when it runs a script. */
+  readonly version: string;
 
-  constructor(env: Env) {
+  constructor(env: Env, version = 'dev') {
     this.nodeEnv = env.NODE_ENV;
     this.port = env.PORT;
     this.databaseUrl = env.DATABASE_URL;
     this.corsOrigins = env.CORS_ORIGINS;
+    this.authSecret = env.AUTH_SECRET;
+    this.version = version;
   }
 
   /** Reads and checks `process.env`. Throws a readable error when something is wrong. */
   static fromProcessEnv(): AppConfig {
-    return new AppConfig(parseEnv(process.env));
+    return new AppConfig(parseEnv(process.env), process.env.npm_package_version);
   }
 
   get isProduction(): boolean {

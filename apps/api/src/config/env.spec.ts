@@ -30,22 +30,29 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ...minimalEnv, CORS_ORIGINS: origin })).toThrow(/CORS origin/);
   });
 
+  const productionEnv = {
+    ...minimalEnv,
+    NODE_ENV: 'production',
+    CORS_ORIGINS: 'https://dashboard.samtec.example',
+    AUTH_SECRET: 'a-real-production-secret-with-32-chars!!',
+  };
+
   it('requires https CORS origins in production', () => {
     expect(() =>
-      parseEnv({
-        ...minimalEnv,
-        NODE_ENV: 'production',
-        CORS_ORIGINS: 'http://dashboard.samtec.example',
-      }),
+      parseEnv({ ...productionEnv, CORS_ORIGINS: 'http://dashboard.samtec.example' }),
     ).toThrow(/https/);
 
     expect(
-      parseEnv({
-        ...minimalEnv,
-        NODE_ENV: 'production',
-        CORS_ORIGINS: 'https://dashboard.samtec.example',
-      }).CORS_ORIGINS,
+      parseEnv({ ...productionEnv, CORS_ORIGINS: 'https://dashboard.samtec.example' }).CORS_ORIGINS,
     ).toEqual(['https://dashboard.samtec.example']);
+  });
+
+  it('allows the built-in development AUTH_SECRET only outside production', () => {
+    expect(parseEnv(minimalEnv).AUTH_SECRET.length).toBeGreaterThanOrEqual(32);
+
+    expect(() => parseEnv({ ...minimalEnv, NODE_ENV: 'production' })).toThrow(/AUTH_SECRET/);
+    expect(() => parseEnv({ ...productionEnv, AUTH_SECRET: 'too-short' })).toThrow(/AUTH_SECRET/);
+    expect(parseEnv(productionEnv).AUTH_SECRET).toBe(productionEnv.AUTH_SECRET);
   });
 
   it('refuses to start without a database URL', () => {

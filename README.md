@@ -75,4 +75,4 @@ Everything else — every decision and the reason behind it — is written down 
 
 ## Right now
 
-**Pull request #1 (Phase 0) is open and CI is green.** Samuel: review it, press merge, then run the "first time" steps above. After that we both start Phase 1 (sign-in and employees) — see the [roadmap](docs/plan/07-roadmap.md).
+**Phase 0 is merged; Phase 1 (sign-in and workforce) is being built.** The backend's sign-in system and the employee and site endpoints are in. Samuel: build against the mock API as usual — the sign-in screens are your next big piece, and the mock accounts for them are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).

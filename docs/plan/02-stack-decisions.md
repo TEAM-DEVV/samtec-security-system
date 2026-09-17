@@ -38,8 +38,8 @@ Versions are the ones installed in Phase 0 (September 2026).
 | TypeScript scripts | **tsx** | Runs the seed file and the local database script straight from TypeScript, with no build step. |
 | Security middleware | **Helmet 8**, strict CORS, request IDs | Secure headers and traceable errors from the first day. |
 | Tests | **Vitest 4** and Supertest | The same test runner as the dashboard. The official NestJS 12 template also uses it. |
-| Sign-in (Phase 1) | JWT access token (15 minutes), rotating refresh cookie, argon2id, TOTP two-factor | Standard and defensible, with no vendor lock-in. |
-| Rate limiting (Phase 1) | Added together with the first sign-in endpoint | `@nestjs/throttler` did not support NestJS 12 yet during Phase 0. Choose it or `express-rate-limit` in Phase 1. |
+| Sign-in | JWT access token (15 minutes) signed with **jose**, rotating refresh cookie with reuse detection, **scrypt** password hashes, TOTP two-factor implemented from the RFCs | Standard and defensible, with no vendor lock-in. The decision log explains scrypt and jose. |
+| Sign-in rate limiting | A database-backed per-email lockout (5 wrong passwords → 15-minute lock) | No extra dependency, survives restarts, and the lockout itself never reveals whether an email has an account. |
 
 ## Frontend (Samuel)
 
@@ -98,3 +98,6 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | 2026-09-15 | Added a one-off trust policy exception for `semver@6.3.1` | A 2023 security release published without provenance, which pnpm reports as a trust downgrade (a known false positive). The shadcn CLI needs it. |
 | 2026-09-16 | The public health check reports only status, time and database state. The refresh cookie became `SameSite=Strict`, so the dashboard and API must share one site. Two-factor setup joined the sign-in contract. Employee records leave out the Ghana Card number for roles that do not need it. | Four-lens review of the Phase 0 pull request. Version and environment details help attackers plan; a strict same-site cookie shuts out cross-site request forgery; data minimisation is required by Act 843. |
 | 2026-09-16 | Regenerated the first migration before merging: `site_assignments` gained `company_id` and `updated_at`, `employees` gained `biometric_enrolled_at`, and every table got row-level security | Nothing had been deployed yet, so one clean first migration is easier to read and defend than a fix-up migration. Row-level security protects the data even if Supabase's Data API is switched on by mistake. |
+| 2026-09-17 | Password hashing uses **scrypt** (built into Node.js) instead of argon2id | Both are memory-hard and OWASP-approved. argon2id would add a native dependency with install scripts — exactly the kind of supply-chain surface this project minimises — while scrypt ships inside Node. The stored format records its own settings, so parameters can be raised later without breaking accounts. |
+| 2026-09-17 | Added **jose** for signing and checking JWT access tokens | The standard modern JWT library: pure JavaScript (no install scripts), audited, and built for ES modules. Refresh and challenge tokens are plain random values stored only as SHA-256 hashes, so they need no library at all. |
+| 2026-09-17 | TOTP two-factor codes implemented directly from RFC 6238/4226 (about 100 lines on Node's crypto), not a library | The algorithm is small and standard; the tests prove it against the official RFC test vectors. One less dependency to trust, and easy to explain at the defense. |

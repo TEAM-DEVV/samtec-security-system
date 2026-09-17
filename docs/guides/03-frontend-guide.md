@@ -102,9 +102,9 @@ The API returns one page and a `nextCursor`, a bookmark for the next page. The e
 
 While the next page loads, the table keeps showing the current page, dimmed (`isPlaceholderData`), and extra clicks on **Next** are ignored. The buttons stay enabled while loading, so keyboard users never lose their place.
 
-### Pages whose API is not built yet
+### Pages the live API cannot serve yet
 
-The Employees page works with the mock API, but the real API only gets `/employees` in Phase 1. In live mode, `src/app/router.tsx` therefore shows `ComingInPhasePage` instead of a confusing error. Do the same for every new page until its endpoints exist in the API, and remove the check when they do.
+The Employees page works with the mock API. The real `/employees` endpoint exists too, but it requires sign-in — and until the sign-in screens are built, live mode has no way to get an access token, so every request would fail with 401. `src/app/router.tsx` therefore shows `ComingInPhasePage` in live mode instead of a confusing error. Remove that check once the sign-in screens work against the live API.
 
 ## Adding a page, step by step
 

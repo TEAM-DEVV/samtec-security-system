@@ -66,11 +66,12 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Supply chain | pnpm: package versions under 1 day old refused, versions with a publishing trust downgrade refused, install scripts need approval in `allowBuilds`, git and tarball sources blocked; CI actions pinned to commit SHAs; `pnpm audit` in CI | **Phase 0** |
 | Secrets | `.env` git-ignored; `.env.example` placeholders only; Claude Code settings deny reading `.env` | **Phase 0** |
 | Transport | HTTPS only, with HSTS, on the hosted demo | Phase 8 |
-| Passwords | argon2id. Repeated failures for one email are slowed down, then answered with `429` for 15 minutes, whether or not the account exists. | Phase 1 |
-| Two-factor authentication | TOTP required for ADMIN and HR_PAYROLL, set up at first sign-in. Challenge and setup tokens expire (5 and 10 minutes), work once and belong to one account; 5 wrong codes cancel them; an accepted code cannot be used again. A lost authenticator is reset by another ADMIN, with an audit entry. | Phase 1 |
-| Sessions | 15-minute access tokens kept in memory only. A 7-day refresh cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`) rotates on every use; a reused refresh token revokes all of that user's sessions. `Origin` is checked on refresh and logout. Revocation on logout. | Phase 1 |
-| Rate limiting | Sign-in and device ingest | Phases 1 and 2 |
-| Audit | Append-only audit log; payroll approvals and exception resolutions always audited | Phase 1 |
+| Passwords | scrypt hashes (settings recorded per hash). 5 wrong passwords for one email lock it for 15 minutes with a `429`, whether or not the account exists, and a stand-in hash keeps the timing identical for unknown emails. The counter is one atomic SQL statement, so parallel guesses cannot slip past it, and the throttle table stores only keyed hashes (HMAC), never emails. | **Phase 1 (built)** |
+| Two-factor authentication | TOTP required for ADMIN and HR_PAYROLL, set up at first sign-in. Challenge and setup tokens expire (5 and 10 minutes), work once and belong to one account; 5 wrong codes cancel a challenge; an accepted code cannot be used again. Wrong codes are **also counted per account**, so signing in again never grants fresh guesses — a leaked password cannot brute-force the 6-digit code. Authenticator secrets are stored AES-256-GCM-encrypted. A lost authenticator is reset by another ADMIN, with an audit entry (admin screen arrives with user management). | **Phase 1 (built)** |
+| Sessions | 15-minute access tokens kept in memory only. A 7-day refresh cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`) rotates on every use with an atomic claim, so even two simultaneous replays cannot both mint sessions; a reused refresh token revokes all of that user's sessions; the database stores only token hashes. `Origin` is checked on refresh and logout — the only two endpoints that act on the cookie alone, which is why only they need it. Revocation on logout. | **Phase 1 (built)** |
+| Object-level access | Every route needs a token unless marked public; roles checked per route; supervisors scoped to their sites, guards to themselves; hidden records answer 404. Proven by tests against a real database. | **Phase 1 (built)** |
+| Rate limiting | Sign-in (built). Device ingest | Phase 2 |
+| Audit | Append-only audit log — a database trigger rejects every change and delete (built, recording sign-in events). Payroll approvals and exception resolutions always audited | Phases 4–5 |
 | Biometric data | Templates only, AES-256-GCM at rest, key outside the database, deleted on termination according to the retention policy | Phase 3 |
 | Backups | Supabase daily backups plus a database dump before every payroll lock | Phase 4 |
 
@@ -96,7 +97,7 @@ This section belongs in Samuel's report and in the client presentation.
 | Holding a photo up to the face kiosk | Guard | Anti-spoofing score threshold and a random blink challenge; documented as a version 1 limitation |
 | A malicious package version | Supply chain | 1-day release age rule, install-script approval, lockfile, `pnpm audit`, code owner review of dependency changes |
 | Stealing a refresh token | Outsider | `HttpOnly` cookie, rotation with reuse detection, `SameSite=Strict`, `Origin` check |
-| Guessing passwords or two-factor codes | Outsider | argon2id, per-email slowdown and `429`, 5 wrong codes per challenge, answers that never reveal whether an email has an account |
+| Guessing passwords or two-factor codes | Outsider | scrypt, per-email lockout with atomic counting, per-account two-factor lockout across fresh challenges, answers that never reveal whether an email has an account |
 | Reading tables directly through Supabase | Outsider | Data API switched off, row-level security, no privileges for the Data API roles |
 | Personal data leaking into logs | Insider or outsider with log access | Logging rules in `ProblemDetailsFilter` and `PrismaService`, tested in CI |
 

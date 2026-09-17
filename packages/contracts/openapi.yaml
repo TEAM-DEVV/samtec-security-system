@@ -92,6 +92,34 @@ paths:
                     checks:
                       database: down
 
+  /system/info:
+    get:
+      tags: [System]
+      operationId: getSystemInfo
+      summary: Get version details about the running API
+      description: >-
+        **Roles:** ADMIN. The public `/health` endpoint deliberately reveals
+        nothing about the system, so administrators read the version,
+        environment and uptime here instead.
+      responses:
+        "200":
+          description: Details about the running API.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemInfo"
+              examples:
+                running:
+                  summary: A healthy development API
+                  value:
+                    version: "0.1.0"
+                    environment: development
+                    uptimeSeconds: 42
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /auth/login:
     post:
       tags: [Auth]
@@ -893,6 +921,23 @@ components:
             database:
               type: string
               enum: [up, down]
+
+    SystemInfo:
+      type: object
+      description: Details about the running API. Only administrators may read them.
+      required: [version, environment, uptimeSeconds]
+      properties:
+        version:
+          type: string
+          description: The version of the API that is running.
+          examples: ["0.1.0"]
+        environment:
+          type: string
+          enum: [development, test, production]
+        uptimeSeconds:
+          type: integer
+          minimum: 0
+          description: Seconds since the API process started.
 
     ProblemDetails:
       type: object

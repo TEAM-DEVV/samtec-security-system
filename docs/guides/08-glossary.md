@@ -164,6 +164,9 @@ A PostgreSQL feature that decides which rows each database user may see. SAMTEC 
 **Same site**
 Two web addresses under the same domain, such as `app.samtec.example` and `api.samtec.example`. Browsers send a `SameSite=Strict` cookie only between addresses on the same site.
 
+**scrypt**
+The password-hashing function SAMTEC uses, built into Node.js. Deliberately slow and memory-hungry, so guessing millions of stolen password hashes stays impractical.
+
 **Schema**
 A description of the shape of data. A database schema describes tables; a Zod schema describes valid input; a contract schema describes API data.
 

@@ -49,6 +49,43 @@ What happens when someone calls `GET /api/v1/health`:
 
 Read those files in that order: `common/request-id.middleware.ts`, `app.setup.ts`, `health/health.controller.ts`, `health/health.service.ts`, `database/prisma.service.ts`, `common/problem-details.filter.ts`.
 
+## How sign-in works (Phase 1)
+
+The identity module (`src/modules/identity/`) implements the contract's
+`/auth/*` endpoints. The short version:
+
+1. **Passwords** are never stored — only scrypt hashes (`password.ts`). Five
+   wrong passwords for one email lock it for 15 minutes.
+2. **Signing in** returns a 15-minute **access token** (a signed JWT), and
+   sets a 7-day **refresh token cookie** that JavaScript cannot read. The
+   dashboard sends the access token as `Authorization: Bearer <token>`.
+3. **Refresh tokens rotate**: every `POST /auth/refresh` replaces the cookie.
+   If an old one ever comes back, someone copied it, and every session of
+   that user is revoked.
+4. **ADMIN and HR_PAYROLL accounts need a 6-digit code** from an
+   authenticator app. The codes are standard TOTP (`totp.ts`, tested against
+   the official RFC vectors), and the secrets are stored encrypted.
+5. **Every route requires sign-in by default.** Two global guards run before
+   every request. You never add sign-in to an endpoint — you would have to
+   *remove* it, by marking a route `@Public()`, and that stands out in review.
+
+The pieces you use when adding endpoints (`src/common/auth.decorators.ts`):
+
+| Decorator | What it does |
+|---|---|
+| `@Public()` | Opens a route to everyone. Only `/health` and the sign-in endpoints themselves. |
+| `@Roles('ADMIN', 'HR_PAYROLL')` | Only these roles may call the route (others get 403). |
+| `@Caller() caller: SignedInUser` | Hands your method who is calling: `userId`, `role`, `companyId`, `employeeId`. |
+
+`@Roles` is never the whole story: the service must still check *which
+records* this caller may see. Look at `modules/workforce/employees.service.ts`
+for the pattern — supervisors are scoped to their sites, guards to
+themselves, and hidden records answer 404, never 403.
+
+Every important change is recorded through `AuditService`
+(`modules/identity/audit.service.ts`). The audit table is append-only: a
+database trigger rejects updates and deletes, so history cannot be rewritten.
+
 ## Running the API on your computer
 
 You need two terminals. Full setup steps are in [Set up your computer](02-setup-on-windows.md).
@@ -269,7 +306,7 @@ Rules:
 
 - [ ] It is in the contract.
 - [ ] Every input has a strict Zod schema; unknown fields are rejected.
-- [ ] From Phase 1: the route requires sign-in, and the role is checked.
+- [ ] The route is not `@Public()` unless it truly is, and `@Roles` matches the contract.
 - [ ] The service checks that this user may access this specific record.
 - [ ] Lists are paginated with a maximum page size.
 - [ ] Responses include only the fields the role needs.
@@ -285,6 +322,12 @@ Rules:
 
 - **Unit tests** (`src/**/*.spec.ts`) test one class with fake dependencies. They are fast and need no database.
 - **End-to-end tests** (`test/*.e2e-spec.ts`) start the real app with the real security settings and send HTTP requests to it.
+- **Real-database tests** (`test/db.e2e-spec.ts`) run the sign-in flows and the access rules against actual PostgreSQL. They only run when `TEST_DATABASE_URL` points at a migrated database — CI's database job sets it, and locally (with `pnpm db:start` running):
+
+  ```bash
+  TEST_DATABASE_URL=postgresql://samtec:samtec-local-only@localhost:54329/samtec_dev pnpm --filter @samtec/api test
+  ```
+
 - Payroll logic, when it arrives, is tested with hand-calculated examples, correct to the pesewa.
 
 ## Troubleshooting

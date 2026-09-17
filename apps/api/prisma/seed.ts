@@ -17,7 +17,9 @@ import {
   GhanaRegion,
   SiteStatus,
   TerminationReason,
+  UserRole,
 } from '../src/generated/prisma/enums.js';
+import { hashPassword } from '../src/modules/identity/password.js';
 
 const DEMO_COMPANY_ID = '01927c3e-0000-7000-8000-000000000001';
 const EMPLOYEE_COUNT = 50;
@@ -237,10 +239,62 @@ async function main(): Promise<void> {
     }
   }
 
+  await seedUsers(company.id);
+
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
+  const userCount = await prisma.user.count({ where: { companyId: company.id } });
   console.log(
-    `Seeded "${company.name}": ${sites.length} sites and ${employeeCount} employees (all fictional).`,
+    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees and ${userCount} sign-in accounts (all fictional).`,
   );
+}
+
+/**
+ * Three sign-in accounts for local development, one per kind of first
+ * sign-in. Every password is `demo-password` — fine here, because the seed
+ * only ever runs against a database on this computer.
+ *
+ * - supervisor@samtec.example signs straight in.
+ * - admin@ and hr@ must set up two-factor authentication on first sign-in,
+ *   with any authenticator app (the codes really work).
+ */
+async function seedUsers(companyId: string): Promise<void> {
+  // Hash once and share it: scrypt is deliberately slow.
+  const passwordHash = await hashPassword('demo-password');
+
+  // The supervisor account belongs to employee SMT-00003, so site scoping is
+  // demonstrable: they only see employees on their own site.
+  const supervisorEmployee = await prisma.employee.findUnique({
+    where: { companyId_staffNumber: { companyId, staffNumber: 'SMT-00003' } },
+  });
+
+  const accounts = [
+    {
+      email: 'admin@samtec.example',
+      fullName: 'Efua Mensah',
+      role: UserRole.ADMIN,
+      employeeId: null,
+    },
+    {
+      email: 'hr@samtec.example',
+      fullName: 'Kofi Asante',
+      role: UserRole.HR_PAYROLL,
+      employeeId: null,
+    },
+    {
+      email: 'supervisor@samtec.example',
+      fullName: 'Yaw Boateng',
+      role: UserRole.SUPERVISOR,
+      employeeId: supervisorEmployee?.id ?? null,
+    },
+  ];
+
+  for (const account of accounts) {
+    await prisma.user.upsert({
+      where: { companyId_email: { companyId, email: account.email } },
+      update: { fullName: account.fullName, role: account.role, employeeId: account.employeeId },
+      create: { ...account, companyId, passwordHash },
+    });
+  }
 }
 
 /**

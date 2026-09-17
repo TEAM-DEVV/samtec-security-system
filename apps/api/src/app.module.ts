@@ -4,16 +4,17 @@ import { ProblemDetailsFilter } from './common/problem-details.filter.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './health/health.module.js';
+import { IdentityModule } from './modules/identity/identity.module.js';
+import { WorkforceModule } from './modules/workforce/workforce.module.js';
 
 /**
  * The root module: it wires the whole API together.
  *
- * Feature modules (identity, workforce, attendance, payroll, detection and
- * reporting) are added to `imports` as each roadmap phase builds them.
- * See src/modules/README.md.
+ * Feature modules (attendance, payroll, detection and reporting) are added to
+ * `imports` as each roadmap phase builds them. See src/modules/README.md.
  */
 @Module({
-  imports: [AppConfigModule, DatabaseModule, HealthModule],
+  imports: [AppConfigModule, DatabaseModule, HealthModule, IdentityModule, WorkforceModule],
   providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
 })
 export class AppModule {}

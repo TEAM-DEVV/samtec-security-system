@@ -1,15 +1,18 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import type { HealthResponse } from '@samtec/contracts';
 import type { Response } from 'express';
+import { Public } from '../common/auth.decorators.js';
 import { HealthService } from './health.service.js';
 
 /**
  * `GET /api/v1/health`. Contract: operation `getHealth` in
- * packages/contracts/openapi.yaml.
+ * packages/contracts/openapi.yaml. `@Public()` because hosting platforms and
+ * the dashboard's status page call it without signing in.
  *
  * Controllers stay thin: they handle HTTP details (routes, status codes) and
  * leave the actual work to a service.
  */
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

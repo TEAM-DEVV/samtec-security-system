@@ -30,6 +30,13 @@ const corsOrigin = z.string().refine(isBareOrigin, {
 });
 
 /**
+ * The AUTH_SECRET used when none is set. Only for development on a developer's
+ * own computer: the API refuses to start in production with this value,
+ * because everyone can read it here.
+ */
+export const DEV_AUTH_SECRET = 'dev-only-auth-secret-never-use-outside-localhost';
+
+/**
  * Every environment variable the API reads, and the rule each one must follow.
  *
  * The API refuses to start when a value is missing or wrong ("fail fast"), so
@@ -54,6 +61,16 @@ export const envSchema = z
           .filter((origin) => origin.length > 0),
       )
       .pipe(z.array(corsOrigin).min(1, 'CORS_ORIGINS needs at least one website address')),
+    /**
+     * The one secret behind sign-in. Access tokens are signed with a key
+     * derived from it, and authenticator secrets are encrypted with another.
+     * Changing it signs everyone out. Make one with:
+     * node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+     */
+    AUTH_SECRET: z
+      .string()
+      .min(32, 'AUTH_SECRET must be at least 32 characters of random text')
+      .default(DEV_AUTH_SECRET),
   })
   .superRefine((env, context) => {
     // A production dashboard is always served over HTTPS.
@@ -65,6 +82,15 @@ export const envSchema = z
         code: 'custom',
         path: ['CORS_ORIGINS'],
         message: 'In production, every CORS origin must start with https://',
+      });
+    }
+    // The built-in development secret is public knowledge, so production
+    // refuses to start with it.
+    if (env.NODE_ENV === 'production' && env.AUTH_SECRET === DEV_AUTH_SECRET) {
+      context.addIssue({
+        code: 'custom',
+        path: ['AUTH_SECRET'],
+        message: 'In production, AUTH_SECRET must be set to a random value of your own',
       });
     }
   });
