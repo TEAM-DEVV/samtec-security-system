@@ -2,10 +2,13 @@
 
 Everything about the project lives in this folder: the plan, the architecture and step-by-step guides.
 
+**The one-page picture:** open [build-map.html](build-map.html) in a browser — the whole system's layers, the nine phases and the review lenses on a single interactive page. The plan documents below are the authoritative text behind it.
+
 ## Start here
 
 If you are new to the project, read these in order.
 
+0. **Samuel's very first session:** [Frontend kickoff](guides/00-frontend-kickoff.md) — three commands and one prompt, and Claude Code sets everything up with you.
 1. [How the system works](guides/01-how-the-system-works.md): the whole system in plain English. Read this first.
 2. [Set up your computer](guides/02-setup-on-windows.md): install the tools and run the project.
 3. Your role guide:

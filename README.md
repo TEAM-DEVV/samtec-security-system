@@ -34,6 +34,10 @@ pnpm install
 
 ## Samuel: start here
 
+Your first session is scripted for you: [Frontend kickoff](docs/guides/00-frontend-kickoff.md) — three commands, one prompt to paste into Claude Code, and it sets your machine up and starts your first task with you. Your task list lives in [`apps/web/CLAUDE.md`](apps/web/CLAUDE.md), and Claude Code loads it automatically when you work in this repository.
+
+To just see the dashboard run:
+
 ```bash
 pnpm dev:web
 ```
@@ -71,7 +75,7 @@ Check http://localhost:3000/api/v1/health — it should say `"database": "up"`. 
 4. **Money is whole pesewas, never decimals.** GHS 12.50 is stored as `1250`.
 5. **Only fictional data** in code, tests and screenshots. Real people's data never enters this repository.
 
-Everything else — every decision and the reason behind it — is written down in [`docs/`](docs/README.md), so either of us can explain any part of the system from the documents alone.
+Everything else — every decision and the reason behind it — is written down in [`docs/`](docs/README.md), so either of us can explain any part of the system from the documents alone. For the one-page picture of the whole system (layers, phases and review lenses), open [`docs/build-map.html`](docs/build-map.html) in a browser.
 
 ## Right now
 

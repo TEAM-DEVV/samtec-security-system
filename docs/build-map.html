@@ -1,0 +1,400 @@
+<title>SAMTEC Build Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --bg:#10151d; --bg2:#141b26; --surface:#1a2230; --surface2:#202a3b;
+    --ink:#e8edf4; --muted:#93a1b5; --faint:#5b6980;
+    --accent:#e8b542; --accent-ink:#181205;
+    --ok:#4cc07a; --warn:#e2574c;
+    --line:#2a3547; --line2:#38455c;
+    --plate-grad:linear-gradient(135deg,#202a3b, #17202e);
+    --glow:0 18px 40px -18px rgba(0,0,0,.65);
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#eef1f5; --bg2:#e6eaf0; --surface:#ffffff; --surface2:#f4f6f9;
+      --ink:#17212e; --muted:#57667b; --faint:#8b98ab;
+      --accent:#a97a10; --accent-ink:#fff;
+      --ok:#1e7d4c; --warn:#b6362c;
+      --line:#d7dde6; --line2:#c2cad7;
+      --plate-grad:linear-gradient(135deg,#ffffff,#eef1f6);
+      --glow:0 18px 40px -22px rgba(23,33,46,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f5; --bg2:#e6eaf0; --surface:#ffffff; --surface2:#f4f6f9;
+    --ink:#17212e; --muted:#57667b; --faint:#8b98ab;
+    --accent:#a97a10; --accent-ink:#fff;
+    --ok:#1e7d4c; --warn:#b6362c;
+    --line:#d7dde6; --line2:#c2cad7;
+    --plate-grad:linear-gradient(135deg,#ffffff,#eef1f6);
+    --glow:0 18px 40px -22px rgba(23,33,46,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Instrument Sans",system-ui,-apple-system,sans-serif;
+    font-size:15.5px; line-height:1.6; margin:0;
+    padding-block:0 80px;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 20px}
+  h1,h2,h3{font-family:"Bricolage Grotesque","Instrument Sans",sans-serif; text-wrap:balance; margin:0}
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+  .eyebrow{font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); font-weight:600}
+
+  header{border-bottom:1px solid var(--line); background:var(--bg2)}
+  .hero{display:flex; flex-wrap:wrap; gap:32px; align-items:flex-end; justify-content:space-between; padding:44px 0 30px}
+  .hero h1{font-size:clamp(34px,5.5vw,54px); font-weight:800; letter-spacing:-.015em; line-height:1.02}
+  .hero h1 .thin{font-weight:400; color:var(--muted)}
+  .hero p{max-width:52ch; color:var(--muted); margin:14px 0 0}
+  .chain{display:flex; align-items:center; font-family:"JetBrains Mono",monospace; font-size:12px; margin-top:20px; flex-wrap:wrap; row-gap:10px}
+  .chain .node{border:1px solid var(--line2); background:var(--surface); padding:7px 14px; border-radius:999px; white-space:nowrap}
+  .chain .node b{color:var(--accent); font-weight:600}
+  .chain .link{width:26px; height:1px; background:var(--line2); position:relative; flex:none}
+  .chain .link::after{content:""; position:absolute; right:0; top:-2.5px; width:6px; height:6px; border-top:1px solid var(--line2); border-right:1px solid var(--line2); transform:rotate(45deg)}
+  .meta{font-family:"JetBrains Mono",monospace; font-size:11.5px; color:var(--faint); display:grid; gap:6px; text-align:right}
+  .meta b{color:var(--muted); font-weight:600}
+  .meta .done{color:var(--ok); font-weight:600}
+
+  section{padding:58px 0 8px}
+  .sec-head{display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+  .sec-head h2{font-size:clamp(22px,3vw,30px); font-weight:800; letter-spacing:-.01em}
+  .sec-head .hint{color:var(--faint); font-size:13px}
+  .lede{color:var(--muted); max-width:68ch; margin:6px 0 26px}
+
+  .stage-grid{display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:28px; align-items:stretch}
+  .stage{min-height:530px; display:flex; align-items:center; justify-content:center; background:
+    radial-gradient(ellipse at 50% 60%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 65%);
+    border:1px solid var(--line); border-radius:14px; overflow:hidden; position:relative}
+  .stage .grid-floor{position:absolute; inset:0; opacity:.5;
+    background-image:linear-gradient(var(--line) 1px, transparent 1px),linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:44px 44px; mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 75%);
+    transform:perspective(600px) rotateX(58deg) scale(1.6); transform-origin:50% 60%}
+  .iso{transform:rotateX(56deg) rotateZ(-45deg); transform-style:preserve-3d; position:relative; width:290px; height:290px; flex:none; margin-top:130px}
+  .plate{position:absolute; inset:0; border-radius:12px; border:1px solid var(--line2);
+    background:var(--plate-grad); box-shadow:var(--glow);
+    display:flex; align-items:flex-start; justify-content:space-between; padding:12px 14px;
+    cursor:pointer; transition:transform .25s ease, border-color .2s ease, box-shadow .25s ease;
+    transform:translateZ(calc(var(--i) * 56px))}
+  .plate:hover{transform:translateZ(calc(var(--i) * 56px + 12px))}
+  .plate.active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--glow)}
+  .plate .tag{font-family:"JetBrains Mono",monospace; font-size:11px; color:var(--accent); font-weight:600}
+  .plate .nm{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:14px; transform:rotateZ(45deg) rotateX(-20deg); transform-origin:right top; color:var(--ink); text-align:right; max-width:150px; line-height:1.25}
+  .stage-note{position:absolute; bottom:12px; left:0; right:0; text-align:center; font-size:12px; color:var(--faint)}
+
+  .detail{border:1px solid var(--line); border-radius:14px; background:var(--surface); padding:26px 28px; display:flex; flex-direction:column; gap:14px; min-width:0}
+  .detail .eyebrow{font-size:10.5px}
+  .detail h3{font-size:22px; font-weight:800}
+  .detail p{color:var(--muted); margin:0}
+  .detail ul{margin:0; padding:0; list-style:none; display:grid; gap:9px}
+  .detail li{display:flex; gap:10px; align-items:flex-start; font-size:14px}
+  .detail li::before{content:""; flex:none; width:7px; height:7px; border-radius:2px; background:var(--accent); margin-top:7px}
+  .detail .where{font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--faint)}
+  .rule{border-left:3px solid var(--ok); background:var(--surface2); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px}
+  .rule b{color:var(--ok)}
+
+  .flow{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:26px}
+  .flow .step{background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:9px 13px; font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--muted)}
+  .flow .step b{color:var(--ink); font-weight:600}
+  .flow .arr{color:var(--faint); font-size:13px}
+
+  .stair-stage{min-height:580px}
+  .stair{transform:rotateX(56deg) rotateZ(-45deg); transform-style:preserve-3d; position:relative; width:330px; height:330px; flex:none; margin-top:120px}
+  .tread{position:absolute; width:104px; height:104px; border-radius:10px; border:1px solid var(--line2);
+    background:var(--plate-grad); box-shadow:var(--glow); cursor:pointer; padding:8px 10px;
+    transition:transform .25s ease, border-color .2s ease, box-shadow .2s ease;
+    transform:translate3d(var(--x), var(--y), var(--z))}
+  .tread:hover{transform:translate3d(var(--x), var(--y), calc(var(--z) + 12px))}
+  .tread.done{border-color:var(--ok)}
+  .tread.done .tag{color:var(--ok)}
+  .tread.active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--glow)}
+  .tread .tag{font-family:"JetBrains Mono",monospace; font-size:10.5px; color:var(--accent); font-weight:600}
+  .tread .nm{font-family:"Bricolage Grotesque",sans-serif; font-size:11.5px; font-weight:600; line-height:1.25; transform:rotateZ(45deg) rotateX(-18deg); transform-origin:left top; position:absolute; left:12px; top:34px; width:120px}
+  .flag{position:absolute; font-size:20px; transform:rotateZ(45deg) rotateX(-56deg)}
+
+  .phase-card{border:1px solid var(--line); border-radius:14px; background:var(--surface); padding:26px 28px; display:flex; flex-direction:column; gap:14px; min-width:0}
+  .phase-card .top{display:flex; justify-content:space-between; gap:14px; align-items:baseline; flex-wrap:wrap}
+  .phase-card h3{font-size:21px; font-weight:800}
+  .weeks{font-family:"JetBrains Mono",monospace; font-size:11.5px; color:var(--faint)}
+  .pill{font-family:"JetBrains Mono",monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:600; padding:3px 9px; border-radius:999px; border:1px solid var(--line2); color:var(--faint); white-space:nowrap}
+  .pill.done{border-color:var(--ok); color:var(--ok)}
+  .pill.next{border-color:var(--accent); color:var(--accent)}
+  .goal{color:var(--muted); font-size:14.5px; margin:0}
+  .deliv{margin:0; padding:0; list-style:none; display:grid; gap:8px}
+  .deliv li{display:flex; gap:10px; font-size:14px; align-items:flex-start}
+  .deliv li::before{content:"▸"; color:var(--accent); flex:none; line-height:1.5}
+  .phase-card.is-done .deliv li::before{content:"✓"; color:var(--ok)}
+  .exit{border-left:3px solid var(--accent); background:var(--surface2); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px}
+  .exit b{color:var(--accent)}
+  .pager{display:flex; gap:8px; flex-wrap:wrap}
+  .pager button{font-family:"JetBrains Mono",monospace; font-size:11.5px; padding:6px 10px; border-radius:7px; border:1px solid var(--line); background:var(--surface2); color:var(--muted); cursor:pointer}
+  .pager button.active{border-color:var(--accent); color:var(--accent); font-weight:600}
+  .pager button:focus-visible, .plate:focus-visible, .tread:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .lenses{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; margin-top:24px}
+  .lens{border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:20px 20px 18px; display:flex; flex-direction:column; gap:10px}
+  .lens .q{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:15.5px}
+  .lens .role{font-family:"JetBrains Mono",monospace; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:600}
+  .lens ul{margin:0; padding:0; list-style:none; display:grid; gap:7px; font-size:13px; color:var(--muted)}
+  .lens li{padding-left:14px; position:relative}
+  .lens li::before{content:""; position:absolute; left:0; top:8px; width:6px; height:6px; border-radius:50%; background:var(--line2)}
+  .lens .agent{margin-top:auto; font-family:"JetBrains Mono",monospace; font-size:11px; color:var(--faint)}
+  .wired{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-top:18px}
+  .wired div{border:1px dashed var(--line2); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--muted); background:var(--bg2)}
+  .wired b{display:block; color:var(--ink); font-size:13.5px; margin-bottom:2px}
+  .gate{margin-top:18px; border:1px dashed var(--line2); border-radius:12px; padding:16px 20px; font-size:13.5px; color:var(--muted); background:var(--bg2)}
+  .gate b{color:var(--ink)}
+
+  .stack-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin-top:24px}
+  .stack-cell{border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:18px 20px}
+  .stack-cell h3{font-size:13px; font-family:"JetBrains Mono",monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); font-weight:600; margin-bottom:12px}
+  .chips{display:flex; flex-wrap:wrap; gap:7px}
+  .chip{font-family:"JetBrains Mono",monospace; font-size:11.5px; background:var(--surface2); border:1px solid var(--line); padding:4px 9px; border-radius:6px; color:var(--ink)}
+  .chip.hot{border-color:var(--accent); color:var(--accent)}
+  .no{margin-top:18px; font-size:13px; color:var(--faint)}
+  .no s{color:var(--warn); text-decoration-color:var(--warn)}
+
+  .incident{margin-top:18px; border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:0 12px 12px 0; background:var(--surface); padding:16px 20px; font-size:13.5px; color:var(--muted)}
+  .incident b{color:var(--ink)}
+
+  .rules{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-top:24px}
+  .box{border-left:3px solid var(--accent); background:var(--surface); border-radius:0 10px 10px 0; padding:14px 16px; font-size:13.5px}
+  .box b{display:block; font-family:"Bricolage Grotesque",sans-serif; font-size:14.5px; margin-bottom:3px}
+  .box span{color:var(--muted)}
+
+  footer{margin-top:70px; border-top:1px solid var(--line); padding-top:22px; font-size:12.5px; color:var(--faint); display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+
+  @media (max-width:840px){
+    .stage-grid{grid-template-columns:1fr}
+    .stage{min-height:430px}
+    .meta{text-align:left}
+  }
+  @media (max-width:520px){
+    .iso{transform:rotateX(56deg) rotateZ(-45deg) scale(.78); margin-top:80px}
+    .stair{transform:rotateX(56deg) rotateZ(-45deg) scale(.7); margin-top:70px}
+    .stage{min-height:440px}
+    .stair-stage{min-height:470px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .plate,.tread{transition:none}
+    .plate:hover{transform:translateZ(calc(var(--i) * 56px))}
+    .tread:hover{transform:translate3d(var(--x),var(--y),var(--z))}
+  }
+</style>
+
+<header>
+  <div class="wrap hero">
+    <div>
+      <div class="eyebrow">Alpha Team · Build Map · v2</div>
+      <h1>SAMTEC <span class="thin">— from ghost payroll<br>to proven presence</span></h1>
+      <p>Biometric attendance and payroll for security companies. One verified chain from a fingerprint at a post to a pesewa in a payslip — break any link and the system flags it.</p>
+      <div class="chain" role="img" aria-label="Verification chain: identity, then presence, then pay">
+        <span class="node"><b>IDENTITY</b> enrolled + deduped</span><span class="link"></span>
+        <span class="node"><b>PRESENCE</b> biometric punch @ site</span><span class="link"></span>
+        <span class="node"><b>PAY</b> locked, audited run</span>
+      </div>
+    </div>
+    <div class="meta">
+      <span><b>repo</b> ALPHA-TEAM-dev/samtec-security-system</span>
+      <span><b>backend</b> Francis · <b>frontend</b> Samuel</span>
+      <span><b>mission</b> final-year defense + client pilot</span>
+      <span><b>status</b> <span class="done">Phase 0 complete</span> · Phase 1 backend part 1 merged: sign-in, roles, audit log, employee &amp; site reads</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="architecture">
+    <div class="sec-head"><span class="eyebrow">01</span><h2>System architecture</h2><span class="hint">click a layer</span></div>
+    <p class="lede">A modular monolith in five layers. One deployable, hard boundaries inside: modules talk through service interfaces, never through each other's tables. Each layer shows where it lives in the repository.</p>
+    <div class="stage-grid">
+      <div class="stage"><div class="grid-floor"></div>
+        <div class="iso" id="isoStack"></div>
+        <div class="stage-note">L1 ground truth → L5 experience</div>
+      </div>
+      <div class="detail" id="layerDetail" aria-live="polite"></div>
+    </div>
+    <div class="flow" aria-label="Golden path">
+      <span class="step"><b>finger/face</b> @ device</span><span class="arr">›</span>
+      <span class="step"><b>ingest</b> HMAC + idempotent</span><span class="arr">›</span>
+      <span class="step"><b>pairing</b> punches→hours</span><span class="arr">›</span>
+      <span class="step"><b>exceptions</b> human queue</span><span class="arr">›</span>
+      <span class="step"><b>payroll run</b> snapshot→lock</span><span class="arr">›</span>
+      <span class="step"><b>detection</b> ghosts flagged</span>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="sec-head"><span class="eyebrow">02</span><h2>Roadmap — nine treads to launch</h2><span class="hint">click a tread, or use the pager</span></div>
+    <p class="lede">Every phase ends with a named demo that must run end to end. If we stop the project on any Friday, the last finished phase still works. Payroll (P4) gets the most time on purpose — it is the crown jewel and the highest-risk math.</p>
+    <div class="stage-grid">
+      <div class="stage stair-stage"><div class="grid-floor"></div>
+        <div class="stair" id="stair"></div>
+        <div class="stage-note">P0 foundation ↗ P8 launch · green = complete</div>
+      </div>
+      <div class="phase-card" id="phaseCard" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section id="lenses">
+    <div class="sec-head"><span class="eyebrow">03</span><h2>The four lenses</h2><span class="hint">every merge · every phase exit</span></div>
+    <p class="lede">The senior roles are wired into the repository, not left as advice. Each pull request and each phase exit is reviewed through all four lenses — by people with the checklist, and by Claude Code with the reviewer agents.</p>
+    <div class="lenses">
+      <div class="lens"><span class="role">Lens 1 · Architect</span><span class="q">Does it still fit the design?</span>
+        <ul><li>Right module, no cross-module table writes</li><li>Contract updated before code</li><li>No new tool without a logged decision</li><li>Data invariants untouched or amended consciously</li></ul>
+        <span class="agent">.claude/agents/architect-lens.md</span></div>
+      <div class="lens"><span class="role">Lens 2 · Senior dev</span><span class="q">Is it built well?</span>
+        <ul><li>Strict types, Zod at every boundary</li><li>Errors mapped, none swallowed</li><li>Payroll &amp; detection logic tested to the pesewa</li><li>Safe migrations, explicit units in names</li></ul>
+        <span class="agent">.claude/agents/senior-dev-lens.md</span></div>
+      <div class="lens"><span class="role">Lens 3 · Full-stack</span><span class="q">Does the seam hold?</span>
+        <ul><li>Generated API client only, no hand fetches</li><li>Mock handlers match the contract</li><li>Loading / empty / error states on every screen</li><li>UTC stored, Accra rendered</li></ul>
+        <span class="agent">.claude/agents/fullstack-lens.md</span></div>
+      <div class="lens"><span class="role">Lens 4 · Security analyst</span><span class="q">What would I attack?</span>
+        <ul><li>Record-level access tested (guard A ≠ guard B)</li><li>Maker–checker unbypassable via raw API</li><li>No PII in logs; templates encrypted, never images</li><li>Supply chain: provenance, release age, install scripts</li></ul>
+        <span class="agent">.claude/agents/security-lens.md</span></div>
+    </div>
+    <div class="wired">
+      <div><b>Pull request template</b>The four checklists in every PR</div>
+      <div><b>/lens-review</b>All four agents in parallel, one verdict</div>
+      <div><b>/lens-review phase</b>Adds the phase exit gate</div>
+      <div><b>CI pipeline</b>Lint · contract · types · tests · build · migrations · audit</div>
+    </div>
+    <div class="gate"><b>Phase exit gate:</b> demo runs end-to-end · four checklists pass on the phase diff · CI green · docs still true · security findings fixed or accepted in writing. A phase without its gate is not done, it is abandoned.</div>
+    <div class="incident"><b>First run, on the Phase 0 pull request:</b> Architect and Security passed with notes; Senior dev and Full-stack required changes. Two blockers were caught before merge — a status page that could show an old “Connected” after a failed check, and a reset script that could wipe whichever database it pointed at. Both were fixed with tests that fail against the old code, along with every note: minimal public health check, logs free of personal data, row-level security on every table, and a same-site cookie design for sign-in.</div>
+  </section>
+
+  <section id="stack">
+    <div class="sec-head"><span class="eyebrow">04</span><h2>Locked stack</h2><span class="hint">installed and verified in Phase 0 · reopen only by mutual agreement</span></div>
+    <div class="stack-grid">
+      <div class="stack-cell"><h3>Workspace</h3><div class="chips"><span class="chip hot">pnpm 12 workspaces</span><span class="chip hot">TypeScript 6 strict</span><span class="chip">Biome 2</span><span class="chip">Conventional Commits</span><span class="chip">GitHub Actions · SHA-pinned</span></div></div>
+      <div class="stack-cell"><h3>Contract</h3><div class="chips"><span class="chip hot">OpenAPI 3.1 design-first</span><span class="chip">openapi-typescript types</span><span class="chip">Redocly lint</span><span class="chip">Problem Details · RFC 9457</span></div></div>
+      <div class="stack-cell"><h3>Backend · Francis</h3><div class="chips"><span class="chip hot">NestJS 12 (ESM)</span><span class="chip hot">Prisma 7.9.1</span><span class="chip hot">PostgreSQL 17</span><span class="chip">embedded-postgres (local)</span><span class="chip">Supabase (hosted)</span><span class="chip">Zod 4 · Standard Schema</span><span class="chip">Helmet 8</span><span class="chip">Vitest 4</span></div></div>
+      <div class="stack-cell"><h3>Frontend · Samuel</h3><div class="chips"><span class="chip hot">Vite 8 + React 19</span><span class="chip hot">Tailwind 4 + shadcn/ui</span><span class="chip">React Router 8</span><span class="chip">TanStack Query · openapi-react-query</span><span class="chip hot">MSW 2 mock API</span><span class="chip">Testing Library</span></div></div>
+      <div class="stack-cell"><h3>Biometrics</h3><div class="chips"><span class="chip hot">ZKTeco terminal · ADMS push</span><span class="chip">zkteco-js pull fallback</span><span class="chip hot">@vladmandic/human face kiosk</span><span class="chip">SecuGen WebAPI (optional)</span><span class="chip hot">MockProvider day one</span></div></div>
+      <div class="stack-cell"><h3>Payroll (Ghana)</h3><div class="chips"><span class="chip">PAYE graduated bands</span><span class="chip">SSNIT 5.5% / 13%</span><span class="chip hot">versioned tax tables</span><span class="chip hot">pesewas as integers</span><span class="chip">payslip PDF + bank CSV</span></div></div>
+    </div>
+    <p class="no">Consciously rejected: <s>MongoDB</s> (money needs foreign keys) · <s>microservices</s> (two people) · <s>Firebase</s> (lock-in) · <s>raw biometric images</s> (legal and ethical line) · <s>Turborepo</s> (not needed yet) · <s>TypeScript 7</s> (no compiler API until 7.1) · <s>Prisma 8</s> (release candidate).</p>
+    <div class="incident"><b>Supply-chain guard, already earning its keep:</b> during Phase 0 setup pnpm refused <span class="mono">prisma@7.10.0</span> — unlike every 7.9.x release, it was published with a plain token and no signed provenance, the same pattern as hijacked-account attacks. The team pinned the verified 7.9.1 instead and logged the decision.</div>
+  </section>
+
+  <section id="rules">
+    <div class="sec-head"><span class="eyebrow">05</span><h2>Ground rules</h2></div>
+    <div class="rules">
+      <div class="box"><b>Contract first</b><span>No feature starts before its endpoint exists in the OpenAPI contract. The contract is the border between us.</span></div>
+      <div class="box"><b>Mock the hardware</b><span>The whole system demos with zero devices connected. Real hardware is an adapter, never a dependency.</span></div>
+      <div class="box"><b>Money is integers</b><span>Pesewas only. Payroll runs snapshot inputs and lock forever; corrections are new lines, never edits.</span></div>
+      <div class="box"><b>Punches are append-only</b><span>Idempotent ingest, device time and server time both kept, replays no-op. Ground truth is never updated in place.</span></div>
+      <div class="box"><b>Templates, not images</b><span>Biometric templates encrypted at rest, consented at enrollment, retention per Ghana Act 843.</span></div>
+      <div class="box"><b>Every phase demoable</b><span>A phase ends with a named demo or it did not end. Weekly 15-minute check-in names the next one.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>SAMTEC · Alpha Team · plan and guides live in the repository under docs/</span>
+    <span class="mono">identity → presence → pay</span>
+  </footer>
+</main>
+
+<script>
+const layers = [
+  {tag:"L1", nm:"Data — ground truth", title:"L1 · Data", where:"apps/api/prisma · apps/api/src/database", body:"PostgreSQL 17 through Prisma 7.9.1. The layer everything else must answer to.",
+   items:["Phase 0: companies, sites, employees, site assignments — Ghana Card unique per company, nothing hard-deleted","Built: row-level security on every table — only the API can read them","Append-only punch events — unique (device_id, device_event_id)","Payroll line snapshots — database trigger rejects edits after lock","Encrypted biometric template vault (AES-256-GCM, key outside the database)","Money in integer pesewas, timestamps in UTC, UUIDv7 ids"],
+   rule:"If a fact matters in a dispute, it lives here immutably."},
+  {tag:"L2", nm:"Integration — devices", title:"L2 · Integration", where:"apps/api/src/modules/attendance (Phases 2–3)", body:"Hardware is an adapter behind one interface, never a dependency.",
+   items:["BiometricProvider interface: enroll · identify · dedupeCheck","MockProvider — full demo with zero hardware, used in CI","ZKTeco adapter — ADMS push (device POSTs punches) + zkteco-js pull fallback","Face kiosk provider — @vladmandic/human embeddings + liveness","Per-device HMAC secrets; offline buffering; drift monitoring"],
+   rule:"The system cannot tell which provider is real. That is the point."},
+  {tag:"L3", nm:"Domain modules", title:"L3 · Domain", where:"apps/api/src/modules/<module>", body:"Six NestJS modules with hard boundaries. Writes to a table happen only in its owning module.",
+   items:["identity — users, roles, two-factor sign-in, audit log","workforce — employees, sites, posts, shift rosters","attendance — ingest, pairing state machine, exception queue","payroll — periods, runs, PAYE/SSNIT, maker–checker, payslips","detection — rules engine, alerts, review queue","reporting — read-only summaries, CSV/PDF"],
+   rule:"Modules call each other's services, never each other's tables."},
+  {tag:"L4", nm:"Edge — API guardrail", title:"L4 · Edge", where:"apps/api/src/app.setup.ts · src/common", body:"Every request crosses the same wall. The Phase 0 part is built and tested.",
+   items:["Built: Helmet headers, CORS allowlist, request IDs on every response","Built: Problem Details errors with traceId — internals never leak, logs hold no personal data","Built: 100 kB body limit · environment validated at startup · Zod validation pipe tested","Phase 1: sign-in guard → role guard → record-level checks, rate limits","HTTPS + HSTS on the hosted demo (Phase 8)"],
+   rule:"Maker ≠ checker is enforced here and below, never only in the UI."},
+  {tag:"L5", nm:"Experience — web & kiosk", title:"L5 · Experience", where:"apps/web · apps/kiosk (Phase 3)", body:"Two apps, two postures: a role-based admin dashboard and a locked-down clock-in kiosk.",
+   items:["Built: dashboard shell, System Status page, reference Employees page","Built: typed $api client generated from the contract — drift is a compile error","Built: MSW mock API with a visible Mock data badge, so frontend work never waits","Phase 3: face clock-in kiosk on any tablet, offline queue, flagged PIN fallback","Guard self-service: own attendance and payslips only"],
+   rule:"The kiosk assumes a hostile user; the dashboard assumes a curious one."}
+];
+const phases = [
+  {tag:"P0", nm:"Foundation", weeks:"week 1", status:"done", goal:"A repo two people can't trip over — built, verified, and delivered as the first pull request.",
+   items:["pnpm 12 workspaces monorepo · strict TypeScript 6 · Biome 2","CI: lint · contract · types · tests · build · migrations · audit (actions pinned by SHA)","NestJS 12 API: /api/v1/health, Helmet, CORS, request IDs, Problem Details errors","React dashboard: typed API client, MSW mock API, System Status + reference Employees page","Prisma schema v0, first migration, repeatable seed (5 sites, 50 fictional employees)","OpenAPI contract v0: health, auth, employees, sites","Four-lens reviewer agents + /lens-review · plan and beginner guides in docs/","First four-lens review: 2 blockers caught and fixed before merge","Supply-chain guards on: blocked prisma@7.10.0, pinned verified 7.9.1 · CODEOWNERS + Dependabot"],
+   exit:"pnpm dev starts the API and dashboard; System Status shows the database connected; CI green on the pull request."},
+  {tag:"P1", nm:"Identity & workforce", weeks:"weeks 2–3", status:"next", goal:"Sign in, see employees, model the company. Backend part 1 is merged.",
+   items:["BUILT: JWT + rotating same-site refresh cookie with reuse detection · role guards on every route","BUILT: TOTP 2FA for admins and HR (RFC-tested) · per-email and per-account lockouts · append-only audit log","BUILT: employee & site reads with cursor paging, supervisor site-scoping, Ghana Card minimisation","Next: employees create/update/terminate · employment periods · posts & shift patterns","Dashboard (Samuel): sign-in and 2FA screens, employee list/detail, site pages — mock API already supports them"],
+   exit:"Create employee → assign to site/shift → audit trail shows it."},
+  {tag:"P2", nm:"Attendance on mocks", weeks:"weeks 4–5", status:"planned", goal:"The whole punch→hours pipeline, zero hardware.",
+   items:["BiometricProvider + MockProvider (punches, drift, replays)","/ingest/punches: HMAC, batch, idempotent","Pairing state machine → work segments → daily hours","Exception queue + resolution UI · overnight shifts proven in tests"],
+   exit:"Replay 30 seeded days → attendance dashboard fills correctly."},
+  {tag:"P3", nm:"Real biometrics", weeks:"weeks 6–7", status:"planned", goal:"One real device path plus the face kiosk.",
+   items:["ZKTeco ADMS push endpoint + zkteco-js pull fallback","Face kiosk: Human library enroll/identify, liveness threshold","Enrollment dedupe 1:N → COLLISION alert blocks activation","PIN fallback allowed but flagged"],
+   exit:"A real finger or face punch appears on the dashboard in seconds."},
+  {tag:"P4", nm:"Payroll engine", weeks:"weeks 8–10", status:"planned", goal:"Ghana-correct, immutable, auditable pay. The crown jewel.",
+   items:["Period close → draft run → snapshot lines (rate, hours, OT, allowances)","PAYE graduated bands + SSNIT 5.5/13 from versioned tax tables","Maker–checker approval · lock trigger · golden-file tests to the pesewa","Payslip PDFs generated once at lock · bank CSV export"],
+   exit:"Close month → approve as second user → hand-verifiable payslip PDF."},
+  {tag:"P5", nm:"Ghost detection", weeks:"weeks 11–12", status:"planned", goal:"The differentiator — rules that catch what slips through.",
+   items:["R1 duplicate enrollment · R3 paid-without-presence · R4 bilocation","R5 never-seen · R6 terminated-but-active · PIN abuse · robot regularity","Nightly sweep + inline gates (enrollment, run submit)","Alert review queue with evidence; resolutions audited"],
+   exit:"All 3 planted ghosts in the seed get caught live on stage."},
+  {tag:"P6", nm:"Dashboard polish", weeks:"week 13", status:"planned", goal:"The screens the client will actually judge.",
+   items:["Live attendance board + KPIs (present, absence rate, cost trend)","CSV/PDF reports · guard self-service payslips","Full dry-run of the 15-minute client walkthrough"],
+   exit:"The exact client demo, rehearsed end to end."},
+  {tag:"P7", nm:"Hardening", weeks:"week 14", status:"planned", goal:"Attack our own system before anyone else does.",
+   items:["Full security review across the repo; findings fixed or accepted in writing","Ingest load test (1k punch burst) · backup/restore drill","Threat model refresh · pen-test checklist executed"],
+   exit:"Security chapter drafted — examiner gold."},
+  {tag:"P8", nm:"Deploy & present", weeks:"week 15+", status:"planned", goal:"Ship the demo, win the room.",
+   items:["Hosted demo env seeded (never localhost in front of a client)","Client deck: pain → enroll → punch → payroll → ghost kill-shot → pilot offer","Defense slides reuse ~80% of the plan"],
+   exit:"Presentation delivered; pilot proposal in the client's hands."}
+];
+const statusLabel = {done:"Complete", next:"Up next", planned:"Planned"};
+
+const isoStack = document.getElementById("isoStack");
+layers.forEach((l,i)=>{
+  const d=document.createElement("div");
+  d.className="plate"; d.style.setProperty("--i",i); d.tabIndex=0; d.setAttribute("role","button");
+  d.setAttribute("aria-label",l.title);
+  d.innerHTML=`<span class="tag">${l.tag}</span><span class="nm">${l.nm}</span>`;
+  d.addEventListener("click",()=>selectLayer(i));
+  d.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();selectLayer(i);}});
+  isoStack.appendChild(d);
+});
+function selectLayer(i){
+  [...isoStack.children].forEach((c,j)=>c.classList.toggle("active",j===i));
+  const l=layers[i];
+  document.getElementById("layerDetail").innerHTML =
+    `<span class="eyebrow">${l.tag} · layer ${i+1} of 5</span><h3>${l.title.split("· ")[1]}</h3><span class="where">${l.where}</span><p>${l.body}</p>
+     <ul>${l.items.map(x=>`<li>${x}</li>`).join("")}</ul>
+     <div class="rule"><b>Rule:</b> ${l.rule}</div>`;
+}
+selectLayer(2);
+
+const stair=document.getElementById("stair");
+phases.forEach((p,i)=>{
+  const t=document.createElement("div");
+  t.className="tread"+(p.status==="done"?" done":""); t.tabIndex=0; t.setAttribute("role","button");
+  t.setAttribute("aria-label",`Phase ${i}: ${p.nm} (${statusLabel[p.status]})`);
+  const col=i%3, row=Math.floor(i/3);
+  t.style.setProperty("--x",(col*112 - row*8)+"px");
+  t.style.setProperty("--y",(row*112 - col*8)+"px");
+  t.style.setProperty("--z",(i*26)+"px");
+  t.innerHTML=`<span class="tag">${p.tag}${p.status==="done"?" ✓":""}</span><span class="nm">${p.nm}</span>`;
+  t.addEventListener("click",()=>selectPhase(i));
+  t.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();selectPhase(i);}});
+  stair.appendChild(t);
+});
+const flag=document.createElement("div");
+flag.className="flag"; flag.textContent="🏁";
+flag.style.left=(2*112+38)+"px"; flag.style.top=(2*112-30)+"px";
+stair.appendChild(flag);
+
+function selectPhase(i){
+  [...stair.children].forEach((c,j)=>{ if(c.classList.contains("tread")) c.classList.toggle("active",j===i); });
+  const p=phases[i];
+  const card=document.getElementById("phaseCard");
+  card.classList.toggle("is-done", p.status==="done");
+  card.innerHTML =
+    `<div class="top"><div><span class="eyebrow">${p.tag} · phase ${i} of 8</span><h3>${p.nm}</h3></div><span class="weeks">${p.weeks} <span class="pill ${p.status}">${statusLabel[p.status]}</span></span></div>
+     <p class="goal">${p.goal}</p>
+     <ul class="deliv">${p.items.map(x=>`<li>${x}</li>`).join("")}</ul>
+     <div class="exit"><b>Exit demo:</b> ${p.exit}</div>
+     <div class="pager">${phases.map((q,j)=>`<button class="${j===i?"active":""}" onclick="selectPhase(${j})">${q.tag}</button>`).join("")}</div>`;
+}
+selectPhase(0);
+</script>

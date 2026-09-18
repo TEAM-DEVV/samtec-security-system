@@ -11,7 +11,8 @@
       "!**/pnpm-lock.yaml",
       "!packages/contracts/src/generated",
       "!apps/web/public/mockServiceWorker.js",
-      "!apps/web/src/components/ui"
+      "!apps/web/src/components/ui",
+      "!docs/build-map.html"
     ]
   },
   "formatter": {
