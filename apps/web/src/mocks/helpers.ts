@@ -38,6 +38,10 @@ export function notFound(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Not Found', status: 404, detail });
 }
 
+export function conflict(detail: string): HttpResponse<ProblemDetails> {
+  return problemResponse({ type: 'about:blank', title: 'Conflict', status: 409, detail });
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** True for a value shaped like a UUID, the format of every SAMTEC ID. */

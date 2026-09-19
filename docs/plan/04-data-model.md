@@ -53,7 +53,7 @@ Everything needed to recalculate a payslip is **copied into the line** when the 
 
 ### Rehiring (decided for Phase 1)
 
-A guard who leaves and later returns keeps the **same employee record**, because a Ghana Card number can only belong to one employee. Phase 1 adds an `employment_periods` table, owned by the workforce module, with the hire date, termination date and reason for each period of work. Until then the employee row holds only the latest period, and rehiring is out of scope.
+A guard who leaves and later returns keeps the **same employee record**, because a Ghana Card number can only belong to one employee. The `employment_periods` table (built), owned by the workforce module, records the hire date, termination date and reason for each period of work; the employee row holds the latest period.
 
 ## Row-level security on every table
 
