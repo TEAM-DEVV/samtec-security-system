@@ -219,6 +219,23 @@ async function main(): Promise<void> {
       create: { ...details, companyId: company.id, staffNumber },
     });
 
+    // Each seeded employee has exactly one employment period so far: open for
+    // everyone still here, closed on the termination date for those who left.
+    const periodCount = await prisma.employmentPeriod.count({
+      where: { employeeId: employee.id },
+    });
+    if (periodCount === 0) {
+      await prisma.employmentPeriod.create({
+        data: {
+          companyId: company.id,
+          employeeId: employee.id,
+          startsOn: hireDate,
+          endsOn: terminationDate,
+          terminationReason: details.terminationReason,
+        },
+      });
+    }
+
     // Pick the site first so the random sequence is identical on every run.
     const site = pick(sites);
     // Half of the new starters are not posted to a site yet.

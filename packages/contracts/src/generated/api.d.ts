@@ -650,7 +650,7 @@ export interface components {
              */
             effectiveDate: string;
             reason: components["schemas"]["TerminationReason"];
-            /** @description Extra detail. Expected when `reason` is `OTHER`. */
+            /** @description Extra detail. Required when `reason` is `OTHER`. */
             note?: string;
         };
         /**

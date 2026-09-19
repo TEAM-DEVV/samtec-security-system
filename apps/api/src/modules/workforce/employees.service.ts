@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -9,8 +10,15 @@ import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { AuditService } from '../identity/audit.service.js';
 import { toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
-import type { ListEmployeesQuery } from './workforce.schemas.js';
+import {
+  type CreateEmployeeBody,
+  type ListEmployeesQuery,
+  type TerminateEmployeeBody,
+  toDatabaseDate,
+  type UpdateEmployeeBody,
+} from './workforce.schemas.js';
 
 /** An assignment that covers today: it has started and has not ended. */
 export function currentAssignmentFilter(today: Date = new Date()) {
@@ -21,7 +29,26 @@ export function currentAssignmentFilter(today: Date = new Date()) {
 }
 
 /**
- * Reading employees, with the contract's access rules built in:
+ * True when the database rejected a write because a unique rule (Prisma error
+ * P2002) covering the named column was broken — for example a second employee
+ * with the same Ghana Card number.
+ */
+function isUniqueViolation(error: unknown, column: string): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const candidate = error as { code?: unknown; meta?: { target?: unknown } };
+  if (candidate.code !== 'P2002') {
+    return false;
+  }
+  // Which columns broke the rule sits in the error's metadata; its exact
+  // shape varies by driver, so search the whole thing for the column name.
+  const normalize = (value: string) => value.toLowerCase().replaceAll('_', '');
+  return normalize(JSON.stringify(candidate.meta ?? {})).includes(normalize(column));
+}
+
+/**
+ * Reading and changing employees, with the contract's access rules built in:
  *
  * - ADMIN and HR_PAYROLL see every employee of the company.
  * - A SUPERVISOR sees only employees posted to the sites they are posted to.
@@ -31,7 +58,10 @@ export function currentAssignmentFilter(today: Date = new Date()) {
  */
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(viewer: SignedInUser, query: ListEmployeesQuery): Promise<EmployeeList> {
     if (viewer.role === 'GUARD') {
@@ -131,6 +161,260 @@ export class EmployeesService {
     const includeGhanaCardNumber =
       viewer.role === 'ADMIN' || viewer.role === 'HR_PAYROLL' || viewer.employeeId === employeeId;
     return toEmployeeDetail({ employee: row, currentSite }, includeGhanaCardNumber);
+  }
+
+  /**
+   * Registers a new employee. Contract: `createEmployee`. The API generates
+   * the staff number; the record starts as PENDING_ENROLLMENT and cannot
+   * clock in or be paid until biometrics are enrolled (Phase 3).
+   *
+   * Everything happens in one transaction — the employee, their first
+   * employment period, their site posting and the audit entry are saved
+   * together or not at all.
+   */
+  async create(viewer: SignedInUser, body: CreateEmployeeBody): Promise<ApiEmployee> {
+    await this.assertSiteInCompany(viewer, body.siteId);
+    const hireDate = toDatabaseDate(body.hireDate);
+
+    // A rare race (two people registering at once) can collide on the
+    // generated staff number; the unique constraint catches it and we retry.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const employeeId = await this.prisma.$transaction(async (tx) => {
+          const employee = await tx.employee.create({
+            data: {
+              companyId: viewer.companyId,
+              staffNumber: await this.nextStaffNumber(tx, viewer.companyId),
+              firstName: body.firstName,
+              lastName: body.lastName,
+              otherNames: body.otherNames ?? null,
+              phone: body.phone,
+              email: body.email ?? null,
+              ghanaCardNumber: body.ghanaCardNumber,
+              position: body.position,
+              hireDate,
+            },
+          });
+          await tx.employmentPeriod.create({
+            data: {
+              companyId: viewer.companyId,
+              employeeId: employee.id,
+              startsOn: hireDate,
+            },
+          });
+          if (body.siteId) {
+            await tx.siteAssignment.create({
+              data: {
+                companyId: viewer.companyId,
+                employeeId: employee.id,
+                siteId: body.siteId,
+                startsOn: hireDate,
+              },
+            });
+          }
+          await this.audit.record(
+            {
+              companyId: viewer.companyId,
+              actorUserId: viewer.userId,
+              action: 'employee.created',
+              entityType: 'employee',
+              entityId: employee.id,
+              detail: { staffNumber: employee.staffNumber, siteAssigned: body.siteId != null },
+            },
+            tx,
+          );
+          return employee.id;
+        });
+        // Reusing get() for the response is safe because only ADMIN and
+        // HR_PAYROLL reach these writes, and get() never hides anything from
+        // them. Revisit this if more roles are ever allowed to write.
+        return this.get(viewer, employeeId);
+      } catch (error) {
+        if (isUniqueViolation(error, 'ghana_card_number')) {
+          throw new ConflictException(
+            'An employee with this Ghana Card number is already registered.',
+          );
+        }
+        if (isUniqueViolation(error, 'staff_number') && attempt < 3) {
+          continue; // Someone else took the number a heartbeat ago; try the next one.
+        }
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Changes an employee's details. Contract: `updateEmployee`. Only the sent
+   * fields change; the Ghana Card number can never be changed here. A
+   * terminated employee's record is history and answers 409.
+   */
+  async update(
+    viewer: SignedInUser,
+    employeeId: string,
+    body: UpdateEmployeeBody,
+  ): Promise<ApiEmployee> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId: viewer.companyId },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    if (employee.status === 'TERMINATED') {
+      throw new ConflictException(
+        'This employee has left the company. Their record is kept as history and cannot be changed.',
+      );
+    }
+    if (body.siteId != null) {
+      await this.assertSiteInCompany(viewer, body.siteId);
+    }
+
+    const { siteId, ...fields } = body;
+    await this.prisma.$transaction(async (tx) => {
+      if (Object.keys(fields).length > 0) {
+        await tx.employee.update({ where: { id: employeeId }, data: fields });
+      }
+      // `siteId` present means a posting change: a new site, or null to unassign.
+      if (siteId !== undefined) {
+        await this.movePosting(tx, viewer.companyId, employeeId, siteId);
+      }
+      await this.audit.record(
+        {
+          companyId: viewer.companyId,
+          actorUserId: viewer.userId,
+          // Only WHICH fields changed — never their values, which are personal data.
+          action: 'employee.updated',
+          entityType: 'employee',
+          entityId: employeeId,
+          detail: { changedFields: Object.keys(body).join(',') },
+        },
+        tx,
+      );
+    });
+    return this.get(viewer, employeeId);
+  }
+
+  /**
+   * Records that an employee has left. Contract: `terminateEmployee`. The
+   * record is never deleted: status becomes TERMINATED, the employment
+   * period and any site posting are closed, and history survives — the
+   * ghost-detection engine (Phase 5) flags any later clock-in or pay.
+   */
+  async terminate(
+    viewer: SignedInUser,
+    employeeId: string,
+    body: TerminateEmployeeBody,
+  ): Promise<ApiEmployee> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId: viewer.companyId },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    if (employee.status === 'TERMINATED') {
+      throw new ConflictException('This employee has already been terminated.');
+    }
+    const effectiveDate = toDatabaseDate(body.effectiveDate);
+    if (effectiveDate < employee.hireDate) {
+      throw new BadRequestException({
+        message: [
+          {
+            path: ['effectiveDate'],
+            message: 'The last working day cannot be before the hire date.',
+          },
+        ],
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: {
+          status: 'TERMINATED',
+          terminationDate: effectiveDate,
+          terminationReason: body.reason,
+          terminationNote: body.note ?? null,
+        },
+      });
+      await tx.employmentPeriod.updateMany({
+        where: { employeeId, endsOn: null },
+        data: { endsOn: effectiveDate, terminationReason: body.reason },
+      });
+      await tx.siteAssignment.updateMany({
+        where: { employeeId, endsOn: null },
+        data: { endsOn: effectiveDate },
+      });
+      await this.audit.record(
+        {
+          companyId: viewer.companyId,
+          actorUserId: viewer.userId,
+          action: 'employee.terminated',
+          entityType: 'employee',
+          entityId: employeeId,
+          // The reason is a fixed word from a list; the free-text note is not audited.
+          detail: { reason: body.reason },
+        },
+        tx,
+      );
+    });
+    return this.get(viewer, employeeId);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The next free staff number for this company: SMT-00001, SMT-00002, …
+   * Sorting the text works because the number part is always 5 digits, which
+   * caps a company at 99,999 employees — far beyond any real guard force.
+   */
+  private async nextStaffNumber(tx: Prisma.TransactionClient, companyId: string): Promise<string> {
+    const last = await tx.employee.findFirst({
+      where: { companyId },
+      orderBy: { staffNumber: 'desc' },
+      select: { staffNumber: true },
+    });
+    const lastNumber = last ? Number(last.staffNumber.slice(4)) : 0;
+    return `SMT-${String(lastNumber + 1).padStart(5, '0')}`;
+  }
+
+  /** Ends today any open posting, and opens one at the new site (or none for null). */
+  private async movePosting(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    employeeId: string,
+    siteId: string | null,
+  ): Promise<void> {
+    const today = toDatabaseDate(new Date().toISOString().slice(0, 10));
+    // The old posting ends YESTERDAY so it no longer covers today — otherwise
+    // the employee would appear on two sites at once until midnight.
+    const yesterday = new Date(today.getTime() - 86_400_000);
+    await tx.siteAssignment.updateMany({
+      where: { employeeId, endsOn: null },
+      data: { endsOn: yesterday },
+    });
+    if (siteId !== null) {
+      await tx.siteAssignment.create({
+        data: { companyId, employeeId, siteId, startsOn: today },
+      });
+    }
+  }
+
+  /** A posting must point at a real site of this company; anything else is a clear 400. */
+  private async assertSiteInCompany(
+    viewer: SignedInUser,
+    siteId: string | undefined,
+  ): Promise<void> {
+    if (siteId === undefined) {
+      return;
+    }
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, companyId: viewer.companyId },
+      select: { id: true },
+    });
+    if (!site) {
+      throw new BadRequestException({
+        message: [{ path: ['siteId'], message: 'No site exists with this ID.' }],
+      });
+    }
   }
 
   /** The sites this supervisor is currently posted to (usually one). */

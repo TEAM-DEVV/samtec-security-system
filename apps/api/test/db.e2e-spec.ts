@@ -12,6 +12,7 @@ import {
   resetFixture,
   SITE_1_ID,
   SITE_2_ID,
+  TERMINATED_EMPLOYEE_ID,
   TEST_PASSWORD,
 } from './db-fixture.js';
 
@@ -398,6 +399,167 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .get(`/api/v1/sites/${SITE_1_ID}`)
         .set(...bearer(tokens.guard))
         .expect(404);
+    });
+  });
+
+  describe('employee writes', () => {
+    const newEmployee = {
+      firstName: 'Adjoa',
+      lastName: 'Sarpong',
+      phone: '+233209999901',
+      ghanaCardNumber: 'GHA-955555000-5',
+      position: 'Security Guard',
+      hireDate: '2026-09-01',
+    };
+
+    it('creates an employee: 201, Location header, generated staff number, audit row', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.admin))
+        .send({ ...newEmployee, siteId: SITE_1_ID })
+        .expect(201);
+
+      expect(response.headers.location).toBe(`/api/v1/employees/${response.body.id}`);
+      expect(response.body.staffNumber).toBe('SMT-90005'); // After the fixture's SMT-90004.
+      expect(response.body.status).toBe('PENDING_ENROLLMENT');
+      expect(response.body.ghanaCardNumber).toBe(newEmployee.ghanaCardNumber);
+      expect(response.body.currentSite.id).toBe(SITE_1_ID);
+
+      const prisma = openFixtureDb(databaseUrl as string);
+      const periods = await prisma.employmentPeriod.findMany({
+        where: { employeeId: response.body.id },
+      });
+      const auditRows = await prisma.auditLog.findMany({
+        where: { action: 'employee.created', entityId: response.body.id },
+      });
+      await prisma.$disconnect();
+
+      expect(periods).toHaveLength(1);
+      expect(periods[0]?.endsOn).toBeNull();
+      expect(auditRows).toHaveLength(1);
+      // The audit row names the record, never the person's details.
+      expect(JSON.stringify(auditRows[0]?.detail)).not.toContain('Sarpong');
+    });
+
+    it('refuses a second employee with the same Ghana Card number (409)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.admin))
+        .send({ ...newEmployee, phone: '+233209999902' })
+        .expect(409);
+      expect(response.body.detail).toContain('Ghana Card');
+    });
+
+    it('refuses a site that does not exist, and callers below HR', async () => {
+      const badSite = await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.admin))
+        .send({
+          ...newEmployee,
+          ghanaCardNumber: 'GHA-955555001-6',
+          siteId: '01927c3e-0000-7000-8000-00000000dead',
+        })
+        .expect(400);
+      expect(badSite.body.errors[0].path).toBe('siteId');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.supervisor))
+        .send(newEmployee)
+        .expect(403);
+      await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.guard))
+        .send(newEmployee)
+        .expect(403);
+    });
+
+    it('updates details and moves the posting to another site', async () => {
+      const updated = await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${GUARD_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ position: 'Senior Guard', siteId: SITE_2_ID })
+        .expect(200);
+
+      expect(updated.body.position).toBe('Senior Guard');
+      expect(updated.body.currentSite.id).toBe(SITE_2_ID);
+
+      const prisma = openFixtureDb(databaseUrl as string);
+      const openAssignments = await prisma.siteAssignment.findMany({
+        where: { employeeId: GUARD_EMPLOYEE_ID, endsOn: null },
+      });
+      await prisma.$disconnect();
+      // Exactly one open posting: the old one at site 1 was closed.
+      expect(openAssignments).toHaveLength(1);
+      expect(openAssignments[0]?.siteId).toBe(SITE_2_ID);
+    });
+
+    it('never lets the Ghana Card number change through an update', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${GUARD_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ ghanaCardNumber: 'GHA-000000000-0' })
+        .expect(400);
+      expect(JSON.stringify(response.body.errors)).toContain('ghanaCardNumber');
+    });
+
+    it('refuses to change someone who has already left (409)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${TERMINATED_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ position: 'Ghost' })
+        .expect(409);
+    });
+
+    it('terminates: status, dates, posting and period all close together', async () => {
+      const before = await request(app.getHttpServer())
+        .post(`/api/v1/employees/${OTHER_SITE_EMPLOYEE_ID}/terminate`)
+        .set(...bearer(tokens.admin))
+        .send({ effectiveDate: '2025-01-01', reason: 'RESIGNED' })
+        .expect(400); // Before the hire date.
+      expect(before.body.errors[0].path).toBe('effectiveDate');
+
+      const response = await request(app.getHttpServer())
+        .post(`/api/v1/employees/${OTHER_SITE_EMPLOYEE_ID}/terminate`)
+        .set(...bearer(tokens.admin))
+        .send({ effectiveDate: '2026-09-30', reason: 'RESIGNED', note: 'Moving away.' })
+        .expect(200);
+      expect(response.body.status).toBe('TERMINATED');
+      expect(response.body.terminationDate).toBe('2026-09-30');
+
+      const prisma = openFixtureDb(databaseUrl as string);
+      const openPostings = await prisma.siteAssignment.count({
+        where: { employeeId: OTHER_SITE_EMPLOYEE_ID, endsOn: null },
+      });
+      const openPeriods = await prisma.employmentPeriod.count({
+        where: { employeeId: OTHER_SITE_EMPLOYEE_ID, endsOn: null },
+      });
+      const auditRows = await prisma.auditLog.findMany({
+        where: { action: 'employee.terminated', entityId: OTHER_SITE_EMPLOYEE_ID },
+      });
+      await prisma.$disconnect();
+
+      expect(openPostings).toBe(0);
+      expect(openPeriods).toBe(0);
+      // The reason is audited; the free-text note never is.
+      expect(JSON.stringify(auditRows.at(-1)?.detail)).toContain('RESIGNED');
+      expect(JSON.stringify(auditRows.at(-1)?.detail)).not.toContain('Moving away');
+
+      // Terminating twice is a clear conflict.
+      await request(app.getHttpServer())
+        .post(`/api/v1/employees/${OTHER_SITE_EMPLOYEE_ID}/terminate`)
+        .set(...bearer(tokens.admin))
+        .send({ effectiveDate: '2026-10-01', reason: 'RESIGNED' })
+        .expect(409);
+    });
+
+    it('requires a note when the reason is OTHER', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/api/v1/employees/${GUARD_EMPLOYEE_ID}/terminate`)
+        .set(...bearer(tokens.admin))
+        .send({ effectiveDate: '2026-09-30', reason: 'OTHER' })
+        .expect(400);
+      expect(response.body.errors[0].path).toBe('note');
     });
   });
 

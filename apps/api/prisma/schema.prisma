@@ -95,6 +95,7 @@ model Company {
   assignments SiteAssignment[]
   users       User[]
   auditLogs   AuditLog[]
+  periods     EmploymentPeriod[]
 
   @@map("companies")
 }
@@ -274,15 +275,39 @@ model Employee {
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   assignments SiteAssignment[]
   user        User?
+  periods     EmploymentPeriod[]
 
   /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
   @@unique([companyId, ghanaCardNumber])
   @@unique([companyId, staffNumber])
   @@index([companyId, status])
   @@map("employees")
+}
+
+/// One stretch of employment: from hire to termination. A guard who leaves
+/// and later returns keeps the same employee record (their Ghana Card number
+/// identifies them), and each stay becomes one row here — that is how rehire
+/// history survives. `endsOn = null` means currently employed. Owned by the
+/// workforce module.
+model EmploymentPeriod {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  companyId         String             @map("company_id") @db.Uuid
+  employeeId        String             @map("employee_id") @db.Uuid
+  startsOn          DateTime           @map("starts_on") @db.Date
+  endsOn            DateTime?          @map("ends_on") @db.Date
+  terminationReason TerminationReason? @map("termination_reason")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([employeeId, startsOn])
+  @@map("employment_periods")
 }
 
 /// Where an employee is posted and for which dates. History is kept: moving a
