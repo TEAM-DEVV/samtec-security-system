@@ -1,7 +1,7 @@
 import type { HealthResponse } from '@samtec/contracts';
 import { cn } from 'cn';
 import { CircleCheck, CircleX, RefreshCw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { DetailRow } from '@/components/detail-row';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -171,14 +171,5 @@ function ApiErrorAlert({ error }: { error: unknown }) {
         {traceId && <p className="font-mono text-xs">Trace ID: {traceId}</p>}
       </AlertDescription>
     </Alert>
-  );
-}
-
-function DetailRow({ term, children }: { term: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{term}</dt>
-      <dd className="min-w-0 break-words">{children}</dd>
-    </>
   );
 }
