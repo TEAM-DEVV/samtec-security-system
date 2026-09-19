@@ -54,6 +54,7 @@ Versions are the ones installed in Phase 0 (September 2026).
 | Data fetching | **TanStack Query 5** with **openapi-fetch** and **openapi-react-query** | One typed hook per endpoint (`$api.useQuery`) and no hand-written fetch code. |
 | Mock API | **MSW 2** (Mock Service Worker) | The dashboard runs and is tested against pretend endpoints before the backend exists. |
 | Tests | **Vitest 4** and **Testing Library** | Tests use each page the way a person would. |
+| QR codes | **qrcode.react** | Draws the two-factor setup secret as a QR code in the browser. The decision log explains why a library, unlike TOTP. |
 
 ## Biometrics
 
@@ -101,3 +102,4 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | 2026-09-17 | Password hashing uses **scrypt** (built into Node.js) instead of argon2id | Both are memory-hard and OWASP-approved. argon2id would add a native dependency with install scripts — exactly the kind of supply-chain surface this project minimises — while scrypt ships inside Node. The stored format records its own settings, so parameters can be raised later without breaking accounts. |
 | 2026-09-17 | Added **jose** for signing and checking JWT access tokens | The standard modern JWT library: pure JavaScript (no install scripts), audited, and built for ES modules. Refresh and challenge tokens are plain random values stored only as SHA-256 hashes, so they need no library at all. |
 | 2026-09-17 | TOTP two-factor codes implemented directly from RFC 6238/4226 (about 100 lines on Node's crypto), not a library | The algorithm is small and standard; the tests prove it against the official RFC test vectors. One less dependency to trust, and easy to explain at the defense. |
+| 2026-09-19 | Added **qrcode.react** (4.x) to the dashboard for the two-factor setup screen | QR encoding (Reed–Solomon error correction, masking, versions) is thousands of lines, so unlike TOTP it is not worth writing ourselves. qrcode.react is ISC-licensed (as permissive as MIT), pure JavaScript with no install scripts, has no dependencies of its own, renders an SVG (no canvas, so it works in tests), and passed pnpm's supply-chain policy. The secret is only ever drawn on the screen, never stored. |
