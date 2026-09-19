@@ -1,13 +1,17 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/lib/env';
 import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
+import { signInForTests } from '@/test/session';
 import { EmployeesPage } from './employees-page';
 
 describe('EmployeesPage', () => {
+  // The employee list needs a signed-in user, like the real API.
+  beforeEach(() => signInForTests());
+
   it('lists employees from the API', async () => {
     renderWithProviders(<EmployeesPage />);
 

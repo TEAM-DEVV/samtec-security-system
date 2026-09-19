@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
+import { clearSession } from '@/lib/session';
+import { signInForTests } from '@/test/session';
 
 /** The mock list endpoints check their inputs the way the contract says the real API will. */
 describe('mock employees and sites API', () => {
+  beforeEach(() => signInForTests());
+
+  it('needs a signed-in user', async () => {
+    clearSession();
+
+    const { response, error } = await fetchClient.GET('/sites');
+
+    expect(response.status).toBe(401);
+    expect(error?.detail).toBe('Sign in to continue.');
+  });
+
   it('refuses a page size above 100', async () => {
     const { error, response } = await fetchClient.GET('/employees', {
       params: { query: { limit: 101 } },

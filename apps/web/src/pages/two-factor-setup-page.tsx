@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
 import { describeApiError, isWorthRetrying } from '@/lib/problem';
-import { getPendingTwoFactor, startSession } from '@/lib/session';
+import { getPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
 const QR_CODE_SIZE = 192;
 
@@ -26,6 +26,7 @@ export function TwoFactorSetupPage() {
   // token, and reading it again on that re-render would wrongly send the
   // newly signed-in user back to the password screen.
   const [pending] = useState(getPendingTwoFactor);
+  const session = useSession();
   const setupToken = pending?.step === 'SETUP' ? pending.setupToken : undefined;
 
   // Asking for the secret is a POST, but for this page it behaves like a
@@ -54,6 +55,10 @@ export function TwoFactorSetupPage() {
     },
   });
 
+  // Already signed in (for example the Back button after finishing): nothing to do here.
+  if (session !== null) {
+    return <Navigate to={routes.home} replace />;
+  }
   // This account is mid-verification, not mid-setup: go to the right step.
   if (pending?.step === 'VERIFY') {
     return <Navigate to={routes.twoFactorVerify} replace />;

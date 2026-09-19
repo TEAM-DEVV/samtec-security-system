@@ -10,15 +10,18 @@ import {
   type OrProblem,
   pageOf,
   readLimit,
+  unauthorized,
   validationProblem,
 } from '../helpers';
+import { userForRequest } from './auth';
 
-// Phase 1: once the dashboard signs in, make these handlers answer 401 without
-// an access token, like the real API.
 export const employeeHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<EmployeeList>>(
     apiUrl('/employees'),
     ({ request }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       const query = new URL(request.url).searchParams;
 
       const limit = readLimit(query);
@@ -65,7 +68,10 @@ export const employeeHandlers = [
 
   http.get<{ employeeId: string }, DefaultBodyType, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId'),
-    ({ params }) => {
+    ({ request, params }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }

@@ -24,14 +24,17 @@ apps/web/
 │   │   └── mock-api-start-error.tsx   shown if mock mode cannot start
 │   ├── pages/                   one file per page, plus its test
 │   ├── components/
-│   │   ├── layout/              the app shell (sidebar, top bar) and navigation items
+│   │   ├── layout/              the app shell (sidebar, top bar), the sign-in card and navigation items
+│   │   ├── require-session.tsx  wraps the shell: restores the session after a reload, or sends you to /login
 │   │   └── ui/                  shadcn/ui components (button, card, table…)
 │   ├── lib/
 │   │   ├── api.ts               $api: the typed API client
 │   │   ├── env.ts               dashboard settings
 │   │   ├── format.ts            money and dates for display
 │   │   ├── problem.ts           turns API errors into messages
-│   │   └── session.ts           the signed-in user and access token (memory only)
+│   │   ├── session.ts           the signed-in user and access token (memory only)
+│   │   ├── auth.ts              restore a session after a reload, and sign out
+│   │   └── roles.ts             the label shown for each user role
 │   ├── mocks/
 │   │   ├── handlers/            the mock API, one file per area (system, auth, employees, sites)
 │   │   ├── data/                fictional employees, sites and sign-in accounts
@@ -265,6 +268,19 @@ server.use(
 ```
 
 `src/pages/employees-page.test.tsx` shows this in a complete test.
+
+## How you stay signed in
+
+Signing in gives the dashboard two things. The **access token** proves who you are on every request; it lasts 15 minutes and lives only in memory (`src/lib/session.ts`), never in `localStorage`, where any script on the page could read it. The **refresh token** is an `HttpOnly` cookie the browser keeps and JavaScript cannot see.
+
+`src/lib/api.ts` does the rest, so pages never handle tokens:
+
+1. Every request goes out with `Authorization: Bearer <access token>`.
+2. When the API answers `401` because the token expired, the client calls `POST /auth/refresh` once, stores the new token, and sends the request again. The page never notices.
+3. Only **one** refresh runs at a time, even across browser tabs (a browser-wide lock). The API replaces the refresh cookie on every call and treats a second use of an old cookie as theft, so two refreshes at once would sign you out everywhere.
+4. A `401` from a sign-in endpoint (wrong password or code) never triggers a refresh.
+
+After a page reload the memory is empty, so `RequireSession` (`src/components/require-session.tsx`) calls `restoreSession()` in `src/lib/auth.ts`: refresh the token from the cookie, ask `GET /auth/me` who you are, and carry on. If that fails, you land on `/login`. **Sign out** tells the API to revoke the cookie and forgets the session here, even when the API cannot be reached.
 
 ## Sending data (from Phase 1)
 

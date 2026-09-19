@@ -30,4 +30,4 @@ When the list is done, tell Francis: that is the Phase 1 frontend finished.
 
 - The System Status page shows why reading `health.error` before `health.data` matters — read the comment there before writing any new query handling.
 - Tests run in the Honolulu time zone on purpose; if a date test fails, you formatted with the computer's local zone instead of the helpers.
-- The mock API is permissive about sign-in for now; when task 3 is done, also make the mock handlers demand a token (the TODO comments in `src/mocks/handlers/` mark the spots) so tests prove the screens handle 401s.
+- Every protected mock endpoint answers 401 without an access token (`userForRequest` in `src/mocks/handlers/auth.ts`), like the real API. A test that loads data must call `signInForTests()` from `src/test/session.ts` first. The `$api` client adds the token and refreshes it on 401 by itself (`src/lib/api.ts`); pages never handle tokens.
