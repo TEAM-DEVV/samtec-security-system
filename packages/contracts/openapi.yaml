@@ -28,7 +28,7 @@ info:
       more pages.
   contact:
     name: Alpha Team
-    url: https://github.com/ALPHA-TEAM-dev/samtec-security-system
+    url: https://github.com/TEAM-DEVV/samtec-security-system
 
 servers:
   - url: /api/v1

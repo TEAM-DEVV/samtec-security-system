@@ -123,7 +123,7 @@ Use **Squash and merge** on GitHub. It turns the pull request into one clean com
 
 ## Protecting the main branch (repository owner, once)
 
-The repository owner (the ALPHA-TEAM-dev account) should switch on protection so the rules above are enforced by GitHub:
+The repository organization (TEAM-DEVV — both developers are owners) should switch on protection so the rules above are enforced by GitHub:
 
 1. Open the repository on GitHub, then **Settings → Rules → Rulesets → New ruleset → New branch ruleset**.
 2. Name it `protect main`, set **Enforcement status** to **Active**, and target the default branch.

@@ -9,7 +9,7 @@ feature of this product, not an afterthought.
 **Do not open a public issue.** This repository is public.
 
 Report it privately through GitHub:
-[Report a vulnerability](https://github.com/ALPHA-TEAM-dev/samtec-security-system/security/advisories/new)
+[Report a vulnerability](https://github.com/TEAM-DEVV/samtec-security-system/security/advisories/new)
 (the **Security** tab, then **Report a vulnerability**). Only the maintainers
 can see the report.
 

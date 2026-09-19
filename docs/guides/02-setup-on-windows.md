@@ -60,7 +60,7 @@ It should print `12.4.1`.
 Choose a folder for your projects, then:
 
 ```bash
-git clone https://github.com/ALPHA-TEAM-dev/samtec-security-system.git
+git clone https://github.com/TEAM-DEVV/samtec-security-system.git
 cd samtec-security-system
 code .
 ```

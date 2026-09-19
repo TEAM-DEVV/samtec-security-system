@@ -2,7 +2,7 @@
 
 **Biometric attendance and payroll that stops ghost workers in security companies.**
 
-[![CI](https://github.com/ALPHA-TEAM-dev/samtec-security-system/actions/workflows/ci.yml/badge.svg)](https://github.com/ALPHA-TEAM-dev/samtec-security-system/actions/workflows/ci.yml)
+[![CI](https://github.com/TEAM-DEVV/samtec-security-system/actions/workflows/ci.yml/badge.svg)](https://github.com/TEAM-DEVV/samtec-security-system/actions/workflows/ci.yml)
 
 Security companies lose money when salaries are paid for shifts nobody worked. SAMTEC links **identity → presence → pay** into one verified chain:
 
@@ -27,7 +27,7 @@ The two halves meet in one file: [`packages/contracts/openapi.yaml`](packages/co
 2. Then:
 
 ```bash
-git clone https://github.com/ALPHA-TEAM-dev/samtec-security-system.git
+git clone https://github.com/TEAM-DEVV/samtec-security-system.git
 cd samtec-security-system
 pnpm install
 ```
