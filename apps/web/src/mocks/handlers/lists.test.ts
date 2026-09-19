@@ -5,7 +5,8 @@ import { signInForTests } from '@/test/session';
 
 /** The mock list endpoints check their inputs the way the contract says the real API will. */
 describe('mock employees and sites API', () => {
-  beforeEach(() => signInForTests());
+  // An administrator sees everything; the role-scoping tests below sign in as others.
+  beforeEach(() => signInForTests('admin@samtec.example'));
 
   it('needs a signed-in user', async () => {
     clearSession();
@@ -14,6 +15,66 @@ describe('mock employees and sites API', () => {
 
     expect(response.status).toBe(401);
     expect(error?.detail).toBe('Sign in to continue.');
+  });
+
+  it('refuses the lists to a guard with the API wording', async () => {
+    await signInForTests('guard@samtec.example');
+
+    const employees = await fetchClient.GET('/employees');
+    const sites = await fetchClient.GET('/sites');
+
+    expect(employees.response.status).toBe(403);
+    expect(sites.response.status).toBe(403);
+    expect(employees.error?.detail).toBe('Your role does not allow this action.');
+  });
+
+  it('shows a supervisor only the people and the site they are posted to', async () => {
+    await signInForTests('supervisor@samtec.example');
+
+    const employees = await fetchClient.GET('/employees');
+    const sites = await fetchClient.GET('/sites');
+
+    // Yaw Boateng supervises ACC-01, where Kwame Kofi Mensah also works.
+    expect(employees.data?.items.map((employee) => employee.staffNumber)).toEqual([
+      'SMT-00001',
+      'SMT-00003',
+    ]);
+    expect(sites.data?.items.map((site) => site.code)).toEqual(['ACC-01']);
+  });
+
+  it('lets a guard open only their own record, with their Ghana Card number', async () => {
+    await signInForTests('guard@samtec.example');
+    const self = '01927c3e-5a4b-7c8d-9e0f-000000000001';
+    const colleague = '01927c3e-5a4b-7c8d-9e0f-000000000002';
+
+    const own = await fetchClient.GET('/employees/{employeeId}', {
+      params: { path: { employeeId: self } },
+    });
+    const other = await fetchClient.GET('/employees/{employeeId}', {
+      params: { path: { employeeId: colleague } },
+    });
+
+    expect(own.data?.staffNumber).toBe('SMT-00001');
+    expect(own.data?.ghanaCardNumber).toBeDefined();
+    // "Does not exist", never "not allowed": the answer must not reveal the record is real.
+    expect(other.response.status).toBe(404);
+  });
+
+  it('withholds the Ghana Card number from a supervisor and hides other sites', async () => {
+    await signInForTests('supervisor@samtec.example');
+    const atOwnSite = '01927c3e-5a4b-7c8d-9e0f-000000000001'; // ACC-01
+    const atOtherSite = '01927c3e-5a4b-7c8d-9e0f-000000000004'; // ACC-02
+
+    const visible = await fetchClient.GET('/employees/{employeeId}', {
+      params: { path: { employeeId: atOwnSite } },
+    });
+    const hidden = await fetchClient.GET('/employees/{employeeId}', {
+      params: { path: { employeeId: atOtherSite } },
+    });
+
+    expect(visible.data?.fullName).toBe('Kwame Kofi Mensah');
+    expect(visible.data?.ghanaCardNumber).toBeUndefined();
+    expect(hidden.response.status).toBe(404);
   });
 
   it('refuses a page size above 100', async () => {

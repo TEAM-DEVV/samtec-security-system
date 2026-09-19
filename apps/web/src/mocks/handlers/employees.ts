@@ -1,9 +1,11 @@
 import type { Employee, EmployeeList, EmployeeListItem } from '@samtec/contracts';
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
 import { EMPLOYEE_STATUSES } from '@/components/employee-status-badge';
+import { pageRoles, roleAllowed } from '@/lib/roles';
 import { mockEmployees } from '../data/employees';
 import {
   apiUrl,
+  forbidden,
   isOneOf,
   isUuid,
   notFound,
@@ -13,14 +15,19 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
+import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
 
 export const employeeHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<EmployeeList>>(
     apiUrl('/employees'),
     ({ request }) => {
-      if (!userForRequest(request)) {
+      const user = userForRequest(request);
+      if (!user) {
         return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.employees, user.role)) {
+        return forbidden();
       }
       const query = new URL(request.url).searchParams;
 
@@ -43,6 +50,8 @@ export const employeeHandlers = [
 
       const term = search?.toLowerCase();
       const matches = mockEmployees
+        // A supervisor sees only the people posted at their own site.
+        .filter((employee) => canSeeSite(user, employee.currentSite?.id ?? null))
         .filter((employee) => status === null || employee.status === status)
         .filter((employee) => siteId === null || employee.currentSite?.id === siteId)
         .filter(
@@ -69,16 +78,30 @@ export const employeeHandlers = [
   http.get<{ employeeId: string }, DefaultBodyType, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId'),
     ({ request, params }) => {
-      if (!userForRequest(request)) {
+      const user = userForRequest(request);
+      if (!user) {
         return unauthorized('Sign in to continue.');
       }
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }
+      const viewingSelf = user.employeeId === params.employeeId;
+      // A guard may only ask about themselves. Anything else "does not exist", like the real API.
+      if (user.role === 'GUARD' && !viewingSelf) {
+        return notFound('No employee exists with this ID.');
+      }
       const employee = mockEmployees.find((candidate) => candidate.id === params.employeeId);
-      return employee
-        ? HttpResponse.json<Employee>(employee)
-        : notFound('No employee exists with this ID.');
+      if (!employee || (!viewingSelf && !canSeeSite(user, employee.currentSite?.id ?? null))) {
+        return notFound('No employee exists with this ID.');
+      }
+      // Data minimisation: the Ghana Card number goes only to HR roles and to the person themselves.
+      const includeGhanaCardNumber =
+        user.role === 'ADMIN' || user.role === 'HR_PAYROLL' || viewingSelf;
+      if (includeGhanaCardNumber) {
+        return HttpResponse.json<Employee>(employee);
+      }
+      const { ghanaCardNumber: _withheld, ...visible } = employee;
+      return HttpResponse.json<Employee>(visible);
     },
   ),
 ];
