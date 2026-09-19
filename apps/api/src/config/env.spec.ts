@@ -59,6 +59,16 @@ describe('parseEnv', () => {
     expect(() => parseEnv({})).toThrow(/DATABASE_URL/);
   });
 
+  it('accepts the Supabase integration names for the database URL, preferring an explicit one', () => {
+    const pooled = 'postgresql://samtec:secret@pooler.example:6543/postgres';
+
+    expect(parseEnv({ POSTGRES_PRISMA_URL: pooled }).DATABASE_URL).toBe(pooled);
+    expect(parseEnv({ POSTGRES_URL: pooled }).DATABASE_URL).toBe(pooled);
+    expect(parseEnv({ ...minimalEnv, POSTGRES_PRISMA_URL: pooled }).DATABASE_URL).toBe(
+      minimalEnv.DATABASE_URL,
+    );
+  });
+
   it('rejects a database URL that is not PostgreSQL', () => {
     expect(() => parseEnv({ DATABASE_URL: 'mysql://root@localhost/samtec' })).toThrow(
       /DATABASE_URL/,

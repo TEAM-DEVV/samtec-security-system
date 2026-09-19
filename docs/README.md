@@ -17,6 +17,7 @@ If you are new to the project, read these in order.
 4. [Changing the API contract](guides/05-api-contract-workflow.md): how the frontend and backend stay in agreement.
 5. [Git and pull requests](guides/06-git-and-pull-requests.md): how we save and share work.
 6. [Using Claude Code](guides/07-using-claude-code.md): the four review lenses.
+7. [The TEST environment](guides/09-test-environment.md): the shared online copy every merge deploys to.
 7. [Glossary](guides/08-glossary.md): every technical word used in this project.
 
 ## The plan
