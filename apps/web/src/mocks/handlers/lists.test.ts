@@ -77,6 +77,24 @@ describe('mock employees and sites API', () => {
     expect(hidden.response.status).toBe(404);
   });
 
+  it('lets only HR roles change employees, like the API', async () => {
+    await signInForTests('supervisor@samtec.example');
+
+    const created = await fetchClient.POST('/employees', {
+      body: {
+        firstName: 'Test',
+        lastName: 'Person',
+        phone: '+233200000999',
+        ghanaCardNumber: 'GHA-000000999-9',
+        position: 'Security Guard',
+        hireDate: '2026-09-01',
+      },
+    });
+
+    expect(created.response.status).toBe(403);
+    expect(created.error?.detail).toBe('Your role does not allow this action.');
+  });
+
   it('refuses a page size above 100', async () => {
     const { error, response } = await fetchClient.GET('/employees', {
       params: { query: { limit: 101 } },
