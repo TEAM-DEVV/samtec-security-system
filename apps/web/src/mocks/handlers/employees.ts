@@ -1,10 +1,19 @@
-import type { Employee, EmployeeList, EmployeeListItem } from '@samtec/contracts';
+import type {
+  CreateEmployeeRequest,
+  Employee,
+  EmployeeList,
+  EmployeeListItem,
+  TerminateEmployeeRequest,
+  UpdateEmployeeRequest,
+} from '@samtec/contracts';
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
 import { EMPLOYEE_STATUSES } from '@/components/employee-status-badge';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { mockEmployees } from '../data/employees';
+import { mockSites } from '../data/sites';
 import {
   apiUrl,
+  conflict,
   forbidden,
   isOneOf,
   isUuid,
@@ -17,6 +26,34 @@ import {
 } from '../helpers';
 import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
+
+/**
+ * The mock API keeps its own copy of the employees, so the write handlers can
+ * change it without touching the original data. Tests call
+ * `resetMockEmployees()` to start fresh.
+ */
+let employees: Employee[] = mockEmployees.map((employee) => ({ ...employee }));
+
+export function resetMockEmployees(): void {
+  employees = mockEmployees.map((employee) => ({ ...employee }));
+}
+
+const TERMINATION_REASONS = [
+  'RESIGNED',
+  'DISMISSED',
+  'CONTRACT_ENDED',
+  'ABSCONDED',
+  'DECEASED',
+  'OTHER',
+] as const;
+
+const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The site summary for a mock site ID, or undefined when no such site exists. */
+function siteSummaryFor(siteId: string) {
+  const site = mockSites.find((candidate) => candidate.id === siteId);
+  return site ? { id: site.id, code: site.code, name: site.name } : undefined;
+}
 
 export const employeeHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<EmployeeList>>(
@@ -49,7 +86,7 @@ export const employeeHandlers = [
       }
 
       const term = search?.toLowerCase();
-      const matches = mockEmployees
+      const matches = employees
         // A supervisor sees only the people posted at their own site.
         .filter((employee) => canSeeSite(user, employee.currentSite?.id ?? null))
         .filter((employee) => status === null || employee.status === status)
@@ -75,6 +112,75 @@ export const employeeHandlers = [
     },
   ),
 
+  http.post<PathParams, CreateEmployeeRequest, OrProblem<Employee>>(
+    apiUrl('/employees'),
+    async ({ request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.employeeChanges, user.role)) {
+        return forbidden();
+      }
+      const body = await request.json();
+
+      if (!body.firstName) return validationProblem('firstName', 'Required.');
+      if (!body.lastName) return validationProblem('lastName', 'Required.');
+      if (!/^\+233\d{9}$/.test(body.phone ?? '')) {
+        return validationProblem('phone', 'Must look like +233241234567.');
+      }
+      if (!/^GHA-\d{9}-\d$/.test(body.ghanaCardNumber ?? '')) {
+        return validationProblem('ghanaCardNumber', 'Must look like GHA-123456789-0.');
+      }
+      if (!body.position || body.position.length < 2) {
+        return validationProblem('position', 'Required.');
+      }
+      if (!CALENDAR_DATE.test(body.hireDate ?? '')) {
+        return validationProblem('hireDate', 'Must be a date like 2026-09-15.');
+      }
+      if (employees.some((employee) => employee.ghanaCardNumber === body.ghanaCardNumber)) {
+        return conflict('An employee with this Ghana Card number is already registered.');
+      }
+      // An optional first posting, like the real API's site assignment.
+      let currentSite = null;
+      if (body.siteId !== undefined) {
+        const summary = isUuid(body.siteId) ? siteSummaryFor(body.siteId) : undefined;
+        if (!summary) {
+          return validationProblem('siteId', 'No site exists with this ID.');
+        }
+        currentSite = summary;
+      }
+
+      const nextNumber =
+        Math.max(0, ...employees.map((employee) => Number(employee.staffNumber.slice(4)))) + 1;
+      const now = new Date().toISOString();
+      const employee: Employee = {
+        id: crypto.randomUUID(),
+        staffNumber: `SMT-${String(nextNumber).padStart(5, '0')}`,
+        firstName: body.firstName,
+        lastName: body.lastName,
+        otherNames: body.otherNames ?? null,
+        fullName: [body.firstName, body.otherNames, body.lastName].filter(Boolean).join(' '),
+        phone: body.phone,
+        email: body.email ?? null,
+        ghanaCardNumber: body.ghanaCardNumber,
+        position: body.position,
+        status: 'PENDING_ENROLLMENT',
+        biometricEnrolledAt: null,
+        hireDate: body.hireDate,
+        terminationDate: null,
+        currentSite,
+        createdAt: now,
+        updatedAt: now,
+      };
+      employees.push(employee);
+      return HttpResponse.json<Employee>(employee, {
+        status: 201,
+        headers: { Location: `/api/v1/employees/${employee.id}` },
+      });
+    },
+  ),
+
   http.get<{ employeeId: string }, DefaultBodyType, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId'),
     ({ request, params }) => {
@@ -90,7 +196,7 @@ export const employeeHandlers = [
       if (user.role === 'GUARD' && !viewingSelf) {
         return notFound('No employee exists with this ID.');
       }
-      const employee = mockEmployees.find((candidate) => candidate.id === params.employeeId);
+      const employee = employees.find((candidate) => candidate.id === params.employeeId);
       if (!employee || (!viewingSelf && !canSeeSite(user, employee.currentSite?.id ?? null))) {
         return notFound('No employee exists with this ID.');
       }
@@ -102,6 +208,120 @@ export const employeeHandlers = [
       }
       const { ghanaCardNumber: _withheld, ...visible } = employee;
       return HttpResponse.json<Employee>(visible);
+    },
+  ),
+
+  http.patch<{ employeeId: string }, UpdateEmployeeRequest, OrProblem<Employee>>(
+    apiUrl('/employees/:employeeId'),
+    async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.employeeChanges, user.role)) {
+        return forbidden();
+      }
+      if (!isUuid(params.employeeId)) {
+        return validationProblem('employeeId', 'Must be a valid ID.');
+      }
+      const employee = employees.find((candidate) => candidate.id === params.employeeId);
+      if (!employee) {
+        return notFound('No employee exists with this ID.');
+      }
+      if (employee.status === 'TERMINATED') {
+        return conflict(
+          'This employee has left the company. Their record is kept as history and cannot be changed.',
+        );
+      }
+
+      const body = await request.json();
+      // Like the real API's strict schema: any field we did not ask for is a 400.
+      const allowed = [
+        'firstName',
+        'lastName',
+        'otherNames',
+        'phone',
+        'email',
+        'position',
+        'siteId',
+      ];
+      const unknown = Object.keys(body).find((key) => !allowed.includes(key));
+      if (unknown !== undefined) {
+        return validationProblem(unknown, 'Unrecognized field.');
+      }
+      if (Object.keys(body).length === 0) {
+        return validationProblem('body', 'Send at least one field to change.');
+      }
+      // `siteId` moves the posting: a new site, or null to unassign.
+      if (body.siteId !== undefined) {
+        if (body.siteId === null) {
+          employee.currentSite = null;
+        } else {
+          const summary = isUuid(body.siteId) ? siteSummaryFor(body.siteId) : undefined;
+          if (!summary) {
+            return validationProblem('siteId', 'No site exists with this ID.');
+          }
+          employee.currentSite = summary;
+        }
+      }
+
+      if (body.firstName !== undefined) employee.firstName = body.firstName;
+      if (body.lastName !== undefined) employee.lastName = body.lastName;
+      if (body.otherNames !== undefined) employee.otherNames = body.otherNames;
+      if (body.phone !== undefined) employee.phone = body.phone;
+      if (body.email !== undefined) employee.email = body.email;
+      if (body.position !== undefined) employee.position = body.position;
+      employee.fullName = [employee.firstName, employee.otherNames, employee.lastName]
+        .filter(Boolean)
+        .join(' ');
+      employee.updatedAt = new Date().toISOString();
+      return HttpResponse.json<Employee>(employee);
+    },
+  ),
+
+  http.post<{ employeeId: string }, TerminateEmployeeRequest, OrProblem<Employee>>(
+    apiUrl('/employees/:employeeId/terminate'),
+    async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.employeeChanges, user.role)) {
+        return forbidden();
+      }
+      if (!isUuid(params.employeeId)) {
+        return validationProblem('employeeId', 'Must be a valid ID.');
+      }
+      const employee = employees.find((candidate) => candidate.id === params.employeeId);
+      if (!employee) {
+        return notFound('No employee exists with this ID.');
+      }
+      if (employee.status === 'TERMINATED') {
+        return conflict('This employee has already been terminated.');
+      }
+
+      const body = await request.json();
+      if (!CALENDAR_DATE.test(body.effectiveDate ?? '')) {
+        return validationProblem('effectiveDate', 'Must be a date like 2026-09-15.');
+      }
+      if (!isOneOf(TERMINATION_REASONS, body.reason ?? '')) {
+        return validationProblem('reason', `Must be one of ${TERMINATION_REASONS.join(', ')}.`);
+      }
+      if (body.reason === 'OTHER' && !body.note) {
+        return validationProblem('note', 'Explain the reason in `note` when the reason is OTHER.');
+      }
+      if (body.effectiveDate < employee.hireDate) {
+        return validationProblem(
+          'effectiveDate',
+          'The last working day cannot be before the hire date.',
+        );
+      }
+
+      employee.status = 'TERMINATED';
+      employee.terminationDate = body.effectiveDate;
+      employee.currentSite = null;
+      employee.updatedAt = new Date().toISOString();
+      return HttpResponse.json<Employee>(employee);
     },
   ),
 ];
