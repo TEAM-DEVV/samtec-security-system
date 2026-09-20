@@ -28,7 +28,7 @@ info:
       more pages.
   contact:
     name: Alpha Team
-    url: https://github.com/ALPHA-TEAM-dev/samtec-security-system
+    url: https://github.com/TEAM-DEVV/samtec-security-system
 
 servers:
   - url: /api/v1
@@ -1428,8 +1428,9 @@ components:
           $ref: "#/components/schemas/TerminationReason"
         note:
           type: string
+          minLength: 1
           maxLength: 500
-          description: Extra detail. Expected when `reason` is `OTHER`.
+          description: Extra detail. Required when `reason` is `OTHER`.
 
     SiteStatus:
       type: string

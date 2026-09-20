@@ -41,6 +41,7 @@ export async function resetFixture(prisma: PrismaClient): Promise<void> {
   await prisma.authChallenge.deleteMany({ where: { user: { companyId: TEST_COMPANY_ID } } });
   await prisma.user.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.siteAssignment.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
+  await prisma.employmentPeriod.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.employee.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.site.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.signInThrottle.deleteMany({});
@@ -76,6 +77,20 @@ export async function resetFixture(prisma: PrismaClient): Promise<void> {
       assignment(SUPERVISOR_EMPLOYEE_ID, SITE_1_ID),
       assignment(GUARD_EMPLOYEE_ID, SITE_1_ID),
       assignment(OTHER_SITE_EMPLOYEE_ID, SITE_2_ID),
+    ],
+  });
+
+  // One employment period each: open for current staff, closed for the leaver.
+  await prisma.employmentPeriod.createMany({
+    data: [
+      period(SUPERVISOR_EMPLOYEE_ID),
+      period(GUARD_EMPLOYEE_ID),
+      period(OTHER_SITE_EMPLOYEE_ID),
+      {
+        ...period(TERMINATED_EMPLOYEE_ID),
+        endsOn: new Date('2026-08-31T00:00:00Z'),
+        terminationReason: 'RESIGNED' as const,
+      },
     ],
   });
 
@@ -158,6 +173,15 @@ function employee(
     hireDate: new Date('2026-01-05T00:00:00Z'),
     terminationDate: gone ? new Date('2026-08-31T00:00:00Z') : null,
     terminationReason: gone ? ('RESIGNED' as const) : null,
+  };
+}
+
+function period(employeeId: string) {
+  return {
+    companyId: TEST_COMPANY_ID,
+    employeeId,
+    startsOn: new Date('2026-01-05T00:00:00Z'),
+    endsOn: null,
   };
 }
 
