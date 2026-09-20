@@ -26,7 +26,7 @@ the API project (`apps/web/vercel.json`).
 | Piece | Where | Notes |
 |---|---|---|
 | Dashboard | Vercel project `samtec-test` (root `apps/web`) | Vite build; `VITE_API_BASE_URL=/api/v1` |
-| API | Vercel project `samtec-test-api` (root `apps/api`) | Runs as a serverless function (`apps/api/api/index.ts` → `src/serverless.ts`). Same code, same security settings as local. |
+| API | Vercel project `samtec-test-api` (root `apps/api`) | Runs as a serverless function (`apps/api/api/index.ts` → `src/serverless.ts`). Same code, same security settings as local. Its `CORS_ORIGINS` must be `https://samtec-test.vercel.app`: the browser sends that as the `Origin` of every sign-in, refresh and sign-out call, and the API refuses any other. |
 | Database | Supabase project `samtec-test` (ALPHA-TEAM-dev org, free tier) | **Data API is switched off**; row-level security on every table; the API is the only way in. |
 
 Secrets (`AUTH_SECRET`, the database connection) live only in Vercel's

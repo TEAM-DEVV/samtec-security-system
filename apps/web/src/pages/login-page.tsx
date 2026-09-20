@@ -110,7 +110,8 @@ export function LoginPage() {
         </Button>
       </form>
 
-      {env.useMocks && <MockAccountsHint />}
+      {/* `import.meta.env.DEV` lets the production build drop the hint (and its strings) entirely. */}
+      {import.meta.env.DEV && env.useMocks && <MockAccountsHint />}
     </AuthLayout>
   );
 }
