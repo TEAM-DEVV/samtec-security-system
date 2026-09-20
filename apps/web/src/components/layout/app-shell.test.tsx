@@ -54,6 +54,7 @@ describe('AppShell', () => {
 
     await screen.findByText('Kwame Kofi Mensah');
     expect(screen.queryByRole('link', { name: 'Employees' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Sites' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'System status' })).toBeInTheDocument();
   });
 

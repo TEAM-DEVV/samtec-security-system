@@ -112,6 +112,7 @@ describe('mock employees and sites API', () => {
     expect(data?.items.map((site) => site.code)).toEqual([
       'ACC-01',
       'ACC-02',
+      'CPC-01',
       'KSI-01',
       'TEM-01',
       'TKD-01',

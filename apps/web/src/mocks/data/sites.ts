@@ -62,4 +62,17 @@ export const mockSites: Site[] = [
     createdAt: '2025-01-13T08:00:00Z',
     updatedAt: '2026-09-02T11:05:00Z',
   },
+  {
+    // A finished contract, kept for history. Nobody is posted here.
+    id: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c06',
+    code: 'CPC-01',
+    name: 'Pedu Junction Bank Branch',
+    clientName: 'Fanti Coast Savings Ltd',
+    region: 'CENTRAL',
+    city: 'Cape Coast',
+    status: 'INACTIVE',
+    activeGuardCount: 0,
+    createdAt: '2023-09-04T08:00:00Z',
+    updatedAt: '2026-03-31T17:00:00Z',
+  },
 ];

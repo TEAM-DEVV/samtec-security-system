@@ -6,6 +6,7 @@ export const routes = {
   home: '/',
   login: '/login',
   employees: '/employees',
+  sites: '/sites',
   /** One employee's record. */
   employee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}`,
   /** The 6-digit code screen, after a sign-in answered TWO_FACTOR_REQUIRED. */
