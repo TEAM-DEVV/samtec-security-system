@@ -1,7 +1,7 @@
 # SAMTEC: Biometric Attendance and Payroll System
 
 > Final year project (Samuel Ansong) and a product for a potential client.
-> Repository: https://github.com/ALPHA-TEAM-dev/samtec-security-system
+> Repository: https://github.com/TEAM-DEVV/samtec-security-system
 
 ## The one-line pitch
 

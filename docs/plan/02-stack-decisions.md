@@ -77,7 +77,8 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | Reviews | The four-lens checklist in every pull request, plus `/lens-review` in Claude Code |
 | Code owners | `.github/CODEOWNERS` asks both developers to review changes, including dependencies, CI and migrations |
 | Action updates | Dependabot proposes new versions of the pinned GitHub Actions every week |
-| Demo hosting (Phase 8) | API on Railway or Render, dashboard on Vercel, database on Supabase, with the dashboard and API on the same site ([System architecture](03-system-architecture.md#hosting-one-site-for-the-dashboard-and-the-api)) |
+| Shared TEST environment | Dashboard and API on Vercel (the API as a serverless function), database on Supabase, one address via a rewrite ([TEST environment](../guides/09-test-environment.md)). Every merge to `main` deploys automatically. |
+| Production hosting (Phase 8) | Decided when the client signs: either the same Vercel+Supabase layout, or the API as a long-running server on Railway or Render if Phase 2's device ingestion needs it. Production gets its own separate projects and secrets. |
 
 ## Consciously rejected
 
@@ -101,3 +102,4 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | 2026-09-17 | Password hashing uses **scrypt** (built into Node.js) instead of argon2id | Both are memory-hard and OWASP-approved. argon2id would add a native dependency with install scripts — exactly the kind of supply-chain surface this project minimises — while scrypt ships inside Node. The stored format records its own settings, so parameters can be raised later without breaking accounts. |
 | 2026-09-17 | Added **jose** for signing and checking JWT access tokens | The standard modern JWT library: pure JavaScript (no install scripts), audited, and built for ES modules. Refresh and challenge tokens are plain random values stored only as SHA-256 hashes, so they need no library at all. |
 | 2026-09-17 | TOTP two-factor codes implemented directly from RFC 6238/4226 (about 100 lines on Node's crypto), not a library | The algorithm is small and standard; the tests prove it against the official RFC test vectors. One less dependency to trust, and easy to explain at the defense. |
+| 2026-09-19 | Built the shared TEST environment now instead of waiting for Phase 8: Supabase (`samtec-test`, Data API off) + two Vercel projects, auto-deploying from `main`, migrations applied during the API build | Both developers now see every merged change running online. The API runs as a Vercel serverless function for TEST — simpler than adding a third hosting provider; whether production needs a long-running server is decided in Phase 8 with the client. |

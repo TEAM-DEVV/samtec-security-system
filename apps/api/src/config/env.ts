@@ -99,7 +99,14 @@ export type Env = z.infer<typeof envSchema>;
 
 /** Checks raw environment variables and returns typed, trusted values. */
 export function parseEnv(source: Record<string, string | undefined>): Env {
-  const result = envSchema.safeParse(source);
+  const result = envSchema.safeParse({
+    ...source,
+    // On Vercel, the Supabase integration provides the database connection
+    // under its own names. POSTGRES_PRISMA_URL points at the connection
+    // pooler, which is what a serverless API should use at runtime.
+    // An explicit DATABASE_URL always wins.
+    DATABASE_URL: source.DATABASE_URL ?? source.POSTGRES_PRISMA_URL ?? source.POSTGRES_URL,
+  });
   if (!result.success) {
     throw new Error(
       `Invalid environment configuration. Compare apps/api/.env with apps/api/.env.example.\n${z.prettifyError(result.error)}`,

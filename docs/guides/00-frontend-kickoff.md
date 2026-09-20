@@ -5,7 +5,7 @@ This is the script for Samuel's very first working session, written so that Clau
 **Samuel: do these three things yourself, then paste the prompt at the bottom.**
 
 ```bash
-git clone https://github.com/ALPHA-TEAM-dev/samtec-security-system.git
+git clone https://github.com/TEAM-DEVV/samtec-security-system.git
 cd samtec-security-system
 claude
 ```
