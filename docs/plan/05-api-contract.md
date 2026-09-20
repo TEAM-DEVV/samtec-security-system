@@ -38,7 +38,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 | System | `GET /health`, `GET /system/info` (admin only) | **Built** |
 | Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | **Built** |
 | Employees | `GET /employees`, `GET /employees/{id}` | **Built** |
-| Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | In the contract; next in Phase 1 |
+| Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | **Built** |
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
 | Rosters | posts, shift patterns, assignments | Added to the contract in Phase 1 |
 | Enrollment | `POST /employees/{id}/biometrics`, duplicate check, activation | Phase 3 |
