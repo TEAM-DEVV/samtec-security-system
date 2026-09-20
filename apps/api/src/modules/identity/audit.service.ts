@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 
 /** One entry for the audit log. `detail` holds IDs and field names, never personal data. */
 export interface AuditEntry {
@@ -26,8 +27,13 @@ export interface AuditEntry {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(entry: AuditEntry): Promise<void> {
-    await this.prisma.auditLog.create({
+  /**
+   * Writes one entry. Pass the transaction client (`tx`) when the change it
+   * describes happens inside a transaction, so the change and its audit row
+   * are saved together or not at all.
+   */
+  async record(entry: AuditEntry, tx: Prisma.TransactionClient = this.prisma): Promise<void> {
+    await tx.auditLog.create({
       data: {
         companyId: entry.companyId,
         actorUserId: entry.actorUserId,

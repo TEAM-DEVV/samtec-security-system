@@ -20,6 +20,8 @@ export const pageRoles = {
   employees: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** `GET /sites` — the list. */
   sites: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** Creating, changing or terminating an employee (`POST`/`PATCH /employees…`). */
+  employeeChanges: ['ADMIN', 'HR_PAYROLL'],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 /** True when `role` is one of `allowed`. */

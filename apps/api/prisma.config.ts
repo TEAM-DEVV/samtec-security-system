@@ -17,6 +17,14 @@ export default defineConfig({
   datasource: {
     // Commands that need a database (migrate, seed, studio) fail with a clear
     // "can't reach database" error while this is empty.
-    url: process.env.DATABASE_URL ?? '',
+    //
+    // On Vercel, the Supabase integration provides the connection under its
+    // own names instead of DATABASE_URL. Migrations use the NON_POOLING
+    // (direct) connection: schema changes must not go through the pooler.
+    url:
+      process.env.DATABASE_URL ??
+      process.env.POSTGRES_URL_NON_POOLING ??
+      process.env.POSTGRES_URL ??
+      '',
   },
 });
