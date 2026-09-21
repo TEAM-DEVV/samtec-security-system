@@ -42,6 +42,10 @@ export function notFound(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Not Found', status: 404, detail });
 }
 
+export function conflict(detail: string): HttpResponse<ProblemDetails> {
+  return problemResponse({ type: 'about:blank', title: 'Conflict', status: 409, detail });
+}
+
 /** A 429 with the same wording and `Retry-After` header as the real API's rate limit. */
 export function tooManyRequests(waitSeconds: number): HttpResponse<ProblemDetails> {
   return problemResponse(
@@ -53,10 +57,6 @@ export function tooManyRequests(waitSeconds: number): HttpResponse<ProblemDetail
     },
     { 'Retry-After': String(waitSeconds) },
   );
-}
-
-export function conflict(detail: string): HttpResponse<ProblemDetails> {
-  return problemResponse({ type: 'about:blank', title: 'Conflict', status: 409, detail });
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
