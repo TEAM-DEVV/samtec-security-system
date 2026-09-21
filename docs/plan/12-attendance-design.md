@@ -83,7 +83,8 @@ Everything runs **inside the request that causes it**. There are no background w
 ## 7. The mock provider and the demo
 
 - `BiometricProvider` (`enroll`, `identify`, `dedupeCheck`) has a deterministic mock, chosen by the `BIOMETRIC_PROVIDER` setting. The real providers arrive in Phase 3.
-- The device simulator (`pnpm --filter @samtec/api mock:devices`) is an outside client of the real endpoint, exactly like a Phase 3 gateway. It signs with the seeded devices' secrets and replays 30 days of realistic punches: small jitter, repeated sends, a device with a fast clock, a device that was offline, forgotten clock-outs, unknown numbers, one planted overlap. Running it twice proves idempotency: every item comes back `DUPLICATE`.
+- The device simulator (`pnpm --filter @samtec/api mock:devices`) is an outside client of the real endpoint, exactly like a Phase 3 gateway. It signs with the seeded devices' secrets and replays 30 days of realistic punches, like terminals that were offline for a month. The replay has small jitter, each guard's own shift pattern, a repeated send, a device with a fast clock, forgotten clock-outs, an unknown number, a suspended guard and one planted overlap. Running it twice proves idempotency: every item comes back `DUPLICATE`. [The attendance demo](../guides/10-attendance-demo.md) walks through it.
+- A seeded demo device's secret is derived from `AUTH_SECRET` and the device's name, so the simulator on the same computer can compute it. It is never printed, and the database only ever holds it encrypted. Real devices get 32 random bytes, shown once.
 
 ## Deliberately later
 

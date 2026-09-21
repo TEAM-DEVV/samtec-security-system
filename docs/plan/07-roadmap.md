@@ -45,12 +45,14 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 **Goal: the whole punch-to-hours pipeline with no hardware.**
 
-- `BiometricProvider` interface and a mock provider that simulates punches, clock drift and repeated sends
-- `POST /ingest/punches` with HMAC signatures and idempotency
-- Pairing of clock-ins and clock-outs into work segments
-- Exception queue (missing clock-out, overlaps, unknown employee) with a resolution screen
-- Night shifts from 22:00 to 06:00 proven with tests
-- **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in
+- [x] Contract and dashboard mocks for devices, ingest, work segments and the exception queue; every rule in [Attendance design](12-attendance-design.md)
+- [x] `BiometricProvider` interface and a mock provider; a device simulator that replays punches with clock drift and repeated sends (`mock:devices`)
+- [x] Device registry (secret shown once, stored encrypted) and `POST /ingest/punches` with HMAC signatures, idempotency and a per-device rate limit
+- [x] Pairing of clock-ins and clock-outs into work segments, re-paired from scratch over 62 days, so arrival order never matters
+- [x] Exception queue API (missing clock-out or clock-in, unknown or inactive employee, overlaps) and resolving it: nobody resolves their own attendance, and HR reads but never creates hours
+- [x] Night shifts from 22:00 to 06:00 proven with tests (480 minutes, counted on the start date)
+- [ ] Dashboard (Samuel): attendance day view, a guard's "My attendance", the exception queue with its resolution screen, and the Devices page (ADMIN). The mock API already supports them.
+- **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in ([The attendance demo](../guides/10-attendance-demo.md))
 
 ## Phase 3 · Real biometrics (weeks 6 and 7)
 

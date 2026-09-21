@@ -119,6 +119,7 @@
   .pill{font-family:"JetBrains Mono",monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:600; padding:3px 9px; border-radius:999px; border:1px solid var(--line2); color:var(--faint); white-space:nowrap}
   .pill.done{border-color:var(--ok); color:var(--ok)}
   .pill.next{border-color:var(--accent); color:var(--accent)}
+  .pill.active{border-color:var(--accent); color:var(--accent)}
   .goal{color:var(--muted); font-size:14.5px; margin:0}
   .deliv{margin:0; padding:0; list-style:none; display:grid; gap:8px}
   .deliv li{display:flex; gap:10px; font-size:14px; align-items:flex-start}
@@ -318,11 +319,11 @@ const phases = [
   {tag:"P0", nm:"Foundation", weeks:"week 1", status:"done", goal:"A repo two people can't trip over — built, verified, and delivered as the first pull request.",
    items:["pnpm 12 workspaces monorepo · strict TypeScript 6 · Biome 2","CI: lint · contract · types · tests · build · migrations · audit (actions pinned by SHA)","NestJS 12 API: /api/v1/health, Helmet, CORS, request IDs, Problem Details errors","React dashboard: typed API client, MSW mock API, System Status + reference Employees page","Prisma schema v0, first migration, repeatable seed (5 sites, 50 fictional employees)","OpenAPI contract v0: health, auth, employees, sites","Four-lens reviewer agents + /lens-review · plan and beginner guides in docs/","First four-lens review: 2 blockers caught and fixed before merge","Supply-chain guards on: blocked prisma@7.10.0, pinned verified 7.9.1 · CODEOWNERS + Dependabot"],
    exit:"pnpm dev starts the API and dashboard; System Status shows the database connected; CI green on the pull request."},
-  {tag:"P1", nm:"Identity & workforce", weeks:"weeks 2–3", status:"next", goal:"Sign in, see employees, model the company. Backend part 1 is merged.",
-   items:["BUILT: JWT + rotating same-site refresh cookie with reuse detection · role guards on every route","BUILT: TOTP 2FA for admins and HR (RFC-tested) · per-email and per-account lockouts · append-only audit log","BUILT: employee & site reads with cursor paging, supervisor site-scoping, Ghana Card minimisation","Next: employees create/update/terminate · employment periods · posts & shift patterns","Dashboard (Samuel): sign-in and 2FA screens, employee list/detail, site pages — mock API already supports them"],
+  {tag:"P1", nm:"Identity & workforce", weeks:"weeks 2–3", status:"active", goal:"Sign in, see employees, model the company. The backend is complete; one set of dashboard screens remains.",
+   items:["BUILT: JWT + rotating same-site refresh cookie with reuse detection · role guards on every route","BUILT: TOTP 2FA for admins and HR (RFC-tested) · per-email and per-account lockouts · append-only audit log","BUILT: employee & site reads with cursor paging, supervisor site-scoping, Ghana Card minimisation","BUILT: employees create/update/terminate · employment periods · posts & shift patterns","BUILT: user management — owner-chosen passwords via one-time links, the account checked on every request","BUILT (Samuel): sign-in and 2FA screens, session handling, employee list/detail, site pages, live mode","Next (Samuel): Users pages, set-password page and change-password form — the mock API already supports them"],
    exit:"Create employee → assign to site/shift → audit trail shows it."},
-  {tag:"P2", nm:"Attendance on mocks", weeks:"weeks 4–5", status:"planned", goal:"The whole punch→hours pipeline, zero hardware.",
-   items:["BiometricProvider + MockProvider (punches, drift, replays)","/ingest/punches: HMAC, batch, idempotent","Pairing state machine → work segments → daily hours","Exception queue + resolution UI · overnight shifts proven in tests"],
+  {tag:"P2", nm:"Attendance on mocks", weeks:"weeks 4–5", status:"active", goal:"The whole punch→hours pipeline, zero hardware. The backend is complete; the dashboard screens come next.",
+   items:["BUILT: device registry — secret shown once, stored encrypted, rotation kills the old one","BUILT: /ingest/punches — HMAC over the raw body, idempotent, rate-limited, append-only punches","BUILT: pairing → work segments, re-paired from scratch over 62 days so arrival order never matters","BUILT: exception queue + resolving it — nobody resolves their own attendance, HR never creates hours","BUILT: 22:00–06:00 night shifts proven in tests (480 minutes on the start date)","BUILT: device simulator + seeded demo devices — pnpm --filter @samtec/api mock:devices","Next (Samuel): attendance day view, My attendance, exception queue + resolution screen, Devices page"],
    exit:"Replay 30 seeded days → attendance dashboard fills correctly."},
   {tag:"P3", nm:"Real biometrics", weeks:"weeks 6–7", status:"planned", goal:"One real device path plus the face kiosk.",
    items:["ZKTeco ADMS push endpoint + zkteco-js pull fallback","Face kiosk: Human library enroll/identify, liveness threshold","Enrollment dedupe 1:N → COLLISION alert blocks activation","PIN fallback allowed but flagged"],
@@ -343,7 +344,7 @@ const phases = [
    items:["Hosted demo env seeded (never localhost in front of a client)","Client deck: pain → enroll → punch → payroll → ghost kill-shot → pilot offer","Defense slides reuse ~80% of the plan"],
    exit:"Presentation delivered; pilot proposal in the client's hands."}
 ];
-const statusLabel = {done:"Complete", next:"Up next", planned:"Planned"};
+const statusLabel = {done:"Complete", active:"In progress", next:"Up next", planned:"Planned"};
 
 const isoStack = document.getElementById("isoStack");
 layers.forEach((l,i)=>{

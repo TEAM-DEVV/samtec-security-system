@@ -18,7 +18,8 @@ If you are new to the project, read these in order.
 5. [Git and pull requests](guides/06-git-and-pull-requests.md): how we save and share work.
 6. [Using Claude Code](guides/07-using-claude-code.md): the four review lenses.
 7. [The TEST environment](guides/09-test-environment.md): the shared online copy every merge deploys to.
-7. [Glossary](guides/08-glossary.md): every technical word used in this project.
+8. [The attendance demo](guides/10-attendance-demo.md): replay 30 days of clock-ins through the real API (the Phase 2 exit demo).
+9. [Glossary](guides/08-glossary.md): every technical word used in this project.
 
 ## The plan
 

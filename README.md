@@ -79,4 +79,4 @@ Everything else — every decision and the reason behind it — is written down 
 
 ## Right now
 
-**Phase 0 is merged; Phase 1 (sign-in and workforce) is being built.** The backend's sign-in system and the employee and site endpoints are in, and the dashboard's Phase 1 screens (sign-in, two-factor, session handling, role-based navigation, employees, employee record, sites) are in review, working against the live API. The mock accounts are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).
+**Phases 0 and 1 are done, and the Phase 2 (attendance) backend is complete.** Sign-in, the workforce and user management run against the live API. Devices, signed clock-ins, pairing into worked shifts and the exception queue are in, with a 30-day replay for the exit demo ([The attendance demo](docs/guides/10-attendance-demo.md)). The dashboard's attendance screens come next. The mock accounts are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).
