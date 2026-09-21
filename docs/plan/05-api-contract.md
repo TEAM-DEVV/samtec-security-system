@@ -36,11 +36,12 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 | Area | Endpoints | Status |
 |---|---|---|
 | System | `GET /health`, `GET /system/info` (admin only) | **Built** |
-| Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | **Built** |
+| Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/set-password` (one-time link), `POST /auth/change-password` | **Built** |
+| Users (ADMIN) | `GET/POST /users`, `GET/PATCH /users/{id}`, `POST /users/{id}/deactivate`, `POST /users/{id}/reactivate`, `POST /users/{id}/reset-sign-in` | **Built** |
 | Employees | `GET /employees`, `GET /employees/{id}` | **Built** |
 | Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | **Built** |
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
-| Rosters | posts, shift patterns, assignments | Added to the contract in Phase 1 |
+| Rosters | `GET/POST /sites/{id}/posts`, `PATCH /posts/{id}`, `GET/POST /shift-patterns`, `PATCH /shift-patterns/{id}`; employee create/update take `postId` and `shiftPatternId` | **Built** |
 | Enrollment | `POST /employees/{id}/biometrics`, duplicate check, activation | Phase 3 |
 | Devices | device registry, heartbeat, `POST /ingest/punches` | Phase 2 |
 | Attendance | daily attendance, exceptions and their resolution | Phase 2 |

@@ -227,6 +227,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/set-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose your password with a one-time link from an administrator
+         * @description Public: the one-time token is the proof. An administrator never sees or chooses anyone's password. They create the account (or reset its sign-in) and pass the person a one-time link, and the person picks their own password here. The link works once, for 72 hours. Afterwards the person signs in normally with `POST /auth/login`; ADMIN and HR_PAYROLL accounts then set up two-factor authentication as usual.
+         */
+        post: operations["setPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password
+         * @description **Roles:** any signed-in user. Needs the current password. On success every session of this account ends, including this browser's: the response clears the refresh cookie and the dashboard sends the person to sign in again with the new password. A wrong current password answers `400`, not `401`, so the dashboard does not try a refresh; it counts towards the same per-email lockout as signing in.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sign-in accounts
+         * @description **Roles:** ADMIN. Every sign-in account of the company, including switched-off ones, oldest first. Sign-in accounts are separate from employee records: a guard's account is linked to their employee record.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        /**
+         * Create a sign-in account
+         * @description **Roles:** ADMIN. SUPERVISOR and GUARD accounts must be linked to an employee of the company who has not left (`employeeId`); ADMIN and HR_PAYROLL accounts must not be. The account starts as `AWAITING_PASSWORD`. The response carries a one-time password link token, shown **only this once**: the dashboard turns it into a link (`/set-password#token=…`) for the admin to hand over in person or by private message, and the person chooses their own password with `POST /auth/set-password`.
+         */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one sign-in account
+         * @description **Roles:** ADMIN.
+         */
+        get: operations["getUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change an account's name, email, role or employee link
+         * @description **Roles:** ADMIN. Send only the fields you want to change. The link rule is checked on the result: SUPERVISOR and GUARD need an employee, ADMIN and HR_PAYROLL must have none. Changing the role or the link ends every session of the account at once, so the person signs in again (and a new ADMIN or HR_PAYROLL sets up two-factor authentication). **On your own account only `fullName` may change** (`409` otherwise), so nobody can lock themselves out. A switched-off account answers `409`.
+         */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/users/{userId}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch an account off
+         * @description **Roles:** ADMIN, never on your own account. The account can no longer sign in, every session and unfinished sign-in ends, and its current access token stops working on the very next request. Nothing is deleted. Terminating an employee switches their account off automatically.
+         */
+        post: operations["deactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch an account back on
+         * @description **Roles:** ADMIN, never on your own account. Old sessions stay ended. An account whose linked employee has left the company cannot be switched back on (`409`).
+         */
+        post: operations["reactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/reset-sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a forgotten password or a lost authenticator
+         * @description **Roles:** ADMIN, never on your own account. Clears **both** the password and the two-factor authenticator, ends every session, and issues a new one-time password link (shown only this once). The person chooses a new password with the link; ADMIN and HR_PAYROLL accounts then set up a new authenticator at their next sign-in. Clearing both together stops a caller who knows the password from simply asking for "a new phone". A switched-off account answers `409`.
+         */
+        post: operations["resetUserSignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/employees": {
         parameters: {
             query?: never;
@@ -344,6 +504,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the posts of a site
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only). Sorted by name. A site a supervisor may not see answers `404`.
+         */
+        get: operations["listPosts"];
+        put?: never;
+        /**
+         * Create a post at a site
+         * @description **Roles:** ADMIN, HR_PAYROLL. A post is a named guard position at the site, like "Main Gate" or "Reception", with the number of guards it needs per shift.
+         */
+        post: operations["createPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{postId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The post's ID. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a post
+         * @description **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change. A post is never deleted; set its status to `INACTIVE` when the client stops paying for it, so history keeps its meaning.
+         */
+        patch: operations["updatePost"];
+        trace?: never;
+    };
+    "/shift-patterns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List shift patterns
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. Shift patterns belong to the whole company, not one site. Sorted by name.
+         */
+        get: operations["listShiftPatterns"];
+        put?: never;
+        /**
+         * Create a shift pattern
+         * @description **Roles:** ADMIN, HR_PAYROLL. When the end time is not after the start time, the shift crosses midnight — a night shift from 18:00 to 06:00 ends the next morning.
+         */
+        post: operations["createShiftPattern"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shift-patterns/{shiftPatternId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The shift pattern's ID. */
+                shiftPatternId: components["parameters"]["ShiftPatternId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a shift pattern
+         * @description **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change. Changing the times affects every employee assigned to this pattern from now on; past attendance is never rewritten.
+         */
+        patch: operations["updateShiftPattern"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -429,6 +686,92 @@ export interface components {
              * @description The linked employee record for guards and supervisors, or `null` for office-only accounts.
              */
             employeeId: string | null;
+        };
+        /**
+         * @description - `AWAITING_PASSWORD` — created or reset; waiting for the person to
+         *       choose a password with their one-time link. Cannot sign in yet.
+         *     - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
+         *       account sets up two-factor authentication at its first sign-in;
+         *       `twoFactorEnabled` shows whether that has happened yet.
+         *     - `DEACTIVATED` — switched off by an administrator, or because the
+         *       linked employee left. Cannot sign in. Kept for history.
+         * @enum {string}
+         */
+        UserAccountStatus: "AWAITING_PASSWORD" | "ACTIVE" | "DEACTIVATED";
+        /** @description A sign-in account as administrators see it. Never contains a password or secret. */
+        UserAccount: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string;
+            fullName: string;
+            role: components["schemas"]["UserRole"];
+            status: components["schemas"]["UserAccountStatus"];
+            twoFactorEnabled: boolean;
+            /**
+             * Format: uuid
+             * @description The linked employee for SUPERVISOR and GUARD accounts; `null` for ADMIN and HR_PAYROLL.
+             */
+            employeeId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        UserAccountList: {
+            items: components["schemas"]["UserAccount"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description A one-time token that lets one person choose their password. It works once, for 72 hours. Hand it over only in person or by private message. */
+        PasswordSetupToken: string;
+        PasswordSetup: {
+            token: components["schemas"]["PasswordSetupToken"];
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        /** @description An account plus its one-time password link token, shown only in this one response. */
+        UserAccountWithPasswordSetup: {
+            user: components["schemas"]["UserAccount"];
+            passwordSetup: components["schemas"]["PasswordSetup"];
+        };
+        /** @example Yaw Asante */
+        PersonFullName: string;
+        CreateUserRequest: {
+            /**
+             * Format: email
+             * @description Stored lower-case. Unique within the company.
+             */
+            email: string;
+            fullName: components["schemas"]["PersonFullName"];
+            role: components["schemas"]["UserRole"];
+            /**
+             * Format: uuid
+             * @description Required for SUPERVISOR and GUARD; not allowed for ADMIN and HR_PAYROLL.
+             */
+            employeeId?: string;
+        };
+        /** @description Only the fields you send are changed. */
+        UpdateUserRequest: {
+            /** Format: email */
+            email?: string;
+            fullName?: components["schemas"]["PersonFullName"];
+            role?: components["schemas"]["UserRole"];
+            /**
+             * Format: uuid
+             * @description Link a different employee, or `null` to unlink (for ADMIN and HR_PAYROLL).
+             */
+            employeeId?: string | null;
+        };
+        /** @description At least 12 characters. A short sentence is easy to remember and hard to guess. */
+        NewPassword: string;
+        SetPasswordRequest: {
+            token: components["schemas"]["PasswordSetupToken"];
+            newPassword: components["schemas"]["NewPassword"];
+        };
+        ChangePasswordRequest: {
+            currentPassword: string;
+            newPassword: components["schemas"]["NewPassword"];
         };
         LoginRequest: {
             /** Format: email */
@@ -606,6 +949,10 @@ export interface components {
             terminationDate: string | null;
             /** @description The site the employee is posted to today, or `null` if unassigned. */
             currentSite: components["schemas"]["SiteSummary"] | null;
+            /** @description The post at that site, or `null` when none is set. */
+            currentPost: components["schemas"]["PostSummary"] | null;
+            /** @description The shift pattern they work, or `null` when none is set. */
+            currentShiftPattern: components["schemas"]["ShiftPatternSummary"] | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -627,6 +974,16 @@ export interface components {
              * @description Optional. Post the employee to this site straight away.
              */
             siteId?: string;
+            /**
+             * Format: uuid
+             * @description Optional, only with `siteId`. The post at that site.
+             */
+            postId?: string;
+            /**
+             * Format: uuid
+             * @description Optional, only with `siteId`. The shift pattern they work.
+             */
+            shiftPatternId?: string;
         };
         /** @description Only the fields you send are changed. Send `null` to clear an optional field. */
         UpdateEmployeeRequest: {
@@ -642,6 +999,16 @@ export interface components {
              * @description Move the employee to this site, or send `null` to unassign them.
              */
             siteId?: string | null;
+            /**
+             * Format: uuid
+             * @description Set or change the post. Only with `siteId`, because a posting change starts a fresh assignment. `null` clears the post.
+             */
+            postId?: string | null;
+            /**
+             * Format: uuid
+             * @description Set or change the shift pattern. Only with `siteId`, because a posting change starts a fresh assignment. `null` clears it.
+             */
+            shiftPatternId?: string | null;
         };
         TerminateEmployeeRequest: {
             /**
@@ -690,6 +1057,100 @@ export interface components {
             items: components["schemas"]["Site"][];
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
+        };
+        /**
+         * @description A time of day in 24-hour form, like `06:00` or `18:30`.
+         * @example 18:00
+         */
+        ShiftTime: string;
+        /**
+         * @description - `ACTIVE` — the client pays for this post; guards are assigned to it.
+         *     - `INACTIVE` — no longer staffed. Kept for history, never deleted.
+         * @enum {string}
+         */
+        PostStatus: "ACTIVE" | "INACTIVE";
+        /** @description Just enough of a post to show on an employee. */
+        PostSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @example Main Gate */
+            name: string;
+        };
+        Post: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            siteId: string;
+            /**
+             * @description What the position is called at the site. Unique per site.
+             * @example Main Gate
+             */
+            name: string;
+            /** @description How many guards this post needs on duty per shift. */
+            requiredGuards: number;
+            status: components["schemas"]["PostStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PostList: {
+            items: components["schemas"]["Post"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        CreatePostRequest: {
+            name: string;
+            /** @default 1 */
+            requiredGuards: number;
+        };
+        /** @description Only the fields you send are changed. */
+        UpdatePostRequest: {
+            name?: string;
+            requiredGuards?: number;
+            status?: components["schemas"]["PostStatus"];
+        };
+        /** @description Just enough of a shift pattern to show on an employee. */
+        ShiftPatternSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @example Night Shift */
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+        };
+        ShiftPattern: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description What the company calls this pattern. Unique per company.
+             * @example Night Shift
+             */
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+            /** @description `true` when the shift ends on the next calendar day, like 18:00 to 06:00. Worked out by the API — the end time is not after the start. */
+            crossesMidnight: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ShiftPatternList: {
+            items: components["schemas"]["ShiftPattern"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        CreateShiftPatternRequest: {
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+        };
+        /** @description Only the fields you send are changed. */
+        UpdateShiftPatternRequest: {
+            name?: string;
+            startTime?: components["schemas"]["ShiftTime"];
+            endTime?: components["schemas"]["ShiftTime"];
         };
     };
     responses: {
@@ -768,9 +1229,18 @@ export interface components {
         EmployeeId: string;
         /** @description The site's ID. */
         SiteId: string;
+        /** @description The post's ID. */
+        PostId: string;
+        /** @description The sign-in account's ID. */
+        UserId: string;
+        /** @description The shift pattern's ID. */
+        ShiftPatternId: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Always `no-store`: the response carries a one-time secret, so no browser or proxy may keep a copy. */
+        NoStore: "no-store";
+    };
     pathItems: never;
 }
 export type HealthResponse = components['schemas']['HealthResponse'];
@@ -779,6 +1249,18 @@ export type ProblemDetails = components['schemas']['ProblemDetails'];
 export type ValidationIssue = components['schemas']['ValidationIssue'];
 export type UserRole = components['schemas']['UserRole'];
 export type CurrentUser = components['schemas']['CurrentUser'];
+export type UserAccountStatus = components['schemas']['UserAccountStatus'];
+export type UserAccount = components['schemas']['UserAccount'];
+export type UserAccountList = components['schemas']['UserAccountList'];
+export type PasswordSetupToken = components['schemas']['PasswordSetupToken'];
+export type PasswordSetup = components['schemas']['PasswordSetup'];
+export type UserAccountWithPasswordSetup = components['schemas']['UserAccountWithPasswordSetup'];
+export type PersonFullName = components['schemas']['PersonFullName'];
+export type CreateUserRequest = components['schemas']['CreateUserRequest'];
+export type UpdateUserRequest = components['schemas']['UpdateUserRequest'];
+export type NewPassword = components['schemas']['NewPassword'];
+export type SetPasswordRequest = components['schemas']['SetPasswordRequest'];
+export type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 export type LoginResponse = components['schemas']['LoginResponse'];
 export type AuthenticatedSession = components['schemas']['AuthenticatedSession'];
@@ -810,6 +1292,18 @@ export type SiteStatus = components['schemas']['SiteStatus'];
 export type GhanaRegion = components['schemas']['GhanaRegion'];
 export type Site = components['schemas']['Site'];
 export type SiteList = components['schemas']['SiteList'];
+export type ShiftTime = components['schemas']['ShiftTime'];
+export type PostStatus = components['schemas']['PostStatus'];
+export type PostSummary = components['schemas']['PostSummary'];
+export type Post = components['schemas']['Post'];
+export type PostList = components['schemas']['PostList'];
+export type CreatePostRequest = components['schemas']['CreatePostRequest'];
+export type UpdatePostRequest = components['schemas']['UpdatePostRequest'];
+export type ShiftPatternSummary = components['schemas']['ShiftPatternSummary'];
+export type ShiftPattern = components['schemas']['ShiftPattern'];
+export type ShiftPatternList = components['schemas']['ShiftPatternList'];
+export type CreateShiftPatternRequest = components['schemas']['CreateShiftPatternRequest'];
+export type UpdateShiftPatternRequest = components['schemas']['UpdateShiftPatternRequest'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
 export type ResponseUnauthorized = components['responses']['Unauthorized'];
 export type ResponseInvalidCredentials = components['responses']['InvalidCredentials'];
@@ -821,6 +1315,10 @@ export type ParameterCursor = components['parameters']['Cursor'];
 export type ParameterLimit = components['parameters']['Limit'];
 export type ParameterEmployeeId = components['parameters']['EmployeeId'];
 export type ParameterSiteId = components['parameters']['SiteId'];
+export type ParameterPostId = components['parameters']['PostId'];
+export type ParameterUserId = components['parameters']['UserId'];
+export type ParameterShiftPatternId = components['parameters']['ShiftPatternId'];
+export type HeaderNoStore = components['headers']['NoStore'];
 export type $defs = Record<string, never>;
 export interface operations {
     getHealth: {
@@ -1054,6 +1552,267 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    setPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password is set. Sign in with it now. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The link has expired, was already used, or belongs to a switched-off account, or the password breaks the length rule. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password was changed, and every session ended. */
+            204: {
+                headers: {
+                    /** @description Clears the refresh token cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of accounts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccountList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The account was created, with its one-time password link. */
+            201: {
+                headers: {
+                    /** @description URL of the new account. */
+                    Location?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccountWithPasswordSetup"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deactivateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account, now `DEACTIVATED`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    reactivateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account, now `ACTIVE` (or `AWAITING_PASSWORD` if no password was ever set). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    resetUserSignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account, now `AWAITING_PASSWORD`, with its new link. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccountWithPasswordSetup"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     listEmployees: {
         parameters: {
             query?: {
@@ -1264,6 +2023,193 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listPosts: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description The post was created. */
+            201: {
+                headers: {
+                    /** @description URL of the site's posts. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updatePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The post's ID. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listShiftPatterns: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of shift patterns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPatternList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createShiftPattern: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShiftPatternRequest"];
+            };
+        };
+        responses: {
+            /** @description The shift pattern was created. */
+            201: {
+                headers: {
+                    /** @description URL of the shift pattern list. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPattern"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateShiftPattern: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The shift pattern's ID. */
+                shiftPatternId: components["parameters"]["ShiftPatternId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateShiftPatternRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated shift pattern. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPattern"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
 }
