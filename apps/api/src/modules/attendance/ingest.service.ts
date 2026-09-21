@@ -92,17 +92,16 @@ export class IngestService {
           select: { id: true, deviceEventId: true },
         });
         const storedIds = new Map(stored.map((row) => [row.deviceEventId, row.id]));
-        const earlier = await tx.punchEvent.findMany({
-          where: {
-            deviceId: device.id,
-            deviceEventId: {
-              in: rows
-                .filter((row) => !storedIds.has(row.deviceEventId))
-                .map((row) => row.deviceEventId),
-            },
-          },
-          select: { id: true, deviceEventId: true, payloadHash: true },
-        });
+        const resent = rows
+          .filter((row) => !storedIds.has(row.deviceEventId))
+          .map((row) => row.deviceEventId);
+        const earlier =
+          resent.length === 0
+            ? []
+            : await tx.punchEvent.findMany({
+                where: { deviceId: device.id, deviceEventId: { in: resent } },
+                select: { id: true, deviceEventId: true, payloadHash: true },
+              });
         const earlierById = new Map(earlier.map((row) => [row.deviceEventId, row]));
 
         const results: PunchResult[] = [];

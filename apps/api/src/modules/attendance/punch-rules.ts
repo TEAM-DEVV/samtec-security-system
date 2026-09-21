@@ -86,12 +86,15 @@ export function mayClockIn(
   employee: { status: EmployeeStatus; terminationDate: string | null },
   punchDate: string,
 ): boolean {
-  if (employee.status === 'PENDING_ENROLLMENT' || employee.status === 'SUSPENDED') {
-    return false;
+  // No default: a new status fails to compile until someone decides here.
+  switch (employee.status) {
+    case 'ACTIVE':
+      return true;
+    case 'PENDING_ENROLLMENT':
+    case 'SUSPENDED':
+      return false;
+    case 'TERMINATED':
+      // Final-week punches that sync late are fine; later ones are not.
+      return employee.terminationDate !== null && punchDate <= employee.terminationDate;
   }
-  if (employee.status === 'TERMINATED') {
-    // Final-week punches that sync late are fine; later ones are not.
-    return employee.terminationDate !== null && punchDate <= employee.terminationDate;
-  }
-  return true;
 }

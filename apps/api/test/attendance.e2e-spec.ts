@@ -125,6 +125,49 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
   });
 
   describe('signed ingest', () => {
+    it('stores a batch sent twice at the same moment exactly once', async () => {
+      const batch = {
+        punches: [punch({ deviceEventId: 'race-1', deviceTime: '2026-09-15T06:00:00Z' })],
+      };
+      const [first, second] = await Promise.all([
+        signed('ingest/punches', batch),
+        signed('ingest/punches', batch),
+      ]);
+      expect([first.status, second.status]).toEqual([200, 200]);
+      expect([first.body.results[0].status, second.body.results[0].status].sort()).toEqual([
+        'ACCEPTED',
+        'DUPLICATE',
+      ]);
+      const rows = await prisma.punchEvent.count({
+        where: { deviceId: gate.id, deviceEventId: 'race-1' },
+      });
+      expect(rows).toBe(1);
+    });
+
+    it('answers 503 with Retry-After while another batch holds the company lock', async () => {
+      const lockKey = `attendance:${company.companyId}`;
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          await new Promise((resolve) => setTimeout(resolve, 12_000));
+        },
+        { timeout: 20_000 },
+      );
+      // Let the holder take the lock first.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const busy = await signed('ingest/punches', {
+        punches: [punch({ deviceEventId: 'busy-1' })],
+      });
+      await holder;
+      expect(busy.status).toBe(503);
+      expect(busy.headers['retry-after']).toBe('5');
+      // Nothing was kept: the device's resend is what stores it.
+      const rows = await prisma.punchEvent.count({
+        where: { deviceId: gate.id, deviceEventId: 'busy-1' },
+      });
+      expect(rows).toBe(0);
+    }, 30_000);
+
     it('stores new punches, and a resend changes nothing', async () => {
       const batch = {
         punches: [
@@ -268,13 +311,19 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .expect(401);
     });
 
-    it('counts wrong signatures at most once a minute', async () => {
-      const before = await prisma.device.findUniqueOrThrow({ where: { id: gate.id } });
+    it('counts wrong signatures, but at most once a minute', async () => {
+      // A fresh device, so the first wrong signature is sure to be counted.
+      const fresh = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Targeted', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+      const deviceId = fresh.body.device.id;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        await signed('ingest/heartbeat', {}, { id: gate.id, secret: 'still-wrong' }).expect(401);
+        await signed('ingest/heartbeat', {}, { id: deviceId, secret: 'still-wrong' }).expect(401);
       }
-      const after = await prisma.device.findUniqueOrThrow({ where: { id: gate.id } });
-      expect(after.failedSignatureCount - before.failedSignatureCount).toBeLessThanOrEqual(1);
+      const after = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
+      expect(after.failedSignatureCount).toBe(1);
       expect(after.lastFailedSignatureAt).not.toBeNull();
     });
 
@@ -372,8 +421,8 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       ).rejects.toThrow(/work_segments_no_overlap|23P01|exclusion/i);
     });
 
-    it('refuses a shift longer than 16 hours or one with the wrong minutes', async () => {
-      await expect(
+    it('refuses a shift longer than 16 hours, and one with the wrong minutes', async () => {
+      const manual = (endedAt: string, workedMinutes: number) =>
         prisma.workSegment.create({
           data: {
             companyId: company.companyId,
@@ -381,12 +430,17 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
             siteId: company.siteA,
             workDate: new Date('2026-08-05T00:00:00Z'),
             startedAt: new Date('2026-08-05T00:00:00Z'),
-            endedAt: new Date('2026-08-05T17:00:00Z'),
-            workedMinutes: 1020,
+            endedAt: new Date(endedAt),
+            workedMinutes,
             basis: 'MANUAL',
           },
-        }),
-      ).rejects.toThrow();
+        });
+      await expect(manual('2026-08-05T17:00:00Z', 1020)).rejects.toThrow(
+        /work_segments_times_valid/,
+      );
+      await expect(manual('2026-08-05T08:00:00Z', 999)).rejects.toThrow(
+        /work_segments_times_valid/,
+      );
     });
   });
 });
