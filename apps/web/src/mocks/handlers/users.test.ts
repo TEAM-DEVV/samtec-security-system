@@ -82,6 +82,27 @@ describe('mock users API', () => {
     expect(fresh.data?.passwordSetup.token).toBeTruthy();
   });
 
+  it('checks the email and name on update exactly as on create', async () => {
+    const { data: list } = await fetchClient.GET('/users');
+    const userId = list?.items[0]?.id ?? '';
+
+    const badEmail = await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId } },
+      body: { email: 'not-an-email' },
+    });
+    const emptyName = await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId } },
+      body: { fullName: '' },
+    });
+    const longName = await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId } },
+      body: { fullName: 'x'.repeat(121) },
+    });
+    expect(badEmail.error?.errors?.[0]?.path).toBe('email');
+    expect(emptyName.error?.errors?.[0]?.path).toBe('fullName');
+    expect(longName.response.status).toBe(400);
+  });
+
   it('answers a wrong current password with 400, never 401', async () => {
     const { response, error } = await fetchClient.POST('/auth/change-password', {
       body: { currentPassword: 'not it', newPassword: 'a long enough password' },

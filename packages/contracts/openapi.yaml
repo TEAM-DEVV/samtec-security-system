@@ -1577,7 +1577,9 @@ components:
       description: |
         - `AWAITING_PASSWORD` — created or reset; waiting for the person to
           choose a password with their one-time link. Cannot sign in yet.
-        - `ACTIVE` — can sign in.
+        - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
+          account sets up two-factor authentication at its first sign-in;
+          `twoFactorEnabled` shows whether that has happened yet.
         - `DEACTIVATED` — switched off by an administrator, or because the
           linked employee left. Cannot sign in. Kept for history.
       enum: [AWAITING_PASSWORD, ACTIVE, DEACTIVATED]

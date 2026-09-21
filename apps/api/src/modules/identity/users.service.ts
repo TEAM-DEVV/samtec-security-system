@@ -60,13 +60,7 @@ export class UsersService {
   }
 
   async get(viewer: SignedInUser, userId: string): Promise<UserAccount> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, companyId: viewer.companyId },
-    });
-    if (!user) {
-      throw new NotFoundException(NO_SUCH_ACCOUNT);
-    }
-    return toUserAccount(user);
+    return toUserAccount(await this.findInCompany(viewer, userId));
   }
 
   async create(viewer: SignedInUser, body: CreateUserBody): Promise<UserAccountWithPasswordSetup> {
@@ -113,18 +107,26 @@ export class UsersService {
         'On your own account you can only change your name. Ask another administrator.',
       );
     }
+    // The link rule is checked on the result: the body over the stored row.
+    // Checks that read other modules run before the transaction, so it never
+    // waits on a second database connection while it holds its locks.
+    const current = await this.findInCompany(viewer, userId);
+    const role = body.role ?? current.role;
+    const employeeId = body.employeeId === undefined ? current.employeeId : body.employeeId;
+    assertLinkFits(role, employeeId);
+    if (employeeId !== null && employeeId !== current.employeeId) {
+      await this.assertEmployeeCanBeLinked(viewer, employeeId);
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const target = await this.lockForChange(tx, viewer, userId);
         if (!target.isActive) {
           throw new ConflictException('This account is switched off. Reactivate it first.');
         }
-        // The link rule is checked on the result: the body over the stored row.
-        const role = body.role ?? target.role;
-        const employeeId = body.employeeId === undefined ? target.employeeId : body.employeeId;
-        assertLinkFits(role, employeeId);
-        if (employeeId !== null && employeeId !== target.employeeId) {
-          await this.assertEmployeeCanBeLinked(viewer, employeeId);
+        if (target.role !== current.role || target.employeeId !== current.employeeId) {
+          throw new ConflictException(
+            'This account changed a moment ago. Load it again and retry.',
+          );
         }
 
         const updated = await tx.user.update({
@@ -189,18 +191,21 @@ export class UsersService {
 
   async reactivate(viewer: SignedInUser, userId: string): Promise<UserAccount> {
     assertNotSelf(viewer, userId, 'switch on');
+    // A switched-off account's link cannot change (updates are refused), so
+    // the leaver check can safely run before the transaction.
+    const current = await this.findInCompany(viewer, userId);
+    if (current.employeeId) {
+      const employee = await this.employees.get(viewer, current.employeeId);
+      if (employee.status === 'TERMINATED') {
+        throw new ConflictException(
+          'This account belongs to an employee who has left the company.',
+        );
+      }
+    }
     return this.prisma.$transaction(async (tx) => {
       const target = await this.lockForChange(tx, viewer, userId);
       if (target.isActive) {
         throw new ConflictException('This account is already switched on.');
-      }
-      if (target.employeeId) {
-        const employee = await this.employees.get(viewer, target.employeeId);
-        if (employee.status === 'TERMINATED') {
-          throw new ConflictException(
-            'This account belongs to an employee who has left the company.',
-          );
-        }
       }
       const updated = await tx.user.update({
         where: { id: target.id },
@@ -280,7 +285,7 @@ export class UsersService {
     viewer: SignedInUser,
     targetId: string,
   ): Promise<User> {
-    await tx.$queryRaw`SELECT id FROM users WHERE id IN (${viewer.userId}::uuid, ${targetId}::uuid) ORDER BY id FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM users WHERE company_id = ${viewer.companyId}::uuid AND id IN (${viewer.userId}::uuid, ${targetId}::uuid) ORDER BY id FOR UPDATE`;
     const actor = await tx.user.findUnique({ where: { id: viewer.userId } });
     if (!actor || !mayUseAccount(actor) || actor.role !== 'ADMIN') {
       throw new UnauthorizedException('Sign in to continue.');
@@ -294,7 +299,21 @@ export class UsersService {
     return target;
   }
 
-  /** The employee must belong to this company and not have left. */
+  private async findInCompany(viewer: SignedInUser, userId: string): Promise<User> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, companyId: viewer.companyId },
+    });
+    if (!user) {
+      throw new NotFoundException(NO_SUCH_ACCOUNT);
+    }
+    return user;
+  }
+
+  /**
+   * The employee must belong to this company and not have left. Accepted,
+   * tiny window: if HR records the leave in the very same instant as this
+   * link, the account can stay on — an administrator then switches it off.
+   */
   private async assertEmployeeCanBeLinked(viewer: SignedInUser, employeeId: string): Promise<void> {
     const employee = await this.employees.get(viewer, employeeId).catch((error: unknown) => {
       if (error instanceof NotFoundException) {

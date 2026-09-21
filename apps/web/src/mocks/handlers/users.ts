@@ -100,6 +100,19 @@ function issueLink(accountId: string) {
 
 const noStore = { 'Cache-Control': 'no-store' };
 
+/** The contract's rules for an email and a full name, shared by create and update. */
+function emailProblem(email: unknown) {
+  return typeof email === 'string' && /^[^@\s]+@[^@\s]+$/.test(email) && email.length <= 254
+    ? undefined
+    : validationProblem('email', 'Enter a valid email address.');
+}
+
+function fullNameProblem(fullName: unknown) {
+  return typeof fullName === 'string' && fullName.length >= 2 && fullName.length <= 120
+    ? undefined
+    : validationProblem('fullName', 'Must be 2 to 120 characters long.');
+}
+
 function findAccount(userId: string) {
   if (!isUuid(userId)) {
     return { problem: validationProblem('userId', 'Must be a valid ID.') };
@@ -127,11 +140,9 @@ export const userHandlers = [
     apiUrl('/users'),
     async ({ request }) => {
       const body = await request.json();
-      if (!/^[^@\s]+@[^@\s]+$/.test(body.email ?? '')) {
-        return validationProblem('email', 'Enter a valid email address.');
-      }
-      if (!body.fullName || body.fullName.length < 2) {
-        return validationProblem('fullName', 'Must be 2 to 120 characters long.');
+      const badDetails = emailProblem(body.email) ?? fullNameProblem(body.fullName);
+      if (badDetails) {
+        return badDetails;
       }
       if (!isOneOf(ROLES, body.role ?? '')) {
         return validationProblem('role', `Must be one of ${ROLES.join(', ')}.`);
@@ -191,6 +202,16 @@ export const userHandlers = [
       }
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
+      }
+      // Same rules as creating an account, applied to the fields that were sent.
+      const badDetails =
+        (body.email !== undefined ? emailProblem(body.email) : undefined) ??
+        (body.fullName !== undefined ? fullNameProblem(body.fullName) : undefined);
+      if (badDetails) {
+        return badDetails;
+      }
+      if (body.role !== undefined && !isOneOf(ROLES, body.role)) {
+        return validationProblem('role', `Must be one of ${ROLES.join(', ')}.`);
       }
       if (account.status === 'DEACTIVATED') {
         return conflict('This account is switched off. Reactivate it first.');
