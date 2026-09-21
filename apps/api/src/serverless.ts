@@ -18,6 +18,8 @@ import { AppConfig } from './config/app-config.js';
  */
 export async function createApiHandler(): Promise<Express> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Keep each JSON body's exact bytes too: device signatures are checked over them.
+    rawBody: true,
     logger: new ConsoleLogger({ json: true }),
   });
   configureApp(app, app.get(AppConfig));

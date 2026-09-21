@@ -16,7 +16,8 @@ export const IS_PUBLIC_KEY = 'samtec:isPublic';
 /**
  * Marks a route as open to everyone, with no sign-in needed. Every route is
  * protected unless it carries this. Use it only for `/health` and the sign-in
- * endpoints themselves.
+ * endpoints themselves. Device routes use `@DeviceSigned(...)` instead, which
+ * adds this together with the device signature check.
  */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC_KEY, true);
 

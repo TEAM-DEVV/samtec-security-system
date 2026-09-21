@@ -64,13 +64,17 @@ export const envSchema = z
     /**
      * The one secret behind sign-in. Access tokens are signed with a key
      * derived from it, and authenticator secrets are encrypted with another.
-     * Changing it signs everyone out. Make one with:
+     * Changing it signs everyone out, and makes every stored authenticator
+     * and device secret unreadable (re-register or rotate every device).
+     * Make one with:
      * node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
      */
     AUTH_SECRET: z
       .string()
       .min(32, 'AUTH_SECRET must be at least 32 characters of random text')
       .default(DEV_AUTH_SECRET),
+    /** Which biometric provider the attendance module uses (docs/plan/10). Phase 3 adds the real ones. */
+    BIOMETRIC_PROVIDER: z.enum(['mock']).optional(),
   })
   .superRefine((env, context) => {
     // A production dashboard is always served over HTTPS.

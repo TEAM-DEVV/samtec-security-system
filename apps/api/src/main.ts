@@ -16,6 +16,8 @@ async function bootstrap(): Promise<void> {
   loadEnvFile();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Keep each JSON body's exact bytes too: device signatures are checked over them.
+    rawBody: true,
     // JSON logs in production are easier for hosting platforms to search.
     logger: new ConsoleLogger({ json: process.env.NODE_ENV === 'production' }),
   });

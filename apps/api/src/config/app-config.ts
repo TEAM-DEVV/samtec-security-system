@@ -14,6 +14,8 @@ export class AppConfig {
   readonly corsOrigins: readonly string[];
   /** The master secret behind sign-in. Never log it. */
   readonly authSecret: string;
+  /** Which biometric provider attendance uses; only the mock exists until Phase 3. */
+  readonly biometricProvider: 'mock';
   /** The version from package.json. pnpm sets `npm_package_version` when it runs a script. */
   readonly version: string;
 
@@ -23,6 +25,7 @@ export class AppConfig {
     this.databaseUrl = env.DATABASE_URL;
     this.corsOrigins = env.CORS_ORIGINS;
     this.authSecret = env.AUTH_SECRET;
+    this.biometricProvider = env.BIOMETRIC_PROVIDER ?? 'mock';
     this.version = version;
   }
 

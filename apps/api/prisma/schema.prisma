@@ -99,14 +99,18 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employees   Employee[]
-  sites       Site[]
-  assignments SiteAssignment[]
-  users       User[]
-  auditLogs   AuditLog[]
-  periods     EmploymentPeriod[]
-  posts       Post[]
-  shiftPatterns ShiftPattern[]
+  employees            Employee[]
+  sites                Site[]
+  assignments          SiteAssignment[]
+  users                User[]
+  auditLogs            AuditLog[]
+  periods              EmploymentPeriod[]
+  posts                Post[]
+  shiftPatterns        ShiftPattern[]
+  devices              Device[]
+  punches              PunchEvent[]
+  segments             WorkSegment[]
+  attendanceExceptions AttendanceException[]
 
   @@map("companies")
 }
@@ -159,15 +163,15 @@ model User {
 /// one (`replacedById` points forward). If a token arrives for a row that was
 /// already replaced, someone copied it, and every session of that user is revoked.
 model UserSession {
-  id        String    @id @default(uuid(7)) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
+  id           String    @id @default(uuid(7)) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
   /// SHA-256 of the refresh token. The token itself only exists in the cookie.
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
-  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
   /// The session that replaced this one when the token was rotated.
-  replacedById String? @map("replaced_by_id") @db.Uuid
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  replacedById String?   @map("replaced_by_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
@@ -179,18 +183,18 @@ model UserSession {
 /// still needed. Owned by the identity module. Rows expire within minutes and
 /// are deleted once used.
 model AuthChallenge {
-  id      String               @id @default(uuid(7)) @db.Uuid
-  userId  String               @map("user_id") @db.Uuid
-  purpose AuthChallengePurpose
+  id                     String               @id @default(uuid(7)) @db.Uuid
+  userId                 String               @map("user_id") @db.Uuid
+  purpose                AuthChallengePurpose
   /// SHA-256 of the challenge or setup token sent to the browser.
-  tokenHash String @unique @map("token_hash")
+  tokenHash              String               @unique @map("token_hash")
   /// For SET_UP: the new authenticator secret (encrypted), moved to the user
   /// only after they prove their app works by entering a correct code.
-  pendingSecretEncrypted String? @map("pending_secret_encrypted")
+  pendingSecretEncrypted String?              @map("pending_secret_encrypted")
   /// Wrong codes entered so far. At 5 the challenge is cancelled.
-  failedAttempts Int      @default(0) @map("failed_attempts")
-  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  failedAttempts         Int                  @default(0) @map("failed_attempts")
+  expiresAt              DateTime             @map("expires_at") @db.Timestamptz(3)
+  createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -220,18 +224,18 @@ model SignInThrottle {
 /// migration) rejects every UPDATE and DELETE, so history cannot be rewritten.
 /// Owned by the identity module; other modules write through AuditService.
 model AuditLog {
-  id        String  @id @default(uuid(7)) @db.Uuid
-  companyId String  @map("company_id") @db.Uuid
+  id          String   @id @default(uuid(7)) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
   /// Who did it. Null for actions without a signed-in user, such as a lockout.
-  actorUserId String? @map("actor_user_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
   /// A short dotted name, for example `auth.two_factor_enabled`.
-  action     String
+  action      String
   /// What kind of record was affected, for example `user` or `employee`.
-  entityType String @map("entity_type")
-  entityId   String? @map("entity_id") @db.Uuid
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id") @db.Uuid
   /// Extra details as JSON. Never personal data — IDs and field names only.
-  detail    Json?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  detail      Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
@@ -255,9 +259,14 @@ model Site {
   createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  assignments SiteAssignment[]
-  posts       Post[]
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments          SiteAssignment[]
+  posts                Post[]
+  devices              Device[]
+  punches              PunchEvent[]
+  segments             WorkSegment[]
+  attendanceExceptions AttendanceException[] @relation("ExceptionSite")
+  secondSiteExceptions AttendanceException[] @relation("ExceptionSecondSite")
 
   @@unique([companyId, code])
   @@map("sites")
@@ -333,10 +342,13 @@ model Employee {
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  assignments SiteAssignment[]
-  user        User?
-  periods     EmploymentPeriod[]
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments          SiteAssignment[]
+  user                 User?
+  periods              EmploymentPeriod[]
+  punches              PunchEvent[]
+  segments             WorkSegment[]
+  attendanceExceptions AttendanceException[]
 
   /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
   @@unique([companyId, ghanaCardNumber])
@@ -397,4 +409,226 @@ model SiteAssignment {
   @@index([employeeId, endsOn])
   @@index([siteId, endsOn])
   @@map("site_assignments")
+}
+
+// =============================================================================
+// Attendance (Phase 2). Owned by the attendance module; the rules behind every
+// table are in docs/plan/12-attendance-design.md.
+// =============================================================================
+
+/// What sends punches. Descriptive only: every kind signs its requests the same way.
+enum DeviceKind {
+  MOCK
+  ZKTECO
+  FACE_KIOSK
+}
+
+/// INACTIVE refuses every request the device sends. Devices are never deleted.
+enum DeviceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PunchDirection {
+  IN
+  OUT
+  UNKNOWN
+}
+
+/// PIN_FALLBACK is flagged everywhere: a PIN proves nothing about who typed it.
+enum PunchMethod {
+  FINGERPRINT
+  FACE
+  PIN_FALLBACK
+}
+
+enum SegmentBasis {
+  BIOMETRIC
+  PIN_FALLBACK
+  MANUAL
+}
+
+/// CONFIRMED counts; DISPUTED overlaps another shift and waits for a person;
+/// VOIDED no longer counts (never deleted).
+enum SegmentStatus {
+  CONFIRMED
+  DISPUTED
+  VOIDED
+}
+
+enum AttendanceExceptionType {
+  MISSING_CLOCK_OUT
+  MISSING_CLOCK_IN
+  UNKNOWN_EMPLOYEE
+  INACTIVE_EMPLOYEE
+  OVERLAP
+}
+
+enum AttendanceExceptionStatus {
+  OPEN
+  RESOLVED
+  AUTO_CLOSED
+}
+
+enum ExceptionResolutionAction {
+  DISMISS
+  ADD_SEGMENT
+  KEEP_SEGMENT
+  VOID_ALL
+}
+
+/// A clock-in terminal or kiosk, registered by an ADMIN for one site for life.
+/// Its secret is stored only encrypted (AES-256-GCM) and signs every request
+/// it sends. The rate and failed-signature counters live on this row.
+model Device {
+  id                    String       @id @default(uuid(7)) @db.Uuid
+  companyId             String       @map("company_id") @db.Uuid
+  siteId                String       @map("site_id") @db.Uuid
+  name                  String
+  kind                  DeviceKind
+  status                DeviceStatus @default(ACTIVE)
+  secretEncrypted       String       @map("secret_encrypted")
+  lastSeenAt            DateTime?    @map("last_seen_at") @db.Timestamptz(3)
+  /// The device clock minus the server clock at its last report (positive = fast).
+  lastClockDriftSeconds Int?         @map("last_clock_drift_seconds")
+  /// Minutes with at least one wrongly signed request (counted once a minute at most).
+  failedSignatureCount  Int          @default(0) @map("failed_signature_count")
+  lastFailedSignatureAt DateTime?    @map("last_failed_signature_at") @db.Timestamptz(3)
+  rateWindowStartsAt    DateTime?    @map("rate_window_starts_at") @db.Timestamptz(3)
+  rateWindowCount       Int          @default(0) @map("rate_window_count")
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  site    Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  punches PunchEvent[]
+
+  @@unique([companyId, name])
+  @@index([siteId])
+  @@map("devices")
+}
+
+/// One punch exactly as a device reported it: the ground truth that pay and
+/// ghost detection rest on. Append-only: a database trigger refuses every
+/// change and delete, so this table has no `updated_at`.
+model PunchEvent {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  companyId         String         @map("company_id") @db.Uuid
+  deviceId          String         @map("device_id") @db.Uuid
+  /// The device's own ID for the punch. Unique per device: resending is harmless.
+  deviceEventId     String         @map("device_event_id")
+  /// Copied from the device when the punch arrives.
+  siteId            String         @map("site_id") @db.Uuid
+  /// Empty when the device user number matched nobody (never paired).
+  employeeId        String?        @map("employee_id") @db.Uuid
+  deviceUserRef     String         @map("device_user_ref")
+  deviceTime        DateTime       @map("device_time") @db.Timestamptz(3)
+  serverTime        DateTime       @map("server_time") @db.Timestamptz(3)
+  clockDriftSeconds Int?           @map("clock_drift_seconds")
+  /// The device clock was more than 5 minutes off, or the time is impossible.
+  clockSuspect      Boolean        @default(false) @map("clock_suspect")
+  /// False for impossible times (before 2020, or in the future): stored, never paired.
+  pairable          Boolean        @default(true)
+  direction         PunchDirection
+  method            PunchMethod
+  /// SHA-256 of the punch's fields in a fixed order: a changed resend is visible.
+  payloadHash       String         @map("payload_hash")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device     Device                @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  site       Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  employee   Employee?             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  clockIns   WorkSegment[]         @relation("ClockIn")
+  clockOuts  WorkSegment[]         @relation("ClockOut")
+  exceptions AttendanceException[]
+
+  @@unique([deviceId, deviceEventId])
+  @@index([employeeId, deviceTime])
+  @@index([companyId, deviceTime])
+  @@index([deviceId, deviceTime])
+  @@map("punch_events")
+}
+
+/// One worked shift: a clock-in paired with its clock-out (or a person's
+/// manual correction). Its hours belong to `work_date`, the Ghana date it
+/// started. A database exclusion constraint forbids two CONFIRMED segments of
+/// one person from overlapping.
+model WorkSegment {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  companyId       String        @map("company_id") @db.Uuid
+  employeeId      String        @map("employee_id") @db.Uuid
+  siteId          String        @map("site_id") @db.Uuid
+  workDate        DateTime      @map("work_date") @db.Date
+  startedAt       DateTime      @map("started_at") @db.Timestamptz(3)
+  endedAt         DateTime      @map("ended_at") @db.Timestamptz(3)
+  workedMinutes   Int           @map("worked_minutes")
+  basis           SegmentBasis
+  status          SegmentStatus @default(CONFIRMED)
+  /// Both empty for MANUAL segments, both set otherwise (a database CHECK).
+  clockInPunchId  String?       @map("clock_in_punch_id") @db.Uuid
+  clockOutPunchId String?       @map("clock_out_punch_id") @db.Uuid
+  voidedAt        DateTime?     @map("voided_at") @db.Timestamptz(3)
+  /// Who voided it; empty when re-pairing did. A person's void is never undone.
+  voidedByUserId  String?       @map("voided_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company            Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  site               Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  clockInPunch       PunchEvent?           @relation("ClockIn", fields: [clockInPunchId], references: [id], onDelete: Restrict)
+  clockOutPunch      PunchEvent?           @relation("ClockOut", fields: [clockOutPunchId], references: [id], onDelete: Restrict)
+  exceptions         AttendanceException[] @relation("ExceptionSegment")
+  secondExceptions   AttendanceException[] @relation("ExceptionSecondSegment")
+  resolvedExceptions AttendanceException[] @relation("ExceptionResolutionSegment")
+
+  /// A pair of punches makes at most one row, ever.
+  @@unique([clockInPunchId, clockOutPunchId])
+  @@index([employeeId, startedAt])
+  @@index([companyId, workDate])
+  @@index([siteId, workDate])
+  @@map("work_segments")
+}
+
+/// Something a person must look at. `dedupe_key` (unique per company) makes
+/// raising the same exception twice impossible, whoever raises it.
+model AttendanceException {
+  id                  String                     @id @default(uuid(7)) @db.Uuid
+  companyId           String                     @map("company_id") @db.Uuid
+  type                AttendanceExceptionType
+  status              AttendanceExceptionStatus  @default(OPEN)
+  dedupeKey           String                     @map("dedupe_key")
+  siteId              String                     @map("site_id") @db.Uuid
+  /// For an OVERLAP at two sites, the other site.
+  secondSiteId        String?                    @map("second_site_id") @db.Uuid
+  employeeId          String?                    @map("employee_id") @db.Uuid
+  punchId             String?                    @map("punch_id") @db.Uuid
+  segmentId           String?                    @map("segment_id") @db.Uuid
+  secondSegmentId     String?                    @map("second_segment_id") @db.Uuid
+  occurredAt          DateTime                   @map("occurred_at") @db.Timestamptz(3)
+  workDate            DateTime                   @map("work_date") @db.Date
+  resolutionAction    ExceptionResolutionAction? @map("resolution_action")
+  resolutionNote      String?                    @map("resolution_note")
+  resolvedByUserId    String?                    @map("resolved_by_user_id") @db.Uuid
+  resolvedAt          DateTime?                  @map("resolved_at") @db.Timestamptz(3)
+  resolutionSegmentId String?                    @map("resolution_segment_id") @db.Uuid
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company           Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  site              Site         @relation("ExceptionSite", fields: [siteId], references: [id], onDelete: Restrict)
+  secondSite        Site?        @relation("ExceptionSecondSite", fields: [secondSiteId], references: [id], onDelete: Restrict)
+  employee          Employee?    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  punch             PunchEvent?  @relation(fields: [punchId], references: [id], onDelete: Restrict)
+  segment           WorkSegment? @relation("ExceptionSegment", fields: [segmentId], references: [id], onDelete: Restrict)
+  secondSegment     WorkSegment? @relation("ExceptionSecondSegment", fields: [secondSegmentId], references: [id], onDelete: Restrict)
+  resolutionSegment WorkSegment? @relation("ExceptionResolutionSegment", fields: [resolutionSegmentId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, status, occurredAt])
+  @@index([siteId, status])
+  @@index([secondSiteId])
+  @@index([employeeId])
+  @@map("attendance_exceptions")
 }
