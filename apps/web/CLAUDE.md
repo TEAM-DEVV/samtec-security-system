@@ -12,9 +12,9 @@ This file is for Claude Code sessions working on the dashboard. The whole-projec
 6. **Accessibility is not optional**: labels on inputs, text on buttons, `aria-hidden` on decorative icons, status never shown by colour alone, everything reachable with Tab and Enter.
 7. **Branch → pull request → Francis reviews.** Never push to `main`. Run `/lens-review` before opening the pull request.
 
-## Current task list (Phase 1 frontend, in order)
+## Phase 1 frontend task list (all done)
 
-Work top to bottom. Each task ends with a working demo in mock mode, a test, and a pull request.
+Each task ended with a working demo in mock mode, a test, and a pull request. Kept here so the next phase's list follows the same shape.
 
 1. **Sign-in page** (`/login`): email + password form → `POST /auth/login`. Handle all three outcomes: `AUTHENTICATED` (go to the dashboard), `TWO_FACTOR_REQUIRED` (go to the code screen), `TWO_FACTOR_SETUP_REQUIRED` (go to the setup screen). Show the error message from `describeApiError` on 401 and the wait time on 429. Mock accounts: see the table in `docs/guides/03-frontend-guide.md` (password `demo-password`, code `123456`).
 2. **Two-factor screens**: a 6-digit code screen (`/auth/2fa/verify`) and a setup screen showing the QR code from `otpauthUri` (render with a QR component — ask before adding any dependency) plus the manual key, then `/auth/2fa/enable`.
@@ -22,9 +22,9 @@ Work top to bottom. Each task ends with a working demo in mock mode, a test, and
 4. **Route protection**: unauthenticated users land on `/login`; the sidebar shows only what the user's role allows.
 5. **Employee detail page** (`/employees/:id`): full record, status badge, current site; show the Ghana Card number only when the API sends it (it is omitted for roles that may not see it).
 6. **Sites page** (`/sites`): follow the step-by-step example in `docs/guides/03-frontend-guide.md`.
-7. **Switch live mode on**: once sign-in works against the real API (`pnpm dev`), remove the `ComingInPhasePage` checks in `src/app/router.tsx` and delete their imports.
+7. **Switch live mode on**: done once sign-in worked against the real API (`pnpm dev`); the live-mode placeholder was removed from `src/app/router.tsx`, so every page is served in both modes.
 
-When the list is done, tell Francis: that is the Phase 1 frontend finished.
+The next dashboard work follows the roadmap (`docs/plan/07-roadmap.md`): Phase 1's employee create/edit/terminate forms (the API endpoints are merged; `openapi.yaml` has the request shapes), then Phase 2's attendance screens.
 
 ## Traps to avoid
 
