@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AppConfig } from '../../config/app-config.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import { WorkforceModule } from '../workforce/workforce.module.js';
+import { AttendanceController } from './attendance.controller.js';
+import { AttendanceService } from './attendance.service.js';
 import {
   BIOMETRIC_PROVIDER,
   type BiometricProvider,
@@ -22,8 +24,9 @@ import { PairingService } from './pairing.service.js';
  */
 @Module({
   imports: [IdentityModule, WorkforceModule],
-  controllers: [DevicesController, IngestController],
+  controllers: [DevicesController, IngestController, AttendanceController],
   providers: [
+    AttendanceService,
     DevicesService,
     IngestService,
     PairingService,

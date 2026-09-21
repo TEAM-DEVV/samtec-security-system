@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { hasDatabaseCode } from '../../common/prisma-errors.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 
 /**
@@ -41,13 +42,5 @@ export class AttendanceBusyException extends HttpException {
 
 /** True for PostgreSQL's "could not get the lock in time" (SQLSTATE 55P03). */
 export function isLockTimeout(error: unknown): boolean {
-  return JSON.stringify(errorFacts(error)).includes('55P03');
-}
-
-function errorFacts(error: unknown): unknown {
-  if (typeof error !== 'object' || error === null) {
-    return error;
-  }
-  const { code, meta, message } = error as { code?: unknown; meta?: unknown; message?: unknown };
-  return { code, meta, message };
+  return hasDatabaseCode(error, '55P03');
 }

@@ -297,7 +297,7 @@ export const attendanceHandlers = [
           segments.some(
             (segment) =>
               segment.employee.id === employee.id &&
-              segment.status === 'CONFIRMED' &&
+              segment.status !== 'VOIDED' &&
               overlaps(segment, start, end),
           )
         ) {

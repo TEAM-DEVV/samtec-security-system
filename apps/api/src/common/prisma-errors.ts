@@ -16,3 +16,17 @@ export function isUniqueViolation(error: unknown, column: string): boolean {
   const normalize = (value: string) => value.toLowerCase().replaceAll('_', '');
   return normalize(JSON.stringify(candidate.meta ?? {})).includes(normalize(column));
 }
+
+/**
+ * True when PostgreSQL rejected a statement with this SQLSTATE code, for
+ * example `55P03` (waited too long for a lock) or `23P01` (an exclusion
+ * constraint). Driver adapters put the code in different places, so the
+ * error's code, metadata and message are all searched.
+ */
+export function hasDatabaseCode(error: unknown, sqlState: string): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, meta, message } = error as { code?: unknown; meta?: unknown; message?: unknown };
+  return JSON.stringify({ code, meta, message }).includes(sqlState);
+}

@@ -741,7 +741,7 @@ export interface paths {
         };
         /**
          * List worked shifts
-         * @description **Roles:** every signed-in role, scoped. ADMIN and HR_PAYROLL see the whole company; a SUPERVISOR sees only their own sites; a GUARD sees only themselves. A site or employee the caller may not see answers `404`. A work segment is one clock-in paired with its clock-out (or an administrator's manual correction); its hours belong to the Ghana date it started, so a 22:00–06:00 night shift counts on the first day. Sorted by start time.
+         * @description **Roles:** every signed-in role, scoped. ADMIN and HR_PAYROLL see the whole company; a SUPERVISOR sees only their own sites; a GUARD sees only themselves. A site or employee the caller may not see answers `404`. A work segment is one clock-in paired with its clock-out (or a shift added by hand when an exception is resolved); its hours belong to the Ghana date it started, so a 22:00–06:00 night shift counts on the first day. Sorted by start time.
          */
         get: operations["listWorkSegments"];
         put?: never;
@@ -822,7 +822,8 @@ export interface paths {
          *       by hand. The window must contain the real punch's time, be at most
          *       16 hours long and end in the past, so hours are only ever
          *       completed around real biometric evidence. Hours that would overlap
-         *       another counted shift of the same person answer `409`.
+         *       another live (counted or disputed) shift of the same person answer
+         *       `409`.
          *     - `KEEP_SEGMENT` (overlap) — keeps one of the two shifts and voids
          *       the other.
          *     - `VOID_ALL` (overlap) — voids both shifts.
@@ -3174,6 +3175,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            503: components["responses"]["Busy"];
         };
     };
 }
