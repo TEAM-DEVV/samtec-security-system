@@ -24,8 +24,6 @@ import {
 } from './pairing.js';
 
 const DAY_MS = 86_400_000;
-/** How many people one heartbeat's overdue check re-pairs at most; the next heartbeat does the rest. */
-const OVERDUE_PEOPLE_PER_HEARTBEAT = 20;
 
 /**
  * Keeps work segments and the exception queue in line with the punches. The
@@ -75,13 +73,15 @@ export class PairingService {
         .filter((segment) => segment.startedAt < windowStart)
         .flatMap((segment) => [segment.clockInPunchId, segment.clockOutPunchId]),
     );
+    // From 16 hours before the window, so a shift that straddles its edge is
+    // seen whole (and then left alone) instead of leaving a lone clock-out.
     const punches = (
       await tx.punchEvent.findMany({
         where: {
           companyId,
           employeeId: { in: people },
           pairable: true,
-          deviceTime: { gte: windowStart },
+          deviceTime: { gte: new Date(windowStart.getTime() - MAX_SHIFT_MS) },
         },
         select: {
           id: true,
@@ -113,13 +113,17 @@ export class PairingService {
       },
     });
 
+    // Each person's rows, grouped once.
+    const segmentsOf = groupByEmployee(segments);
+    const punchesOf = groupByEmployee(punches);
+    const exceptionsOf = groupByEmployee(exceptions);
+    const inWindow = (punch: PairablePunch) => punch.deviceTime >= windowStart;
+
     const newSegments: Prisma.WorkSegmentCreateManyInput[] = [];
     const statusChanges: Array<{ id: string; status: SegmentStatus }> = [];
     const plans = people.map((employeeId) => {
-      const own = <T extends { employeeId: string | null }>(rows: T[]) =>
-        rows.filter((row) => row.employeeId === employeeId);
-      const stored: StoredSegment[] = own(segments);
-      const ownPunches: PairablePunch[] = own(punches);
+      const stored: StoredSegment[] = segmentsOf.get(employeeId) ?? [];
+      const ownPunches: PairablePunch[] = punchesOf.get(employeeId) ?? [];
       const pairing = pairPunches(ownPunches, now);
       const plan = planSegments(pairing, stored, windowStart);
       for (const segment of plan.create) {
@@ -140,7 +144,7 @@ export class PairingService {
         });
       }
       statusChanges.push(...plan.change);
-      return { employeeId, ownPunches, pairing, plan, stored, exceptions: own(exceptions) };
+      return { employeeId, ownPunches, pairing, plan, stored };
     });
 
     // Segments first: the overlap exceptions below need the new rows' IDs.
@@ -157,19 +161,12 @@ export class PairingService {
         row.id,
       ]),
     );
-    await this.applyStatusChanges(tx, statusChanges, now);
+    await this.applyStatusChanges(tx, companyId, statusChanges, now);
 
     const wantedExceptions = new Map<string, Prisma.AttendanceExceptionCreateManyInput>();
     const reopen: string[] = [];
     const autoClose: string[] = [];
-    for (const {
-      employeeId,
-      ownPunches,
-      pairing,
-      plan,
-      stored,
-      exceptions: ownExceptions,
-    } of plans) {
+    for (const { employeeId, ownPunches, pairing, plan, stored } of plans) {
       const missing = (type: 'MISSING_CLOCK_OUT' | 'MISSING_CLOCK_IN', punch: PairablePunch) =>
         wantedExceptions.set(missingKey(type, punch.id), {
           companyId,
@@ -181,8 +178,13 @@ export class PairingService {
           occurredAt: punch.deviceTime,
           workDate: fromIsoDate(toAccraDate(punch.deviceTime)),
         });
-      for (const punch of pairing.missingClockOut) missing('MISSING_CLOCK_OUT', punch);
-      for (const punch of pairing.missingClockIn) missing('MISSING_CLOCK_IN', punch);
+      // Only inside the window: older punches belong to the past.
+      for (const punch of pairing.missingClockOut.filter(inWindow)) {
+        missing('MISSING_CLOCK_OUT', punch);
+      }
+      for (const punch of pairing.missingClockIn.filter(inWindow)) {
+        missing('MISSING_CLOCK_IN', punch);
+      }
 
       for (const [first, second] of plan.overlaps) {
         const firstId = idForRef.get(first.ref) ?? first.ref;
@@ -205,10 +207,11 @@ export class PairingService {
         ...stored.filter((segment) => segment.startedAt >= windowStart).map((row) => row.id),
         ...plan.create.map((segment) => idForRef.get(segment.ref) ?? ''),
       ]);
+      const stillOpen: StoredException[] = exceptionsOf.get(employeeId) ?? [];
       const decided = planExceptions({
         wantedKeys: new Set(wantedExceptions.keys()),
-        stored: ownExceptions as StoredException[],
-        checkedPunchIds: new Set(ownPunches.map((punch) => punch.id)),
+        stored: stillOpen,
+        checkedPunchIds: new Set(ownPunches.filter(inWindow).map((punch) => punch.id)),
         checkedSegmentIds,
       });
       reopen.push(...decided.reopen);
@@ -224,13 +227,13 @@ export class PairingService {
     }
     if (reopen.length > 0) {
       await tx.attendanceException.updateMany({
-        where: { id: { in: reopen }, status: 'AUTO_CLOSED' },
+        where: { companyId, id: { in: reopen }, status: 'AUTO_CLOSED' },
         data: { status: 'OPEN' },
       });
     }
     if (autoClose.length > 0) {
       await tx.attendanceException.updateMany({
-        where: { id: { in: autoClose }, status: 'OPEN' },
+        where: { companyId, id: { in: autoClose }, status: 'OPEN' },
         data: { status: 'AUTO_CLOSED' },
       });
     }
@@ -238,54 +241,92 @@ export class PairingService {
 
   /**
    * A clock-in with no clock-out only becomes a problem once 16 hours pass,
-   * and nothing else may happen for that person to notice it. Each signed
-   * heartbeat therefore looks for such clock-ins, company-wide, and re-pairs
-   * those people. Finding nobody (the usual case) costs one read and no lock.
+   * and nothing else may happen for that person to notice it. So every signed
+   * heartbeat re-pairs the people whose punches turned 16 hours old since the
+   * last check, and moves the company's bookmark (`attendance_checks`)
+   * forward. Pairing then decides what is missing: the rules exist only once,
+   * in `pairing.ts`. When no punch turned 16 hours old (the usual case), the
+   * check costs two small reads and one small write, and takes no lock.
    */
   async repairOverdueClockIns(companyId: string, now: Date): Promise<void> {
-    const windowStart = new Date(now.getTime() - PAIRING_WINDOW_DAYS * DAY_MS);
-    const overdueBefore = new Date(now.getTime() - MAX_SHIFT_MS);
-    const overdue = await this.prisma.$queryRaw<Array<{ employee_id: string }>>`
-      SELECT DISTINCT p.employee_id
-      FROM punch_events p
-      WHERE p.company_id = ${companyId}::uuid
-        AND p.employee_id IS NOT NULL
-        AND p.pairable
-        AND p.direction = 'IN'
-        AND p.device_time >= ${windowStart}
-        AND p.device_time < ${overdueBefore}
-        AND NOT EXISTS (SELECT 1 FROM work_segments s WHERE s.clock_in_punch_id = p.id)
-        AND NOT EXISTS (
-          SELECT 1 FROM attendance_exceptions e
-          WHERE e.punch_id = p.id AND e.type = 'MISSING_CLOCK_OUT')
-        -- A repeat tap (an earlier IN within 2 minutes at the same site) is never paired.
-        AND NOT EXISTS (
-          SELECT 1 FROM punch_events r
-          WHERE r.employee_id = p.employee_id AND r.site_id = p.site_id AND r.pairable
-            AND r.direction IN ('IN', 'UNKNOWN')
-            AND (r.device_time, r.id) < (p.device_time, p.id)
-            AND r.device_time > p.device_time - interval '2 minutes')
-      LIMIT ${OVERDUE_PEOPLE_PER_HEARTBEAT}`;
-    if (overdue.length === 0) {
+    const slice = await this.nextOverdueSlice(this.prisma, companyId, now);
+    if (!slice) {
+      return;
+    }
+    const waiting = await this.prisma.punchEvent.findFirst({
+      where: overdueSliceFilter(companyId, slice),
+      select: { id: true },
+    });
+    if (!waiting) {
+      await this.moveBookmark(this.prisma, companyId, slice);
       return;
     }
     try {
       await this.prisma.$transaction(async (tx) => {
         await lockCompanyAttendance(tx, companyId);
+        // Read again under the lock: another heartbeat may have just done it.
+        const locked = await this.nextOverdueSlice(tx, companyId, now);
+        if (!locked) {
+          return;
+        }
+        const punched = await tx.punchEvent.findMany({
+          where: overdueSliceFilter(companyId, locked),
+          select: { employeeId: true },
+          distinct: ['employeeId'],
+        });
         await this.repair(
           tx,
           companyId,
-          overdue.map((row) => row.employee_id),
+          punched.flatMap((row) => (row.employeeId ? [row.employeeId] : [])),
           now,
         );
+        await this.moveBookmark(tx, companyId, locked);
       }, ATTENDANCE_TRANSACTION_OPTIONS);
     } catch (error) {
       throw isLockTimeout(error) ? new AttendanceBusyException() : error;
     }
   }
 
+  /**
+   * The punch times to check now: from the bookmark to 16 hours ago, at most
+   * 16 hours of them per heartbeat (after an outage it catches up quickly,
+   * without one huge transaction). A company's first check starts 32 hours
+   * ago; everything older was already paired when it arrived.
+   */
+  private async nextOverdueSlice(
+    db: Prisma.TransactionClient,
+    companyId: string,
+    now: Date,
+  ): Promise<OverdueSlice | null> {
+    const until = now.getTime() - MAX_SHIFT_MS;
+    const bookmark = await db.attendanceCheck.findUnique({ where: { companyId } });
+    const from = bookmark?.overdueCheckedUntil ?? new Date(until - MAX_SHIFT_MS);
+    const to = new Date(Math.min(until, from.getTime() + MAX_SHIFT_MS));
+    return to > from ? { from, to, bookmarked: bookmark !== null } : null;
+  }
+
+  /** Moves the bookmark forward only: a concurrent heartbeat that got there first wins. */
+  private async moveBookmark(
+    db: Prisma.TransactionClient,
+    companyId: string,
+    slice: OverdueSlice,
+  ): Promise<void> {
+    if (slice.bookmarked) {
+      await db.attendanceCheck.updateMany({
+        where: { companyId, overdueCheckedUntil: slice.from },
+        data: { overdueCheckedUntil: slice.to },
+      });
+    } else {
+      await db.attendanceCheck.createMany({
+        data: [{ companyId, overdueCheckedUntil: slice.to }],
+        skipDuplicates: true,
+      });
+    }
+  }
+
   private async applyStatusChanges(
     tx: Prisma.TransactionClient,
+    companyId: string,
     changes: ReadonlyArray<{ id: string; status: SegmentStatus }>,
     now: Date,
   ): Promise<void> {
@@ -294,10 +335,38 @@ export class PairingService {
       if (ids.length > 0) {
         // A void by re-pairing leaves `voided_by_user_id` empty, so it can come back later.
         await tx.workSegment.updateMany({
-          where: { id: { in: ids } },
+          where: { companyId, id: { in: ids } },
           data: { status, voidedAt: status === 'VOIDED' ? now : null },
         });
       }
     }
   }
+}
+
+interface OverdueSlice {
+  from: Date;
+  to: Date;
+  /** Whether the company already has a bookmark row. */
+  bookmarked: boolean;
+}
+
+function overdueSliceFilter(companyId: string, slice: OverdueSlice): Prisma.PunchEventWhereInput {
+  return {
+    companyId,
+    pairable: true,
+    employeeId: { not: null },
+    deviceTime: { gte: slice.from, lt: slice.to },
+  };
+}
+
+function groupByEmployee<Row extends { employeeId: string | null }>(
+  rows: Row[],
+): Map<string, Row[]> {
+  const groups = new Map<string, Row[]>();
+  for (const row of rows) {
+    if (row.employeeId !== null) {
+      groups.set(row.employeeId, [...(groups.get(row.employeeId) ?? []), row]);
+    }
+  }
+  return groups;
 }
