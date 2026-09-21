@@ -1,6 +1,7 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { TokensService } from '../src/modules/identity/tokens.service.js';
 import { totpCode, totpStep } from '../src/modules/identity/totp.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import {
@@ -713,6 +714,415 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .set(...bearer(tokens.supervisor))
         .send({ status: 'ACTIVE' })
         .expect(403);
+    });
+  });
+
+  describe('user management', () => {
+    const NEW_PASSWORD = 'a long guard password';
+
+    /** Creates a fresh employee (so every test owns its data) and returns its ID. */
+    async function newEmployee(ghanaCard: string): Promise<string> {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/employees')
+        .set(...bearer(tokens.admin))
+        .send({
+          firstName: 'Kweku',
+          lastName: 'Ansah',
+          phone: '+233209999950',
+          ghanaCardNumber: ghanaCard,
+          position: 'Security Guard',
+          hireDate: '2026-09-01',
+          siteId: SITE_1_ID,
+        })
+        .expect(201);
+      return created.body.id;
+    }
+
+    /** Creates a GUARD account for a fresh employee, sets its password, and signs it in. */
+    async function signedInGuard(email: string, ghanaCard: string) {
+      const employeeId = await newEmployee(ghanaCard);
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(tokens.admin))
+        .send({ email, fullName: 'Kweku Ansah', role: 'GUARD', employeeId })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/set-password')
+        .send({ token: created.body.passwordSetup.token, newPassword: NEW_PASSWORD })
+        .expect(204);
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: NEW_PASSWORD })
+        .expect(200);
+      return {
+        userId: created.body.user.id as string,
+        employeeId,
+        accessToken: login.body.accessToken as string,
+        cookie: readSetCookie(login.headers['set-cookie']).split(';')[0] ?? '',
+      };
+    }
+
+    it('creates an account that waits for its owner to choose a password', async () => {
+      const employeeId = await newEmployee('GHA-955555100-1');
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(tokens.admin))
+        .send({
+          email: 'Kweku.Guard@DBTEST.example',
+          fullName: 'Kweku Ansah',
+          role: 'GUARD',
+          employeeId,
+        })
+        .expect(201);
+
+      expect(created.headers.location).toBe(`/api/v1/users/${created.body.user.id}`);
+      expect(created.headers['cache-control']).toBe('no-store');
+      expect(created.body.user).toMatchObject({
+        email: 'kweku.guard@dbtest.example',
+        role: 'GUARD',
+        status: 'AWAITING_PASSWORD',
+        employeeId,
+      });
+      const { token } = created.body.passwordSetup;
+
+      // No password yet, so nothing can sign in to it — not even a guess.
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'kweku.guard@dbtest.example', password: NEW_PASSWORD })
+        .expect(401);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/set-password')
+        .send({ token, newPassword: NEW_PASSWORD })
+        .expect(204);
+      // The link worked once.
+      const reused = await request(app.getHttpServer())
+        .post('/api/v1/auth/set-password')
+        .send({ token, newPassword: 'another long password' })
+        .expect(400);
+      expect(reused.body.errors[0].path).toBe('token');
+
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'kweku.guard@dbtest.example', password: NEW_PASSWORD })
+        .expect(200);
+      expect(login.body.status).toBe('AUTHENTICATED');
+      // The guard sees their own record through the link.
+      await request(app.getHttpServer())
+        .get(`/api/v1/employees/${employeeId}`)
+        .set(...bearer(login.body.accessToken))
+        .expect(200);
+
+      // Neither the link token nor the password is stored or audited anywhere.
+      const prisma = openFixtureDb(databaseUrl as string);
+      const [users, challenges, audits] = await Promise.all([
+        prisma.user.findMany({ where: { id: created.body.user.id } }),
+        prisma.authChallenge.findMany({ where: { userId: created.body.user.id } }),
+        prisma.auditLog.findMany({ where: { entityId: created.body.user.id } }),
+      ]);
+      await prisma.$disconnect();
+      const everything = JSON.stringify({ users, challenges, audits });
+      expect(everything).not.toContain(token);
+      expect(everything).not.toContain(NEW_PASSWORD);
+      expect(challenges).toHaveLength(0);
+      expect(audits.map((row) => row.action)).toEqual(
+        expect.arrayContaining(['user.created', 'auth.password_set']),
+      );
+    });
+
+    it('enforces the employee link, one account per person and unique emails', async () => {
+      const post = (body: object) =>
+        request(app.getHttpServer())
+          .post('/api/v1/users')
+          .set(...bearer(tokens.admin))
+          .send(body);
+
+      const unlinkedGuard = await post({
+        email: 'g1@dbtest.example',
+        fullName: 'No Link',
+        role: 'GUARD',
+      }).expect(400);
+      expect(unlinkedGuard.body.errors[0].path).toBe('employeeId');
+
+      const linkedAdmin = await post({
+        email: 'a1@dbtest.example',
+        fullName: 'Linked Admin',
+        role: 'ADMIN',
+        employeeId: GUARD_EMPLOYEE_ID,
+      }).expect(400);
+      expect(linkedAdmin.body.errors[0].path).toBe('employeeId');
+
+      const unknown = await post({
+        email: 'g2@dbtest.example',
+        fullName: 'Nobody',
+        role: 'GUARD',
+        employeeId: '01927c3e-0000-7000-8000-00000000dead',
+      }).expect(400);
+      expect(unknown.body.errors[0].path).toBe('employeeId');
+
+      // Already has an account, has left the company, or the email is taken.
+      await post({
+        email: 'g3@dbtest.example',
+        fullName: 'Twice',
+        role: 'GUARD',
+        employeeId: GUARD_EMPLOYEE_ID,
+      }).expect(409);
+      await post({
+        email: 'g4@dbtest.example',
+        fullName: 'Leaver',
+        role: 'GUARD',
+        employeeId: TERMINATED_EMPLOYEE_ID,
+      }).expect(409);
+      await post({
+        email: EMAILS.hr.toUpperCase(),
+        fullName: 'Same Email',
+        role: 'HR_PAYROLL',
+      }).expect(409);
+    });
+
+    it('is for administrators only', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/users')
+        .set(...bearer(tokens.supervisor))
+        .expect(403);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${GUARD_EMPLOYEE_ID}/deactivate`)
+        .set(...bearer(tokens.guard))
+        .expect(403);
+      await request(app.getHttpServer()).get('/api/v1/users').expect(401);
+    });
+
+    it('pages through accounts, oldest first, with no personal data in the cursor', async () => {
+      const first = await request(app.getHttpServer())
+        .get('/api/v1/users?limit=2')
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(first.body.items).toHaveLength(2);
+      expect(first.body.items[0]).not.toHaveProperty('passwordHash');
+      expect(Buffer.from(first.body.nextCursor, 'base64url').toString()).toBe(
+        first.body.items[1].id,
+      );
+      const second = await request(app.getHttpServer())
+        .get(`/api/v1/users?limit=2&cursor=${first.body.nextCursor}`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(second.body.items[0].id > first.body.items[1].id).toBe(true);
+    });
+
+    it('never lets an administrator change, switch off or reset their own account', async () => {
+      const me = await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(...bearer(tokens.admin))
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${me.body.id}`)
+        .set(...bearer(tokens.admin))
+        .send({ role: 'HR_PAYROLL' })
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${me.body.id}/deactivate`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${me.body.id}/reset-sign-in`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+      // Their own name is fine.
+      const renamed = await request(app.getHttpServer())
+        .patch(`/api/v1/users/${me.body.id}`)
+        .set(...bearer(tokens.admin))
+        .send({ fullName: 'Efua Admin-Mensah' })
+        .expect(200);
+      expect(renamed.body.fullName).toBe('Efua Admin-Mensah');
+    });
+
+    it('switching an account off stops its access token at once and ends its sessions', async () => {
+      const guard = await signedInGuard('switch.off@dbtest.example', 'GHA-955555101-2');
+
+      const off = await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/deactivate`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(off.body.status).toBe('DEACTIVATED');
+
+      // Not in 15 minutes: on the very next request.
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(...bearer(guard.accessToken))
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .set('Origin', ORIGIN)
+        .set('Cookie', guard.cookie)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'switch.off@dbtest.example', password: NEW_PASSWORD })
+        .expect(401);
+
+      // Switched back on, the person signs in again; old sessions stay dead.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/reactivate`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .set('Origin', ORIGIN)
+        .set('Cookie', guard.cookie)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'switch.off@dbtest.example', password: NEW_PASSWORD })
+        .expect(200);
+    });
+
+    it('a promotion ends every session, and the new ADMIN must set up two-factor', async () => {
+      const guard = await signedInGuard('promoted@dbtest.example', 'GHA-955555102-3');
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${guard.userId}`)
+        .set(...bearer(tokens.admin))
+        .send({ role: 'ADMIN', employeeId: null })
+        .expect(200);
+
+      // The GUARD token is dead, and sign-in now demands a second factor.
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(...bearer(guard.accessToken))
+        .expect(401);
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'promoted@dbtest.example', password: NEW_PASSWORD })
+        .expect(200);
+      expect(login.body.status).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    });
+
+    it('reset sign-in clears the password AND the authenticator, and issues a new link', async () => {
+      const users = await request(app.getHttpServer())
+        .get('/api/v1/users?limit=100')
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      const hr = users.body.items.find((item: { email: string }) => item.email === EMAILS.hr);
+      expect(hr.twoFactorEnabled).toBe(true); // Set up in the two-factor walkthrough above.
+
+      const reset = await request(app.getHttpServer())
+        .post(`/api/v1/users/${hr.id}/reset-sign-in`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(reset.headers['cache-control']).toBe('no-store');
+      expect(reset.body.user).toMatchObject({
+        status: 'AWAITING_PASSWORD',
+        twoFactorEnabled: false,
+      });
+
+      // The old password is dead at once.
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: EMAILS.hr, password: TEST_PASSWORD })
+        .expect(401);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/set-password')
+        .send({ token: reset.body.passwordSetup.token, newPassword: 'the new hr password' })
+        .expect(204);
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: EMAILS.hr, password: 'the new hr password' })
+        .expect(200);
+      // A new authenticator must be set up: a stolen password is not enough.
+      expect(login.body.status).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    });
+
+    it('terminating an employee switches their account off, for good', async () => {
+      const guard = await signedInGuard('leaver@dbtest.example', 'GHA-955555103-4');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/employees/${guard.employeeId}/terminate`)
+        .set(...bearer(tokens.admin))
+        .send({ effectiveDate: '2026-09-30', reason: 'RESIGNED' })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(...bearer(guard.accessToken))
+        .expect(401);
+      const account = await request(app.getHttpServer())
+        .get(`/api/v1/users/${guard.userId}`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(account.body.status).toBe('DEACTIVATED');
+      // Someone who has left cannot be switched back on.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/reactivate`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+    });
+
+    it('changes your own password: 400 for a wrong one, then every session ends', async () => {
+      const guard = await signedInGuard('changer@dbtest.example', 'GHA-955555104-5');
+
+      const wrong = await request(app.getHttpServer())
+        .post('/api/v1/auth/change-password')
+        .set(...bearer(guard.accessToken))
+        .send({ currentPassword: 'not my password', newPassword: 'a brand new password' })
+        .expect(400);
+      expect(wrong.body.errors[0].path).toBe('currentPassword');
+
+      const changed = await request(app.getHttpServer())
+        .post('/api/v1/auth/change-password')
+        .set(...bearer(guard.accessToken))
+        .send({ currentPassword: NEW_PASSWORD, newPassword: 'a brand new password' })
+        .expect(204);
+      expect(readSetCookie(changed.headers['set-cookie'])).toContain('samtec_refresh=;');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .set('Origin', ORIGIN)
+        .set('Cookie', guard.cookie)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'changer@dbtest.example', password: 'a brand new password' })
+        .expect(200);
+    });
+
+    it('two administrators switching each other off at once leave one administrator', async () => {
+      const prisma = openFixtureDb(databaseUrl as string);
+      const [admin, admin2] = await Promise.all([
+        prisma.user.findFirstOrThrow({ where: { email: EMAILS.admin } }),
+        prisma.user.findFirstOrThrow({ where: { email: EMAILS.admin2 } }),
+      ]);
+      const admin2Token = await app.get(TokensService).signAccessToken({
+        userId: admin2.id,
+        companyId: admin2.companyId,
+        role: 'ADMIN',
+        employeeId: null,
+      });
+
+      const [first, second] = await Promise.all([
+        request(app.getHttpServer())
+          .post(`/api/v1/users/${admin2.id}/deactivate`)
+          .set(...bearer(tokens.admin)),
+        request(app.getHttpServer())
+          .post(`/api/v1/users/${admin.id}/deactivate`)
+          .set(...bearer(admin2Token)),
+      ]);
+      // One wins; the other is refused because its own account was just switched off.
+      expect([first.status, second.status].sort()).toEqual([200, 401]);
+      const activeAdmins = await prisma.user.count({
+        where: { companyId: admin.companyId, role: 'ADMIN', isActive: true },
+      });
+      await prisma.$disconnect();
+      expect(activeAdmins).toBeGreaterThanOrEqual(1);
+
+      // Put the loser back, so the tests after this one keep their admin.
+      const survivorToken = first.status === 200 ? tokens.admin : admin2Token;
+      const loserId = first.status === 200 ? admin2.id : admin.id;
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${loserId}/reactivate`)
+        .set(...bearer(survivorToken))
+        .expect(200);
     });
   });
 

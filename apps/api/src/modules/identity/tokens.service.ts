@@ -14,9 +14,11 @@ const JWT_AUDIENCE = 'samtec-dashboard';
 /**
  * Makes and checks the tokens sign-in runs on.
  *
- * - **Access tokens** are JWTs: signed statements of who the caller is, which
- *   the API can check without a database lookup on every request.
- * - **Refresh and challenge tokens** are plain random strings. The database
+ * - **Access tokens** are JWTs: signed statements of who the caller is. The
+ *   signature proves the token is genuine; `AccessTokenGuard` then also checks
+ *   the account is still usable and unchanged, so a switched-off account's
+ *   token stops working at once.
+ * - **Refresh, challenge and password-link tokens** are plain random strings. The database
  *   stores only their SHA-256 hash, so a stolen database backup contains no
  *   usable tokens.
  *

@@ -3,6 +3,7 @@ import { employeeHandlers } from './employees';
 import { rosterHandlers } from './rosters';
 import { siteHandlers } from './sites';
 import { systemHandlers } from './system';
+import { userHandlers } from './users';
 
 /**
  * The mock API: pretend versions of the real endpoints, so the dashboard can be
@@ -22,4 +23,5 @@ export const handlers = [
   ...employeeHandlers,
   ...siteHandlers,
   ...rosterHandlers,
+  ...userHandlers,
 ];

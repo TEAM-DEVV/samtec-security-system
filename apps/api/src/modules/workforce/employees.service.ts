@@ -8,8 +8,10 @@ import {
 import type { Employee as ApiEmployee, EmployeeList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { AccountsService } from '../identity/accounts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
 import {
@@ -29,25 +31,6 @@ export function currentAssignmentFilter(today: Date = new Date()) {
 }
 
 /**
- * True when the database rejected a write because a unique rule (Prisma error
- * P2002) covering the named column was broken — for example a second employee
- * with the same Ghana Card number.
- */
-function isUniqueViolation(error: unknown, column: string): boolean {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-  const candidate = error as { code?: unknown; meta?: { target?: unknown } };
-  if (candidate.code !== 'P2002') {
-    return false;
-  }
-  // Which columns broke the rule sits in the error's metadata; its exact
-  // shape varies by driver, so search the whole thing for the column name.
-  const normalize = (value: string) => value.toLowerCase().replaceAll('_', '');
-  return normalize(JSON.stringify(candidate.meta ?? {})).includes(normalize(column));
-}
-
-/**
  * Reading and changing employees, with the contract's access rules built in:
  *
  * - ADMIN and HR_PAYROLL see every employee of the company.
@@ -61,6 +44,7 @@ export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly accounts: AccountsService,
   ) {}
 
   async list(viewer: SignedInUser, query: ListEmployeesQuery): Promise<EmployeeList> {
@@ -376,6 +360,13 @@ export class EmployeesService {
         },
         tx,
       );
+      // A leaver's sign-in account (if they have one) is switched off in the
+      // same transaction, as soon as the leave is recorded.
+      await this.accounts.deactivateForLeaver(tx, {
+        companyId: viewer.companyId,
+        employeeId,
+        actorUserId: viewer.userId,
+      });
     });
     return this.get(viewer, employeeId);
   }

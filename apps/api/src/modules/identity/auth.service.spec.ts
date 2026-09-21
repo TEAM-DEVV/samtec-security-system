@@ -1,9 +1,10 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { FakeThrottle } from '../../../test/fakes/fake-throttle.js';
 import { FakeIdentityDb } from '../../../test/fakes/identity-db.js';
 import { RateLimitException } from '../../common/rate-limit.exception.js';
 import { AppConfig } from '../../config/app-config.js';
+import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { AuthService } from './auth.service.js';
 import { hashPassword, TEST_ONLY_SCRYPT_PARAMS } from './password.js';
@@ -32,13 +33,11 @@ function makeAuth() {
   const db = new FakeIdentityDb();
   const prisma = db.asPrisma();
   const throttle = new FakeThrottle();
-  const auth = new AuthService(
-    prisma,
-    new TokensService(config),
-    throttle.asService(),
-    new AuditService(prisma),
-  );
-  return { db, auth, throttle };
+  const tokens = new TokensService(config);
+  const audit = new AuditService(prisma);
+  const accounts = new AccountsService(prisma, tokens, audit);
+  const auth = new AuthService(prisma, tokens, throttle.asService(), audit, accounts);
+  return { db, auth, throttle, accounts };
 }
 
 describe('login', () => {
@@ -320,5 +319,128 @@ describe('refresh token rotation', () => {
 
     const error = await auth.refresh(refreshToken).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('sessions an administrator ended', () => {
+  it('answers 401 for an ended session WITHOUT the stolen-token alarm', async () => {
+    // An admin action ends every session. The person's other browser still
+    // holds its old cookie; using it must not sign them out of the session
+    // they create next, and must not record a false theft.
+    const { db, auth, accounts } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+    const first = await auth.login('ama@samtec.example', 'demo-password');
+    if (first.kind !== 'session') throw new Error('Expected a session');
+
+    await accounts.endAllAccess(user.id);
+    const second = await auth.login('ama@samtec.example', 'demo-password');
+    if (second.kind !== 'session') throw new Error('Expected a session');
+
+    const stale = await auth.refresh(first.refreshToken).catch((e: unknown) => e);
+    expect(stale).toBeInstanceOf(UnauthorizedException);
+    expect(db.auditEntries.map((entry) => entry.action)).not.toContain(
+      'auth.refresh_reuse_detected',
+    );
+    // The new session is untouched.
+    await expect(auth.refresh(second.refreshToken)).resolves.toBeDefined();
+  });
+
+  it('refuses a switched-off account at refresh, and ends that session too', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+    const outcome = await auth.login('ama@samtec.example', 'demo-password');
+    if (outcome.kind !== 'session') throw new Error('Expected a session');
+
+    user.isActive = false;
+    const refused = await auth.refresh(outcome.refreshToken).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(UnauthorizedException);
+    expect(db.sessions.every((session) => session.revokedAt !== null)).toBe(true);
+  });
+
+  it('refuses an ADMIN without two-factor at refresh (promotion backstop)', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+    const outcome = await auth.login('ama@samtec.example', 'demo-password');
+    if (outcome.kind !== 'session') throw new Error('Expected a session');
+
+    // Promoted in the same instant as a refresh: no ADMIN token without a second factor.
+    user.role = 'ADMIN';
+    const refused = await auth.refresh(outcome.refreshToken).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('choosing a password with a one-time link', () => {
+  it('lets the person choose their own password, once', async () => {
+    const { db, auth, accounts } = makeAuth();
+    const user = db.addUser({ email: 'new@samtec.example', passwordHash: null, role: 'GUARD' });
+    const { token } = await accounts.issuePasswordSetup(user.id);
+
+    // Before choosing a password the account cannot sign in at all.
+    const early = await auth.login('new@samtec.example', 'anything-at-all').catch((e) => e);
+    expect(early).toBeInstanceOf(UnauthorizedException);
+
+    await auth.setPassword(token, 'correct horse battery staple');
+    const outcome = await auth.login('new@samtec.example', 'correct horse battery staple');
+    expect(outcome.kind).toBe('session');
+
+    // The link worked once and is gone.
+    const again = await auth.setPassword(token, 'another long password').catch((e) => e);
+    expect(again).toBeInstanceOf(BadRequestException);
+    expect(db.auditEntries.map((entry) => entry.action)).toContain('auth.password_set');
+  });
+
+  it('refuses an expired link and a made-up one with the same 400', async () => {
+    const { db, auth, accounts } = makeAuth();
+    const user = db.addUser({ email: 'new@samtec.example', passwordHash: null, role: 'GUARD' });
+    const { token } = await accounts.issuePasswordSetup(user.id);
+    for (const challenge of db.challenges) challenge.expiresAt = new Date(Date.now() - 1000);
+
+    const expired = await auth.setPassword(token, 'correct horse battery staple').catch((e) => e);
+    const madeUp = await auth
+      .setPassword('not-a-real-link', 'correct horse battery')
+      .catch((e) => e);
+    expect(expired).toBeInstanceOf(BadRequestException);
+    expect((madeUp as BadRequestException).getResponse()).toEqual(
+      (expired as BadRequestException).getResponse(),
+    );
+  });
+});
+
+describe('changing your own password', () => {
+  it('answers a wrong current password with 400 (never 401) and counts it', async () => {
+    const { db, auth, throttle } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+
+    const wrong = await auth
+      .changePassword(user.id, 'not-my-password', 'a brand new long password')
+      .catch((e: unknown) => e);
+    expect(wrong).toBeInstanceOf(BadRequestException);
+    expect(throttle.failures.get('password:ama@samtec.example')).toBe(1);
+  });
+
+  it('refuses the same password again', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+    const same = await auth
+      .changePassword(user.id, 'demo-password', 'demo-password')
+      .catch((e: unknown) => e);
+    expect(same).toBeInstanceOf(BadRequestException);
+  });
+
+  it('saves the new password, ends every session, and audits no secrets', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
+    const outcome = await auth.login('ama@samtec.example', 'demo-password');
+    if (outcome.kind !== 'session') throw new Error('Expected a session');
+
+    await auth.changePassword(user.id, 'demo-password', 'a brand new long password');
+
+    expect(db.sessions.every((session) => session.revokedAt !== null)).toBe(true);
+    const oldPassword = await auth.login('ama@samtec.example', 'demo-password').catch((e) => e);
+    expect(oldPassword).toBeInstanceOf(UnauthorizedException);
+    const fresh = await auth.login('ama@samtec.example', 'a brand new long password');
+    expect(fresh.kind).toBe('session');
+    expect(JSON.stringify(db.auditRows)).not.toContain('brand new');
   });
 });

@@ -4,7 +4,7 @@ Each folder here is one **domain module**: a self-contained part of the business
 
 | Module | What it owns | Built in |
 |---|---|---|
-| `identity/` | User accounts, roles, sign-in, two-factor authentication, audit log | Phase 1 |
+| `identity/` | User accounts and their management, roles, sign-in, two-factor authentication, audit log | Phase 1 |
 | `workforce/` | Employees, sites, posts, shift patterns, site assignments | Phase 1 |
 | `attendance/` | Biometric devices, punches, work segments, attendance exceptions | Phases 2 and 3 |
 | `payroll/` | Payroll periods and runs, PAYE and SSNIT, payslips | Phase 4 |

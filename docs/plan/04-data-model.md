@@ -16,6 +16,8 @@ TypeScript uses camelCase (`firstName`), and the database uses snake_case (`firs
 | `site_assignments` | Where an employee is posted, from which date to which date | History kept; `ends_on` is empty for the current assignment. Optionally records the post and shift pattern worked. Stores `company_id` like every business table, and the workforce service checks it matches the employee's and the site's company. |
 | `posts` | A named guard position at a site, like "Main Gate" | Name unique per site; `required_guards` says how many guards it needs per shift; never deleted — `status` becomes INACTIVE. |
 | `shift_patterns` | Company-wide working hours, like "Night Shift 18:00–06:00" | Times stored as minutes from midnight (checked 0–1439 by the database); an end at or before the start means the shift crosses midnight. Name unique per company. |
+| `users` | A sign-in account (identity module) | Email unique per company and stored lower-case (a database CHECK). `password_hash` is empty while the owner has not yet chosen a password with their one-time link. SUPERVISOR and GUARD accounts must have `employee_id`, ADMIN and HR_PAYROLL must not (a database CHECK). Never deleted: `is_active` switches an account off. |
+| `user_sessions`, `auth_challenges` | Refresh sessions; one-time sign-in steps and password links (identity module) | Only SHA-256 hashes of tokens are stored. A rotated session records the session that replaced it, which is how token reuse is told apart from a session that simply ended. |
 
 ## Planned tables, by phase
 

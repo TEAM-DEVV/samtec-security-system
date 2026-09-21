@@ -315,6 +315,10 @@ async function seedUsers(companyId: string): Promise<void> {
   const supervisorEmployee = await prisma.employee.findUnique({
     where: { companyId_staffNumber: { companyId, staffNumber: 'SMT-00003' } },
   });
+  // A SUPERVISOR account must be linked to an employee (a database CHECK).
+  if (!supervisorEmployee) {
+    throw new Error('Employee SMT-00003 is missing, so the supervisor account cannot be linked.');
+  }
 
   const accounts = [
     {
@@ -333,7 +337,7 @@ async function seedUsers(companyId: string): Promise<void> {
       email: 'supervisor@samtec.example',
       fullName: 'Yaw Boateng',
       role: UserRole.SUPERVISOR,
-      employeeId: supervisorEmployee?.id ?? null,
+      employeeId: supervisorEmployee.id,
     },
   ];
 

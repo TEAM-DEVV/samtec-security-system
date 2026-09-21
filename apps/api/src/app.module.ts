@@ -5,6 +5,7 @@ import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './health/health.module.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
+import { UsersModule } from './modules/identity/users.module.js';
 import { WorkforceModule } from './modules/workforce/workforce.module.js';
 
 /**
@@ -14,7 +15,14 @@ import { WorkforceModule } from './modules/workforce/workforce.module.js';
  * `imports` as each roadmap phase builds them. See src/modules/README.md.
  */
 @Module({
-  imports: [AppConfigModule, DatabaseModule, HealthModule, IdentityModule, WorkforceModule],
+  imports: [
+    AppConfigModule,
+    DatabaseModule,
+    HealthModule,
+    IdentityModule,
+    WorkforceModule,
+    UsersModule,
+  ],
   providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
 })
 export class AppModule {}
