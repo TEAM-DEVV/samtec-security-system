@@ -241,13 +241,16 @@ export class AttendanceService {
           },
           tx,
         );
-        if (row.employeeId) {
+        // A dismissal changes no shift, so only the other actions re-pair the person.
+        if (row.employeeId && body.action !== 'DISMISS') {
           await this.pairing.repair(tx, viewer.companyId, [row.employeeId], now);
         }
       }, ATTENDANCE_TRANSACTION_OPTIONS);
     } catch (error) {
       if (isLockTimeout(error)) throw new AttendanceBusyException();
-      // The database's last word on overlaps, checked when the transaction commits.
+      // Defence in depth: the check inside the lock already refuses overlaps, but if a
+      // future change ever let one through, the database refuses it when the
+      // transaction commits (exclusion constraint, SQLSTATE 23P01), and the caller gets a 409.
       if (hasDatabaseCode(error, '23P01')) {
         throw new ConflictException('These hours overlap another shift of this employee.');
       }
