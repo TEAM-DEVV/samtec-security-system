@@ -33,3 +33,5 @@ Thumbs.db
 
 # Personal Claude Code settings (shared ones live in .claude/settings.json)
 .claude/settings.local.json
+# Personal dev-server launch config for the Claude Code browser pane
+.claude/launch.json

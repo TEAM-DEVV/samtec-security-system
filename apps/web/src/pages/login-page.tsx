@@ -2,9 +2,9 @@ import type { LoginResponse } from '@samtec/contracts';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { routes } from '@/app/routes';
+import { AuthLayout } from '@/components/layout/auth-layout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { $api } from '@/lib/api';
@@ -62,61 +62,50 @@ export function LoginPage() {
   const problem = login.error ? describeApiError(login.error) : undefined;
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-background p-4 text-foreground">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <img src="/favicon.svg" alt="" className="mx-auto mb-2 size-10" />
-          <CardTitle className="text-xl">Sign in to SAMTEC</CardTitle>
-          <CardDescription>Attendance &amp; Payroll dashboard</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} aria-busy={login.isPending} className="grid gap-4">
-            <div className="grid gap-1.5">
-              <Label htmlFor="login-email">Email</Label>
-              <Input
-                id="login-email"
-                type="email"
-                autoComplete="username"
-                required
-                maxLength={EMAIL_MAX_LENGTH}
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="login-password">Password</Label>
-              <Input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                maxLength={PASSWORD_MAX_LENGTH}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </div>
+    <AuthLayout title="Sign in to SAMTEC" description="Attendance & Payroll dashboard">
+      <form onSubmit={submit} aria-busy={login.isPending} className="grid gap-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="login-email">Email</Label>
+          <Input
+            id="login-email"
+            type="email"
+            autoComplete="username"
+            required
+            maxLength={EMAIL_MAX_LENGTH}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="login-password">Password</Label>
+          <Input
+            id="login-password"
+            type="password"
+            autoComplete="current-password"
+            required
+            maxLength={PASSWORD_MAX_LENGTH}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </div>
 
-            {problem && (
-              <Alert variant="destructive">
-                <AlertTitle>Could not sign in</AlertTitle>
-                <AlertDescription>
-                  <p>{problem.message}</p>
-                  {problem.traceId && (
-                    <p className="font-mono text-xs">Trace ID: {problem.traceId}</p>
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
+        {problem && (
+          <Alert variant="destructive">
+            <AlertTitle>Could not sign in</AlertTitle>
+            <AlertDescription>
+              <p>{problem.message}</p>
+              {problem.traceId && <p className="font-mono text-xs">Trace ID: {problem.traceId}</p>}
+            </AlertDescription>
+          </Alert>
+        )}
 
-            <Button type="submit" className="w-full">
-              {login.isPending ? 'Signing in…' : 'Sign in'}
-            </Button>
-          </form>
+        <Button type="submit" className="w-full">
+          {login.isPending ? 'Signing in…' : 'Sign in'}
+        </Button>
+      </form>
 
-          {env.useMocks && <MockAccountsHint />}
-        </CardContent>
-      </Card>
-    </main>
+      {env.useMocks && <MockAccountsHint />}
+    </AuthLayout>
   );
 }
 
