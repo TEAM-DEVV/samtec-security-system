@@ -21,6 +21,22 @@ describe('mock auth API', () => {
     expect(error?.detail).toBe('Email or password is incorrect.');
   });
 
+  it('locks an email after five wrong passwords, even for the right one', async () => {
+    const wrongPassword = { email: 'supervisor@samtec.example', password: 'not-the-password' };
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const { response } = await fetchClient.POST('/auth/login', { body: wrongPassword });
+      expect(response.status).toBe(401);
+    }
+
+    const { error, response } = await fetchClient.POST('/auth/login', {
+      body: { email: 'supervisor@samtec.example', password: MOCK_PASSWORD },
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('900');
+    expect(error?.detail).toBe('Too many attempts. Try again in 900 seconds.');
+  });
+
   it('asks an admin for a two-factor code, then signs them in', async () => {
     const login = await fetchClient.POST('/auth/login', {
       body: { email: 'admin@samtec.example', password: MOCK_PASSWORD },

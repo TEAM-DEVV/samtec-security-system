@@ -13,10 +13,14 @@ export type OrProblem<Body extends DefaultBodyType> = Body | ProblemDetails;
 /** A Problem Details error response, with a fresh trace ID like the real API sends. */
 export function problemResponse(
   problem: Omit<ProblemDetails, 'traceId'>,
+  extraHeaders: Record<string, string> = {},
 ): HttpResponse<ProblemDetails> {
   return HttpResponse.json<ProblemDetails>(
     { ...problem, traceId: crypto.randomUUID() },
-    { status: problem.status, headers: { 'Content-Type': 'application/problem+json' } },
+    {
+      status: problem.status,
+      headers: { 'Content-Type': 'application/problem+json', ...extraHeaders },
+    },
   );
 }
 
@@ -40,6 +44,19 @@ export function notFound(detail: string): HttpResponse<ProblemDetails> {
 
 export function conflict(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Conflict', status: 409, detail });
+}
+
+/** A 429 with the same wording and `Retry-After` header as the real API's rate limit. */
+export function tooManyRequests(waitSeconds: number): HttpResponse<ProblemDetails> {
+  return problemResponse(
+    {
+      type: 'about:blank',
+      title: 'Too Many Requests',
+      status: 429,
+      detail: `Too many attempts. Try again in ${waitSeconds} seconds.`,
+    },
+    { 'Retry-After': String(waitSeconds) },
+  );
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

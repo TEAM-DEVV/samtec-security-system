@@ -20,6 +20,7 @@ apps/web/
 │   ├── app/
 │   │   ├── app.tsx              providers: React Query and the router
 │   │   ├── router.tsx           every page and its web address
+│   │   ├── routes.ts            the addresses pages send people to
 │   │   └── mock-api-start-error.tsx   shown if mock mode cannot start
 │   ├── pages/                   one file per page, plus its test
 │   ├── components/
@@ -29,7 +30,8 @@ apps/web/
 │   │   ├── api.ts               $api: the typed API client
 │   │   ├── env.ts               dashboard settings
 │   │   ├── format.ts            money and dates for display
-│   │   └── problem.ts           turns API errors into messages
+│   │   ├── problem.ts           turns API errors into messages
+│   │   └── session.ts           the signed-in user and access token (memory only)
 │   ├── mocks/
 │   │   ├── handlers/            the mock API, one file per area (system, auth, employees, sites)
 │   │   ├── data/                fictional employees, sites and sign-in accounts
