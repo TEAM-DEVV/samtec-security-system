@@ -34,6 +34,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 - [ ] Posts, shift patterns and assignments (contract first)
 - [x] Dashboard (Samuel): sign-in and two-factor screens, employee list and detail, site pages — the mock API already supports all of them
 - [x] Dashboard (Samuel): once the sign-in screens work against the live API, remove the live-mode notice in `apps/web/src/app/router.tsx`
+- [x] Dashboard (Samuel): brand theme with light/dark mode, an Overview home page at `/`, System status moved to `/status` (Phase 6 polish pulled forward)
 - **Exit demo:** create an employee, assign them to a site and shift, and see the change in the audit trail
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)

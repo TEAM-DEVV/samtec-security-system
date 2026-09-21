@@ -10,6 +10,7 @@ import {
   employeeStatusLabels,
   isEmployeeStatus,
 } from '@/components/employee-status-badge';
+import { PageHeader } from '@/components/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { $api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
 
 const PAGE_SIZE = 10;
@@ -42,6 +44,7 @@ const LOADING_ROW_KEYS = ['loading-1', 'loading-2', 'loading-3', 'loading-4', 'l
  * structure: one query hook, then the loading, error, empty and data states.
  */
 export function EmployeesPage() {
+  usePageTitle('Employees');
   const [searchInput, setSearchInput] = useState('');
   const [searchTooShort, setSearchTooShort] = useState(false);
   const [search, setSearch] = useState<string>();
@@ -93,10 +96,7 @@ export function EmployeesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <header className="space-y-1">
-        <h1 className="font-semibold text-2xl tracking-tight">Employees</h1>
-        <p className="text-muted-foreground text-sm">Guards and staff on the company payroll.</p>
-      </header>
+      <PageHeader title="Employees" description="Guards and staff on the company payroll." />
 
       <div className="flex flex-wrap items-start gap-4">
         <form onSubmit={applySearch} className="grid gap-1.5">

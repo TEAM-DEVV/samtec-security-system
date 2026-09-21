@@ -8,6 +8,7 @@ import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
+import { OverviewPage } from '@/pages/overview-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SitesPage } from '@/pages/sites-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
@@ -42,7 +43,8 @@ export const router = createBrowserRouter([
     ),
     errorElement: <RouteErrorPage />,
     children: [
-      { index: true, element: <SystemStatusPage /> },
+      { index: true, element: <OverviewPage /> },
+      { path: 'status', element: <SystemStatusPage /> },
       {
         path: 'employees',
         element: (
