@@ -8,16 +8,20 @@ interface RenderOptions {
   route?: string;
 }
 
-/** Renders a component inside the same providers the real app uses. */
+/**
+ * Renders a component inside the same providers the real app uses. Returns
+ * the query client too, so a test can look at what is cached.
+ */
 export function renderWithProviders(ui: ReactElement, { route = '/' }: RenderOptions = {}) {
   const queryClient = new QueryClient({
     // No automatic retries in tests, so error states appear straight away.
     defaultOptions: { queries: { retry: false } },
   });
 
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...result, queryClient };
 }

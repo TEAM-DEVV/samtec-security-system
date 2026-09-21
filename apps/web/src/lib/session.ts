@@ -51,6 +51,15 @@ export function startSession(session: SignedInSession): void {
   notifyListeners();
 }
 
+/** Swaps in a fresh access token after `POST /auth/refresh`. The user stays the same. */
+export function updateAccessToken(accessToken: string): void {
+  if (currentSession === null) {
+    return;
+  }
+  currentSession = { ...currentSession, accessToken };
+  notifyListeners();
+}
+
 /** Forgets everything: the session and any pending two-factor step. */
 export function clearSession(): void {
   currentSession = null;

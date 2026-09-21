@@ -20,8 +20,10 @@ import {
   type OrProblem,
   pageOf,
   readLimit,
+  unauthorized,
   validationProblem,
 } from '../helpers';
+import { userForRequest } from './auth';
 
 /**
  * The mock API keeps its own copy of the employees, so the write handlers can
@@ -51,12 +53,13 @@ function siteSummaryFor(siteId: string) {
   return site ? { id: site.id, code: site.code, name: site.name } : undefined;
 }
 
-// Phase 1: once the dashboard signs in, make these handlers answer 401 without
-// an access token, like the real API.
 export const employeeHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<EmployeeList>>(
     apiUrl('/employees'),
     ({ request }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       const query = new URL(request.url).searchParams;
 
       const limit = readLimit(query);
@@ -104,6 +107,9 @@ export const employeeHandlers = [
   http.post<PathParams, CreateEmployeeRequest, OrProblem<Employee>>(
     apiUrl('/employees'),
     async ({ request }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       const body = await request.json();
 
       if (!body.firstName) return validationProblem('firstName', 'Required.');
@@ -197,7 +203,10 @@ export const employeeHandlers = [
 
   http.get<{ employeeId: string }, DefaultBodyType, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId'),
-    ({ params }) => {
+    ({ request, params }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }
@@ -211,6 +220,9 @@ export const employeeHandlers = [
   http.patch<{ employeeId: string }, UpdateEmployeeRequest, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId'),
     async ({ params, request }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }
@@ -324,6 +336,9 @@ export const employeeHandlers = [
   http.post<{ employeeId: string }, TerminateEmployeeRequest, OrProblem<Employee>>(
     apiUrl('/employees/:employeeId/terminate'),
     async ({ params, request }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }
