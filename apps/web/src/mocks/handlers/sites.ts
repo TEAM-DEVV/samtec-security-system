@@ -1,5 +1,7 @@
-import type { GhanaRegion, Site, SiteList, SiteStatus } from '@samtec/contracts';
+import type { Site, SiteList } from '@samtec/contracts';
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
+import { SITE_STATUSES } from '@/components/site-status-badge';
+import { GHANA_REGIONS } from '@/lib/ghana-regions';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { mockSites } from '../data/sites';
 import {
@@ -16,27 +18,6 @@ import {
 } from '../helpers';
 import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
-
-const SITE_STATUSES: readonly SiteStatus[] = ['ACTIVE', 'INACTIVE'];
-
-const GHANA_REGIONS: readonly GhanaRegion[] = [
-  'AHAFO',
-  'ASHANTI',
-  'BONO',
-  'BONO_EAST',
-  'CENTRAL',
-  'EASTERN',
-  'GREATER_ACCRA',
-  'NORTH_EAST',
-  'NORTHERN',
-  'OTI',
-  'SAVANNAH',
-  'UPPER_EAST',
-  'UPPER_WEST',
-  'VOLTA',
-  'WESTERN',
-  'WESTERN_NORTH',
-];
 
 export const siteHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<SiteList>>(apiUrl('/sites'), ({ request }) => {

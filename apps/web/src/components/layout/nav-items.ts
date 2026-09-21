@@ -36,10 +36,10 @@ export const navItems: NavItem[] = [
   },
   {
     label: 'Sites',
-    to: '/sites',
+    to: routes.sites,
     icon: MapPin,
     phase: 1,
-    available: false,
+    available: true,
     roles: pageRoles.sites,
   },
   { label: 'Attendance', to: '/attendance', icon: Clock, phase: 2, available: false },

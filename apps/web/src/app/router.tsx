@@ -11,6 +11,7 @@ import { EmployeesPage } from '@/pages/employees-page';
 import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
+import { SitesPage } from '@/pages/sites-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
 import { TwoFactorVerifyPage } from '@/pages/two-factor-verify-page';
@@ -54,6 +55,16 @@ export const router = createBrowserRouter([
           </RequireRole>
         ) : (
           <ComingInPhasePage title="Employees" phase={1} />
+        ),
+      },
+      {
+        path: 'sites',
+        element: env.useMocks ? (
+          <RequireRole roles={pageRoles.sites}>
+            <SitesPage />
+          </RequireRole>
+        ) : (
+          <ComingInPhasePage title="Sites" phase={1} />
         ),
       },
       {
