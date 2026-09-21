@@ -8,6 +8,7 @@ import type {
 import { mockDevices } from './devices';
 import { mockEmployees } from './employees';
 import { mockSites } from './sites';
+import { mockUsers } from './users';
 
 /**
  * Fictional attendance for the mock API: two weeks of day shifts for every
@@ -172,8 +173,10 @@ const kwameIn = punch('1', acc01.id, dayStart(1) + 5 * 3_600_000 + 58 * 60_000, 
 const akuaOut = punch('4', acc02.id, dayStart(2) + 18 * 3_600_000 + 5 * 60_000, 'OUT');
 const strangerIn = punch('99001', acc01.id, dayStart(3) + 6 * 3_600_000 + 2 * 60_000, 'IN');
 const graceIn = punch('6', tem01.id, dayStart(2) + 6 * 3_600_000 + 1 * 60_000, 'IN');
+const visitorIn = punch('99002', acc02.id, dayStart(9) + 7 * 3_600_000 + 15 * 60_000, 'IN');
+const admin = mockUsers.find((user) => user.role === 'ADMIN');
 
-/** One example of every exception type, all waiting for a person. */
+/** One example of every exception type waiting for a person, and one already dealt with. */
 export const mockExceptions: AttendanceException[] = [
   exception(1, {
     type: 'MISSING_CLOCK_OUT',
@@ -211,5 +214,19 @@ export const mockExceptions: AttendanceException[] = [
     occurredAt: overlapB.startedAt,
     punch: null,
     segments: [overlapB, overlapA],
+  }),
+  exception(6, {
+    type: 'UNKNOWN_EMPLOYEE',
+    status: 'RESOLVED',
+    siteId: acc02.id,
+    employee: null,
+    occurredAt: visitorIn.deviceTime,
+    punch: visitorIn,
+    resolution: {
+      action: 'DISMISS',
+      note: 'A visiting technician tested the reader. Not one of our staff.',
+      resolvedAt: new Date(Date.parse(visitorIn.deviceTime) + 3 * 3_600_000).toISOString(),
+      resolvedByUserId: admin?.id ?? '',
+    },
   }),
 ];

@@ -2,10 +2,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
 import { signInForTests } from '@/test/session';
 import { mockExceptions, mockSegments } from '../data/attendance';
+import { mockEmployees } from '../data/employees';
+import { mockSites } from '../data/sites';
 import { resetMockAttendance } from './attendance';
+import { resetMockDevices } from './devices';
 
-// This file resets its own mock store, so it needs no change to test/setup.ts.
-afterEach(() => resetMockAttendance());
+// This file resets its own mock stores, so it needs no change to test/setup.ts.
+afterEach(() => {
+  resetMockAttendance();
+  resetMockDevices();
+});
+
+const openExceptions = mockExceptions.filter((exception) => exception.status === 'OPEN');
 
 const today = new Date().toISOString().slice(0, 10);
 const twoWeeksAgo = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
@@ -54,6 +62,27 @@ describe('mock attendance API', () => {
     expect(refused.response.status).toBe(404);
   });
 
+  it('404s a supervisor asking about someone at another site, and a guard asking about a site', async () => {
+    await signInForTests('supervisor@samtec.example');
+    const { data } = await fetchClient.GET('/attendance/segments', {
+      params: { query: { from: twoWeeksAgo, to: today, limit: 100 } },
+    });
+    const mySite = data?.items[0]?.siteId;
+    const elsewhere = mockEmployees.find(
+      (employee) => employee.currentSite && employee.currentSite.id !== mySite,
+    );
+    const refused = await fetchClient.GET('/attendance/segments', {
+      params: { query: { from: twoWeeksAgo, to: today, employeeId: elsewhere?.id } },
+    });
+    expect(refused.response.status).toBe(404);
+
+    await signInForTests('guard@samtec.example');
+    const guardAsks = await fetchClient.GET('/attendance/segments', {
+      params: { query: { from: twoWeeksAgo, to: today, siteId: mySite } },
+    });
+    expect(guardAsks.response.status).toBe(404);
+  });
+
   it('refuses a range longer than 31 days', async () => {
     await signInForTests('admin@samtec.example');
     const { response, error } = await fetchClient.GET('/attendance/segments', {
@@ -66,7 +95,7 @@ describe('mock attendance API', () => {
   it('lists the open queue for HR, but HR may not resolve', async () => {
     await signInForTests('hr@samtec.example');
     const { data } = await fetchClient.GET('/attendance/exceptions');
-    expect(data?.items).toHaveLength(mockExceptions.length);
+    expect(data?.items).toHaveLength(openExceptions.length);
     expect(data?.items.every((item) => item.allowedActions.length === 0)).toBe(true);
 
     const refused = await fetchClient.POST('/attendance/exceptions/{exceptionId}/resolve', {
@@ -74,6 +103,50 @@ describe('mock attendance API', () => {
       body: { action: 'DISMISS', note: 'Checked it.' },
     });
     expect(refused.response.status).toBe(403);
+  });
+
+  it('shows dealt-with exceptions with their resolution', async () => {
+    await signInForTests('admin@samtec.example');
+    const { data } = await fetchClient.GET('/attendance/exceptions', {
+      params: { query: { status: 'RESOLVED' } },
+    });
+    expect(data?.items.length).toBeGreaterThan(0);
+    expect(data?.items[0]?.resolution?.action).toBe('DISMISS');
+    expect(data?.items[0]?.allowedActions).toEqual([]);
+  });
+
+  it('hides an overlap from a supervisor who runs only one of its two sites', async () => {
+    const overlap = exceptionOf('OVERLAP');
+    const supervisor = mockEmployees.find((employee) => employee.firstName === 'Yaw');
+    const kumasi = mockSites.find((site) => site.id === overlap.siteId);
+    if (!supervisor || !kumasi) throw new Error('Mock data changed');
+    const posting = supervisor.currentSite;
+    // For this test only, post the mock supervisor to one of the overlap's two sites.
+    supervisor.currentSite = { id: kumasi.id, code: kumasi.code, name: kumasi.name };
+    try {
+      await signInForTests('supervisor@samtec.example');
+      const { data } = await fetchClient.GET('/attendance/exceptions', {
+        params: { query: { type: 'OVERLAP' } },
+      });
+      expect(data?.items).toEqual([]);
+      const read = await fetchClient.GET('/attendance/exceptions/{exceptionId}', {
+        params: { path: { exceptionId: overlap.id } },
+      });
+      expect(read.response.status).toBe(404);
+    } finally {
+      supervisor.currentSite = posting;
+    }
+  });
+
+  it('lets a supervisor dismiss an unknown number at their site, with a note', async () => {
+    await signInForTests('supervisor@samtec.example');
+    const unknown = exceptionOf('UNKNOWN_EMPLOYEE');
+    const { data } = await fetchClient.POST('/attendance/exceptions/{exceptionId}/resolve', {
+      params: { path: { exceptionId: unknown.id } },
+      body: { action: 'DISMISS', note: 'A visitor tried the reader.' },
+    });
+    expect(data?.status).toBe('RESOLVED');
+    expect(data?.resolution?.action).toBe('DISMISS');
   });
 
   it('refuses the queue to a guard', async () => {

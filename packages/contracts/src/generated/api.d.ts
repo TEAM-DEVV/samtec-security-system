@@ -761,7 +761,7 @@ export interface paths {
         };
         /**
          * The attendance exception queue
-         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only their own sites). Things a person must look at: a clock-in with no clock-out, a clock-out with no clock-in, a user number that matches nobody, a punch from someone who may not clock in, and one person on two shifts at once. Newest first. Each item lists the actions the caller may take on it.
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only exceptions whose every site is theirs: an overlap that reaches a site they do not run is for an ADMIN). Things a person must look at: a clock-in with no clock-out, a clock-out with no clock-in, a user number that matches nobody, a punch from someone who may not clock in, and one person on two shifts at once. Newest first. Each item lists the actions the caller may take on it.
          */
         get: operations["listAttendanceExceptions"];
         put?: never;
@@ -784,7 +784,7 @@ export interface paths {
         };
         /**
          * Get one exception with its evidence
-         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only; others answer `404`).
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only when every site it touches is theirs; others answer `404`).
          */
         get: operations["getAttendanceException"];
         put?: never;
@@ -810,7 +810,7 @@ export interface paths {
         /**
          * Resolve an exception
          * @description **Roles:** ADMIN for any site; SUPERVISOR for their own sites (both
-         *     sites, for an overlap). HR_PAYROLL may read the queue but never
+         *     sites, for an overlap; otherwise they cannot see it). HR_PAYROLL may read the queue but never
          *     resolve it: the people who run payroll must not also create hours.
          *     **Nobody resolves an exception about their own attendance** (`403`).
          *
@@ -821,7 +821,8 @@ export interface paths {
          *     - `ADD_SEGMENT` (missing clock-in or clock-out) — records the shift
          *       by hand. The window must contain the real punch's time, be at most
          *       16 hours long and end in the past, so hours are only ever
-         *       completed around real biometric evidence.
+         *       completed around real biometric evidence. Hours that would overlap
+         *       another counted shift of the same person answer `409`.
          *     - `KEEP_SEGMENT` (overlap) — keeps one of the two shifts and voids
          *       the other.
          *     - `VOID_ALL` (overlap) — voids both shifts.
