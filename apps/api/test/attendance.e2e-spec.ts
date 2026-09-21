@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { type SignedRoute, signRequest } from '../src/modules/attendance/device-signature.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
-import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  createAttendanceCompany,
+  signedPost,
+  type TestDevice,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -50,22 +55,12 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
 
-  /** Sends a request exactly as a device does: serialise once, sign that text, send it. */
-  function signed(
+  const signed = (
     route: SignedRoute,
     body: unknown,
-    device = gate,
-    timestamp = String(Math.floor(Date.now() / 1000)),
-  ) {
-    const text = JSON.stringify(body);
-    return request(app.getHttpServer())
-      .post(`/api/v1/${route}`)
-      .set('Content-Type', 'application/json')
-      .set('X-Samtec-Device', device.id)
-      .set('X-Samtec-Timestamp', timestamp)
-      .set('X-Samtec-Signature', signRequest(device.secret, timestamp, route, text))
-      .send(text);
-  }
+    device: TestDevice = gate,
+    timestamp?: string,
+  ) => signedPost(app, route, body, device, timestamp);
 
   const punch = (overrides: Record<string, unknown> = {}) => ({
     deviceEventId: `e-${Math.random().toString(36).slice(2)}`,

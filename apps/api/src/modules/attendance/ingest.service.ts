@@ -13,6 +13,7 @@ import {
   lockCompanyAttendance,
 } from './attendance-lock.js';
 import type { SignedDevice } from './device-signature.guard.js';
+import { PairingService } from './pairing.service.js';
 import {
   judgePunchTime,
   mayClockIn,
@@ -35,7 +36,7 @@ interface StoredPunch {
  * Receives punches from devices. Transport-independent: the signed HTTP route
  * calls it today, and Phase 3's gateway and face kiosk will call the same
  * method. Each batch is ONE transaction under the company's attendance lock:
- * store, match, raise exceptions, commit. If anything fails nothing is kept,
+ * store, match, raise exceptions, re-pair the people who punched, commit. If anything fails nothing is kept,
  * and the device resends — which is always safe (docs/plan/12 §2 and §6).
  */
 @Injectable()
@@ -44,6 +45,7 @@ export class IngestService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
+    private readonly pairing: PairingService,
   ) {}
 
   async ingestPunches(
@@ -142,6 +144,16 @@ export class IngestService {
           return punchId ? [{ ...row, punchId }] : [];
         });
         await this.raiseWhoExceptions(tx, accepted, people);
+        await this.pairing.repair(
+          tx,
+          device.companyId,
+          rows.flatMap((row) =>
+            storedIds.has(row.deviceEventId) && row.pairable && row.employeeId
+              ? [row.employeeId]
+              : [],
+          ),
+          serverTime,
+        );
 
         if (clockDriftSeconds !== null) {
           await tx.device.update({
@@ -173,6 +185,8 @@ export class IngestService {
         data: { lastClockDriftSeconds: clockDriftSeconds },
       });
     }
+    // The only way a forgotten clock-out is noticed when nothing else happens.
+    await this.pairing.repairOverdueClockIns(device.companyId, serverTime);
     return { serverTime: serverTime.toISOString() };
   }
 

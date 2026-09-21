@@ -2,7 +2,7 @@
 
 **Purpose:** turn biometric clock-ins at guard posts into verified working hours.
 
-**Owns these tables:** `devices`, `punch_events`, `work_segments`, `attendance_exceptions` (Phase 3 adds `biometric_credentials`).
+**Owns these tables:** `devices`, `punch_events`, `work_segments`, `attendance_exceptions`, `attendance_checks` (Phase 3 adds `biometric_credentials`).
 
 Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../../../docs/plan/12-attendance-design.md). Read it first.
 

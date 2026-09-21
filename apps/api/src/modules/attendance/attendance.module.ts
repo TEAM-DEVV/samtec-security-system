@@ -12,6 +12,7 @@ import { DevicesController } from './devices.controller.js';
 import { DevicesService } from './devices.service.js';
 import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
+import { PairingService } from './pairing.service.js';
 
 /**
  * The attendance module: devices, punches, work segments and the exception
@@ -25,6 +26,7 @@ import { IngestService } from './ingest.service.js';
   providers: [
     DevicesService,
     IngestService,
+    PairingService,
     DeviceSignatureGuard,
     {
       // The BIOMETRIC_PROVIDER setting picks the provider. Phase 3 adds a case
