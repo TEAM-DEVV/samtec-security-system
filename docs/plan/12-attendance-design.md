@@ -21,7 +21,7 @@ device (or its gateway)
 - A timestamp more than 5 minutes from the server clock, a wrong signature, and an unknown or switched-off device all get the **same** `401`, so nobody can learn which device IDs exist.
 - A wrong signature bumps the device's `failedSignatureCount` **at most once a minute**. A stranger who knows a device ID can make at most one database write per minute, and can never lock the real device out.
 - **Rotation** gives a new secret and kills the old one at once. The device keeps any batch that was not acknowledged and resends it, so nothing is lost.
-- Rate limit: 60 signed requests per minute per device, counted in one atomic SQL statement (like the sign-in lockout).
+- Rate limit: 60 signed requests per minute per device, counted in one atomic SQL statement (like the sign-in lockout). It is a fixed one-minute window, so up to 120 requests can pass around a window boundary. That is still plenty of protection for one device, and far simpler to explain than a sliding window.
 - A request naming a device that does not exist costs one lookup by primary key and writes nothing. Flooding the API from outside is left to the hosting platform's firewall, like any other public endpoint.
 
 *Phase 3:* ZKTeco firmware cannot sign requests. A small gateway on the client's network talks to the terminals (ADMS push or `zkteco-js` pull), translates their records, and signs them with the device's secret. The API side does not change.
