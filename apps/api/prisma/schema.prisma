@@ -66,6 +66,9 @@ enum AuthChallengePurpose {
   VERIFY_CODE
   /// The user typed the right password and must now set up two-factor authentication.
   SET_UP
+  /// An administrator created the account or reset its sign-in; the person
+  /// chooses their own password with this one-time link (72 hours).
+  SET_PASSWORD
 }
 
 /// The 16 administrative regions of Ghana.
@@ -117,12 +120,16 @@ model User {
   /// Stored lower-case, so sign-in is not case-sensitive.
   email        String
   /// A scrypt hash. The password itself is never stored (see modules/identity/password.ts).
-  passwordHash String   @map("password_hash")
+  /// Empty while the account waits for the person to choose their own
+  /// password (after creation or a sign-in reset): such an account cannot sign in.
+  passwordHash String?  @map("password_hash")
   fullName     String   @map("full_name")
   role         UserRole
   /// A disabled account cannot sign in, and its refresh tokens stop working.
   isActive     Boolean  @default(true) @map("is_active")
-  /// The employee this account belongs to, or null for office-only accounts.
+  /// The employee this account belongs to. Required for SUPERVISOR and GUARD
+  /// (their data access follows it), always empty for ADMIN and HR_PAYROLL —
+  /// a database CHECK enforces both.
   employeeId   String?  @unique @map("employee_id") @db.Uuid
 
   /// The authenticator-app secret, encrypted with AES-256-GCM (never stored as
