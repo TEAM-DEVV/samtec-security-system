@@ -79,7 +79,7 @@ The API connects as the owner of the tables, and row-level security does not res
 | Only the API can read the tables | Row-level security on every table, and Supabase's Data API switched off (Phase 0) |
 | One current site assignment per employee | Workforce service (Phase 1), with a partial unique index in a SQL migration if tooling allows |
 | A repeated punch is stored once | Unique `(device_id, device_event_id)` (Phase 2) |
-| An employee's work segments never overlap | PostgreSQL exclusion constraint (Phase 2) |
+| An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |
 | Payroll runs only move forward: DRAFT → PENDING_APPROVAL → LOCKED → PAID | Payroll service plus a database trigger (Phase 4) |
 | The audit log can only grow | Database permissions: no UPDATE or DELETE (Phase 1) |
