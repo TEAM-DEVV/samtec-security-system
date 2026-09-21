@@ -1,8 +1,10 @@
 import { createBrowserRouter } from 'react-router';
+import { routes } from '@/app/routes';
 import { AppShell } from '@/components/layout/app-shell';
 import { env } from '@/lib/env';
 import { ComingInPhasePage } from '@/pages/coming-in-phase-page';
 import { EmployeesPage } from '@/pages/employees-page';
+import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
@@ -13,8 +15,19 @@ import { SystemStatusPage } from '@/pages/system-status-page';
  * link in `components/layout/nav-items.ts`.
  */
 export const router = createBrowserRouter([
+  // The sign-in pages stand alone, outside the app shell: no sidebar until signed in.
+  { path: routes.login, element: <LoginPage />, errorElement: <RouteErrorPage /> },
+  // Placeholders until the two-factor screens are built (Phase 1, task 2).
   {
-    path: '/',
+    path: routes.twoFactorVerify,
+    element: <ComingInPhasePage title="Two-factor sign-in" phase={1} />,
+  },
+  {
+    path: routes.twoFactorSetup,
+    element: <ComingInPhasePage title="Two-factor setup" phase={1} />,
+  },
+  {
+    path: routes.home,
     element: <AppShell />,
     errorElement: <RouteErrorPage />,
     children: [
