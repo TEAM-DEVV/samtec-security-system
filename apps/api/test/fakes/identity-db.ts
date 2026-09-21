@@ -18,6 +18,8 @@ export class FakeIdentityDb {
   sessions: UserSession[] = [];
   challenges: AuthChallenge[] = [];
   auditEntries: Array<{ action: string; entityId: string | null }> = [];
+  /** The same audit rows with who did it and the detail, for tests that check audit hygiene. */
+  auditRows: Array<{ action: string; actorUserId: string | null; detail: unknown }> = [];
 
   /** Adds a user with sensible defaults; override what a test cares about. */
   addUser(overrides: Partial<User> & Pick<User, 'email' | 'passwordHash' | 'role'>): User {
@@ -40,7 +42,7 @@ export class FakeIdentityDb {
 
   /** The object the services see. Only the methods they actually call exist. */
   asPrisma(): PrismaService {
-    return {
+    const prisma = {
       user: {
         findFirst: async ({ where }: { where: { email: string } }) =>
           this.users.find((user) => user.email === where.email) ?? null,
@@ -156,18 +158,41 @@ export class FakeIdentityDb {
         delete: async ({ where }: { where: { id: string } }) => {
           this.challenges = this.challenges.filter((candidate) => candidate.id !== where.id);
         },
-        deleteMany: async ({ where }: { where: { userId: string; purpose: string } }) => {
-          this.challenges = this.challenges.filter(
-            (candidate) =>
-              !(candidate.userId === where.userId && candidate.purpose === where.purpose),
-          );
+        // Matches on whichever of id / userId / purpose the caller sent, and
+        // reports how many rows went — like the real deleteMany.
+        deleteMany: async ({
+          where,
+        }: {
+          where: { id?: string; userId?: string; purpose?: string };
+        }) => {
+          const matches = (candidate: AuthChallenge) =>
+            (where.id === undefined || candidate.id === where.id) &&
+            (where.userId === undefined || candidate.userId === where.userId) &&
+            (where.purpose === undefined || candidate.purpose === where.purpose);
+          const before = this.challenges.length;
+          this.challenges = this.challenges.filter((candidate) => !matches(candidate));
+          return { count: before - this.challenges.length };
         },
       },
       auditLog: {
-        create: async ({ data }: { data: { action: string; entityId?: string } }) => {
+        create: async ({
+          data,
+        }: {
+          data: { action: string; entityId?: string; actorUserId: string | null; detail?: unknown };
+        }) => {
           this.auditEntries.push({ action: data.action, entityId: data.entityId ?? null });
+          this.auditRows.push({
+            action: data.action,
+            actorUserId: data.actorUserId,
+            detail: data.detail ?? null,
+          });
         },
       },
     } as unknown as PrismaService;
+    // A transaction here simply runs the steps against the same arrays.
+    Object.assign(prisma, {
+      $transaction: async <T>(steps: (tx: PrismaService) => Promise<T>) => steps(prisma),
+    });
+    return prisma;
   }
 }

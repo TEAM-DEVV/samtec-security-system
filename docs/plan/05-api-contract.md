@@ -36,7 +36,8 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 | Area | Endpoints | Status |
 |---|---|---|
 | System | `GET /health`, `GET /system/info` (admin only) | **Built** |
-| Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | **Built** |
+| Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/set-password` (one-time link), `POST /auth/change-password` | **Built** |
+| Users (ADMIN) | `GET/POST /users`, `GET/PATCH /users/{id}`, `POST /users/{id}/deactivate`, `POST /users/{id}/reactivate`, `POST /users/{id}/reset-sign-in` | **Built** |
 | Employees | `GET /employees`, `GET /employees/{id}` | **Built** |
 | Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | **Built** |
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
