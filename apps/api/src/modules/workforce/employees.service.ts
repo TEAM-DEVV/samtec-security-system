@@ -7,10 +7,12 @@ import {
 } from '@nestjs/common';
 import type { Employee as ApiEmployee, EmployeeList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
+import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import type { EmployeeStatus } from '../../generated/prisma/enums.js';
 import { AccountsService } from '../identity/accounts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
@@ -21,6 +23,14 @@ import {
   toDatabaseDate,
   type UpdateEmployeeBody,
 } from './workforce.schemas.js';
+
+/** What attendance learns about the person behind a staff number. */
+export interface StaffLookup {
+  id: string;
+  status: EmployeeStatus;
+  /** YYYY-MM-DD, or null. */
+  terminationDate: string | null;
+}
 
 /** An assignment that covers today: it has started and has not ended. */
 export function currentAssignmentFilter(today: Date = new Date()) {
@@ -369,6 +379,35 @@ export class EmployeesService {
       });
     });
     return this.get(viewer, employeeId);
+  }
+
+  /**
+   * For the attendance module: who each staff number belongs to, with just
+   * what deciding "may this person clock in?" needs. A system lookup (no
+   * signed-in viewer — punches come from devices), scoped to one company.
+   * One query per batch of punches.
+   */
+  async findByStaffNumbers(
+    companyId: string,
+    staffNumbers: string[],
+  ): Promise<Map<string, StaffLookup>> {
+    if (staffNumbers.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.employee.findMany({
+      where: { companyId, staffNumber: { in: staffNumbers } },
+      select: { id: true, staffNumber: true, status: true, terminationDate: true },
+    });
+    return new Map(
+      rows.map((row) => [
+        row.staffNumber,
+        {
+          id: row.id,
+          status: row.status,
+          terminationDate: row.terminationDate ? toIsoDate(row.terminationDate) : null,
+        },
+      ]),
+    );
   }
 
   // ---------------------------------------------------------------------------

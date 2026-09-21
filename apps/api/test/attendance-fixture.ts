@@ -1,0 +1,112 @@
+import { randomUUID } from 'node:crypto';
+import type { PrismaClient } from '../src/generated/prisma/client.js';
+import { hashPassword, TEST_ONLY_SCRYPT_PARAMS } from '../src/modules/identity/password.js';
+
+/**
+ * A brand-new fictional company for each attendance test run. Punches are
+ * append-only — they can never be deleted — so these tests cannot reset a
+ * shared company the way `db-fixture.ts` does. Every run gets fresh IDs, and
+ * old runs simply stay behind in the scratch database.
+ */
+export interface AttendanceCompany {
+  companyId: string;
+  siteA: string;
+  siteB: string;
+  /** An ACTIVE guard, a SUSPENDED one and one who left on `leaverLastDay`. */
+  active: { id: string; staffNumber: string };
+  suspended: { id: string; staffNumber: string };
+  leaver: { id: string; staffNumber: string };
+  leaverLastDay: string;
+  adminUserId: string;
+  supervisorUserId: string;
+  supervisorEmployeeId: string;
+}
+
+export async function createAttendanceCompany(prisma: PrismaClient): Promise<AttendanceCompany> {
+  const companyId = randomUUID();
+  const run = companyId.slice(0, 8);
+  await prisma.company.create({ data: { id: companyId, name: `Attendance Test ${run}` } });
+
+  const site = (code: string) =>
+    prisma.site.create({
+      data: {
+        companyId,
+        code,
+        name: `Test site ${code}`,
+        clientName: 'Test Client Ltd',
+        region: 'GREATER_ACCRA',
+        city: 'Accra',
+      },
+    });
+  const [siteA, siteB] = await Promise.all([site('ATA-01'), site('ATB-01')]);
+
+  // Staff numbers are unique per company, so the same numbers are fine in every run.
+  const employee = (
+    staffNumber: string,
+    status: 'ACTIVE' | 'SUSPENDED' | 'TERMINATED',
+    index: number,
+  ) =>
+    prisma.employee.create({
+      data: {
+        companyId,
+        staffNumber,
+        firstName: 'Test',
+        lastName: `Person ${index}`,
+        phone: `+23320999${String(index).padStart(4, '0')}`,
+        ghanaCardNumber: `GHA-8${String(index).padStart(8, '0')}-${index % 10}`,
+        position: 'Security Guard',
+        status,
+        hireDate: new Date('2026-01-05T00:00:00Z'),
+        terminationDate: status === 'TERMINATED' ? new Date('2026-09-10T00:00:00Z') : null,
+        terminationReason: status === 'TERMINATED' ? 'RESIGNED' : null,
+      },
+    });
+  const active = await employee('SMT-70001', 'ACTIVE', 1);
+  const suspended = await employee('SMT-70002', 'SUSPENDED', 2);
+  const leaver = await employee('SMT-70003', 'TERMINATED', 3);
+  const supervisor = await employee('SMT-70004', 'ACTIVE', 4);
+  await prisma.siteAssignment.create({
+    data: {
+      companyId,
+      employeeId: supervisor.id,
+      siteId: siteA.id,
+      startsOn: new Date('2026-01-05T00:00:00Z'),
+    },
+  });
+
+  const passwordHash = await hashPassword('demo-password', TEST_ONLY_SCRYPT_PARAMS);
+  const admin = await prisma.user.create({
+    data: {
+      companyId,
+      email: `admin-${run}@attendance.example`,
+      passwordHash,
+      fullName: 'Test Admin',
+      role: 'ADMIN',
+      // A usable admin must have two-factor switched on (the token guard checks).
+      twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+    },
+  });
+  const supervisorUser = await prisma.user.create({
+    data: {
+      companyId,
+      email: `supervisor-${run}@attendance.example`,
+      passwordHash,
+      fullName: 'Test Supervisor',
+      role: 'SUPERVISOR',
+      employeeId: supervisor.id,
+    },
+  });
+
+  return {
+    companyId,
+    siteA: siteA.id,
+    siteB: siteB.id,
+    active: { id: active.id, staffNumber: active.staffNumber },
+    suspended: { id: suspended.id, staffNumber: suspended.staffNumber },
+    leaver: { id: leaver.id, staffNumber: leaver.staffNumber },
+    leaverLastDay: '2026-09-10',
+    adminUserId: admin.id,
+    supervisorUserId: supervisorUser.id,
+    supervisorEmployeeId: supervisor.id,
+  };
+}

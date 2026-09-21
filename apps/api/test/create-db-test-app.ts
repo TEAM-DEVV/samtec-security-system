@@ -25,8 +25,11 @@ export async function createDbTestApp(databaseUrl: string): Promise<NestExpressA
     .useValue(config)
     .compile();
 
-  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
   configureApp(app, config);
-  await app.init();
+  // Listen once, on a free local port. Otherwise supertest starts and stops
+  // the same server around every request, and requests sent in parallel can
+  // cut each other off (ECONNRESET).
+  await app.listen(0, '127.0.0.1');
   return app;
 }
