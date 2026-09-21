@@ -1694,6 +1694,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Busy"
 
 components:
   securitySchemes:

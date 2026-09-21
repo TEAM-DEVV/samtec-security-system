@@ -168,11 +168,12 @@ export class AttendanceService {
     body: ResolveExceptionBody,
   ): Promise<ApiException> {
     const now = new Date();
-    // Read before the transaction: a locked transaction never waits on a second connection.
-    const visible = await this.sites.visibleSiteIds(viewer);
     try {
       await this.prisma.$transaction(async (tx) => {
         await lockCompanyAttendance(tx, viewer.companyId);
+        // Scope is read inside the lock, on the same connection: a supervisor
+        // moved off a site a moment ago can no longer resolve its exceptions.
+        const visible = await this.sites.visibleSiteIds(viewer, tx);
         const row = await this.findVisibleException(tx, viewer, exceptionId, visible);
         if (row.employeeId !== null && row.employeeId === viewer.employeeId) {
           throw new ForbiddenException(
@@ -190,6 +191,7 @@ export class AttendanceService {
         }
 
         let resolutionSegmentId: string | null = null;
+        let voided: string[] = [];
         if (body.action === 'ADD_SEGMENT') {
           resolutionSegmentId = await this.addManualSegment(tx, row, body, now);
         } else if (body.action === 'KEEP_SEGMENT' || body.action === 'VOID_ALL') {
@@ -197,13 +199,13 @@ export class AttendanceService {
           if (body.action === 'KEEP_SEGMENT' && !pair.includes(body.segmentId)) {
             throw fieldProblem('segmentId', "Choose one of this exception's two shifts.");
           }
-          const toVoid = pair.filter(
+          voided = pair.filter(
             (id): id is string =>
               id !== null && (body.action === 'VOID_ALL' || id !== body.segmentId),
           );
           // A person's void: re-pairing will never bring these back.
           await tx.workSegment.updateMany({
-            where: { id: { in: toVoid }, status: { not: 'VOIDED' } },
+            where: { id: { in: voided }, status: { not: 'VOIDED' } },
             data: { status: 'VOIDED', voidedAt: now, voidedByUserId: viewer.userId },
           });
         }
@@ -231,6 +233,9 @@ export class AttendanceService {
               type: row.type,
               resolution: body.action,
               ...(body.action === 'KEEP_SEGMENT' ? { keptSegmentId: body.segmentId } : {}),
+              ...(body.action === 'KEEP_SEGMENT' || body.action === 'VOID_ALL'
+                ? { voidedSegmentIds: voided.join(',') }
+                : {}),
               ...(resolutionSegmentId ? { addedSegmentId: resolutionSegmentId } : {}),
             },
           },
