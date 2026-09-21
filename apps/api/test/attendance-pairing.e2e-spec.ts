@@ -1,6 +1,7 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
+import { PairingService } from '../src/modules/attendance/pairing.service.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
@@ -171,6 +172,27 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
     expect(queued).toBe(0);
   });
 
+  it('leaves alone a shift that began before the 62-day window, even with a newer clock-out', async () => {
+    const day = 86_400_000;
+    const hour = 3_600_000;
+    const edge = Date.now() - 62 * day;
+    const clockIn = punch('70004', new Date(edge - 2 * hour).toISOString(), 'IN');
+    const clockOut = punch('70004', new Date(edge + 6 * hour).toISOString(), 'OUT');
+    await send(gateA, clockIn, clockOut);
+    const segments = await prisma.workSegment.count({
+      where: {
+        employeeId: company.supervisorEmployeeId,
+        startedAt: { gte: new Date(edge - 3 * hour), lt: new Date(edge + 7 * hour) },
+      },
+    });
+    expect(segments).toBe(0);
+    // And the newer clock-out is not reported as missing its clock-in.
+    const out = await prisma.punchEvent.findFirstOrThrow({
+      where: { deviceId: gateA.id, deviceEventId: clockOut.deviceEventId },
+    });
+    expect(await prisma.attendanceException.count({ where: { punchId: out.id } })).toBe(0);
+  });
+
   it('a heartbeat notices a clock-in that has waited more than 16 hours', async () => {
     // Stored directly, as if it had arrived while it was still a shift in progress.
     const lonely = await prisma.punchEvent.create({
@@ -225,4 +247,50 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
     });
     expect(raised?.status).toBe('OPEN');
   }, 20_000);
+
+  it('re-pairs a limited number of people per check, and the next check carries on', async () => {
+    // A fresh company, so its bookmark starts from nothing.
+    const other = await createAttendanceCompany(prisma);
+    const device = await prisma.device.create({
+      data: {
+        companyId: other.companyId,
+        siteId: other.siteA,
+        name: 'Direct gate',
+        kind: 'MOCK',
+        secretEncrypted: 'not-used-in-this-test',
+      },
+    });
+    const lonelyIn = (employeeId: string, hoursAgo: number, ref: string) =>
+      prisma.punchEvent.create({
+        data: {
+          companyId: other.companyId,
+          deviceId: device.id,
+          siteId: other.siteA,
+          deviceEventId: `cap-${ref}`,
+          deviceUserRef: ref,
+          employeeId,
+          deviceTime: new Date(Date.now() - hoursAgo * 3_600_000),
+          serverTime: new Date(Date.now() - hoursAgo * 3_600_000),
+          direction: 'IN',
+          method: 'FINGERPRINT',
+          payloadHash: '2'.repeat(64),
+        },
+      });
+    const first = await lonelyIn(other.active.id, 20, '70001');
+    const second = await lonelyIn(other.supervisorEmployeeId, 19, '70004');
+    const raisedFor = (punchId: string) =>
+      prisma.attendanceException.count({ where: { punchId, type: 'MISSING_CLOCK_OUT' } });
+
+    const pairing = app.get(PairingService);
+    await pairing.repairOverdueClockIns(other.companyId, new Date(), 1);
+    expect([await raisedFor(first.id), await raisedFor(second.id)]).toEqual([1, 0]);
+    const bookmark = await prisma.attendanceCheck.findUniqueOrThrow({
+      where: { companyId: other.companyId },
+    });
+    // It stopped exactly where the second person's first punch is.
+    expect(bookmark.overdueCheckedUntil.getTime()).toBe(second.deviceTime.getTime());
+
+    await pairing.repairOverdueClockIns(other.companyId, new Date(), 1);
+    expect(await raisedFor(second.id)).toBe(1);
+  });
 });
