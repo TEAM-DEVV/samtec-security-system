@@ -41,10 +41,19 @@ tags:
     description: Service health. Available from Phase 0.
   - name: Auth
     description: Sign-in, sessions and two-factor authentication. Built in Phase 1.
+  - name: Users
+    description: >-
+      Sign-in accounts, managed by administrators: create, change, switch off
+      and reset. Built in Phase 1.
   - name: Employees
     description: Guards and staff on the company payroll. Built in Phase 1.
   - name: Sites
     description: Client locations where guards are posted. Built in Phase 1.
+  - name: Rosters
+    description: >-
+      Posts (named guard positions at a site, like "Main Gate") and shift
+      patterns (working hours, like a night shift from 18:00 to 06:00).
+      Built in Phase 1.
 
 security:
   - bearerAuth: []
@@ -392,6 +401,301 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/set-password:
+    post:
+      tags: [Auth]
+      operationId: setPassword
+      summary: Choose your password with a one-time link from an administrator
+      description: >-
+        Public: the one-time token is the proof. An administrator never sees
+        or chooses anyone's password. They create the account (or reset its
+        sign-in) and pass the person a one-time link, and the person picks
+        their own password here. The link works once, for 72 hours. Afterwards
+        the person signs in normally with `POST /auth/login`; ADMIN and
+        HR_PAYROLL accounts then set up two-factor authentication as usual.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPasswordRequest"
+      responses:
+        "204":
+          description: The password is set. Sign in with it now.
+        "400":
+          description: >-
+            The link has expired, was already used, or belongs to a switched-off
+            account, or the password breaks the length rule.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change your own password
+      description: >-
+        **Roles:** any signed-in user. Needs the current password. On success
+        every session of this account ends, including this browser's: the
+        response clears the refresh cookie and the dashboard sends the person
+        to sign in again with the new password. A wrong current password
+        answers `400`, not `401`, so the dashboard does not try a refresh; it
+        counts towards the same per-email lockout as signing in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: The password was changed, and every session ended.
+          headers:
+            Set-Cookie:
+              description: Clears the refresh token cookie.
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List sign-in accounts
+      description: >-
+        **Roles:** ADMIN. Every sign-in account of the company, including
+        switched-off ones, oldest first. Sign-in accounts are separate from
+        employee records: a guard's account is linked to their employee record.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of accounts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccountList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Create a sign-in account
+      description: >-
+        **Roles:** ADMIN. SUPERVISOR and GUARD accounts must be linked to an
+        employee of the company who has not left (`employeeId`); ADMIN and
+        HR_PAYROLL accounts must not be. The account starts as
+        `AWAITING_PASSWORD`. The response carries a one-time password link
+        token, shown **only this once**: the dashboard turns it into a link
+        (`/set-password#token=…`) for the admin to hand over in person or by
+        private message, and the person chooses their own password with
+        `POST /auth/set-password`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+            examples:
+              guard:
+                summary: A sign-in account for a guard
+                value:
+                  email: yaw.asante@samtec.example
+                  fullName: Yaw Asante
+                  role: GUARD
+                  employeeId: 01927c3e-5a4b-7c8d-9e0f-1a2b3c4d5e6f
+      responses:
+        "201":
+          description: The account was created, with its one-time password link.
+          headers:
+            Location:
+              description: URL of the new account.
+              schema:
+                type: string
+                format: uri-reference
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccountWithPasswordSetup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Get one sign-in account
+      description: "**Roles:** ADMIN."
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Users]
+      operationId: updateUser
+      summary: Change an account's name, email, role or employee link
+      description: >-
+        **Roles:** ADMIN. Send only the fields you want to change. The link rule
+        is checked on the result: SUPERVISOR and GUARD need an employee,
+        ADMIN and HR_PAYROLL must have none. Changing the role or the link ends
+        every session of the account at once, so the person signs in again
+        (and a new ADMIN or HR_PAYROLL sets up two-factor authentication).
+        **On your own account only `fullName` may change** (`409` otherwise),
+        so nobody can lock themselves out. A switched-off account answers `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: The updated account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}/deactivate:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Users]
+      operationId: deactivateUser
+      summary: Switch an account off
+      description: >-
+        **Roles:** ADMIN, never on your own account. The account can no longer
+        sign in, every session and unfinished sign-in ends, and its current
+        access token stops working on the very next request. Nothing is
+        deleted. Terminating an employee switches their account off
+        automatically.
+      responses:
+        "200":
+          description: The account, now `DEACTIVATED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Users]
+      operationId: reactivateUser
+      summary: Switch an account back on
+      description: >-
+        **Roles:** ADMIN, never on your own account. Old sessions stay ended.
+        An account whose linked employee has left the company cannot be
+        switched back on (`409`).
+      responses:
+        "200":
+          description: The account, now `ACTIVE` (or `AWAITING_PASSWORD` if no password was ever set).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}/reset-sign-in:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Users]
+      operationId: resetUserSignIn
+      summary: Reset a forgotten password or a lost authenticator
+      description: >-
+        **Roles:** ADMIN, never on your own account. Clears **both** the
+        password and the two-factor authenticator, ends every session, and
+        issues a new one-time password link (shown only this once). The person
+        chooses a new password with the link; ADMIN and HR_PAYROLL accounts
+        then set up a new authenticator at their next sign-in. Clearing both
+        together stops a caller who knows the password from simply asking for
+        "a new phone". A switched-off account answers `409`.
+      responses:
+        "200":
+          description: The account, now `AWAITING_PASSWORD`, with its new link.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccountWithPasswordSetup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /employees:
     get:
       tags: [Employees]
@@ -548,6 +852,14 @@ paths:
                       id: 01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01
                       code: ACC-01
                       name: Ridge Towers Office Complex
+                    currentPost:
+                      id: 01927c3e-2222-7bbb-8ccc-0d0d0d0d0d01
+                      name: Main Gate
+                    currentShiftPattern:
+                      id: 01927c3e-3333-7ccc-8ddd-0e0e0e0e0e01
+                      name: Day Shift
+                      startTime: "06:00"
+                      endTime: "18:00"
                     createdAt: "2024-03-08T09:15:00Z"
                     updatedAt: "2026-08-30T14:02:11Z"
         "400":
@@ -719,6 +1031,213 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /sites/{siteId}/posts:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      tags: [Rosters]
+      operationId: listPosts
+      summary: List the posts of a site
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only). Sorted by
+        name. A site a supervisor may not see answers `404`.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Rosters]
+      operationId: createPost
+      summary: Create a post at a site
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A post is a named guard position at the
+        site, like "Main Gate" or "Reception", with the number of guards it
+        needs per shift.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostRequest"
+            examples:
+              mainGate:
+                summary: The main gate, guarded by two people per shift
+                value:
+                  name: Main Gate
+                  requiredGuards: 2
+      responses:
+        "201":
+          description: The post was created.
+          headers:
+            Location:
+              description: URL of the site's posts.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /posts/{postId}:
+    parameters:
+      - $ref: "#/components/parameters/PostId"
+    patch:
+      tags: [Rosters]
+      operationId: updatePost
+      summary: Update a post
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change.
+        A post is never deleted; set its status to `INACTIVE` when the client
+        stops paying for it, so history keeps its meaning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePostRequest"
+      responses:
+        "200":
+          description: The updated post.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /shift-patterns:
+    get:
+      tags: [Rosters]
+      operationId: listShiftPatterns
+      summary: List shift patterns
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. Shift patterns belong to the
+        whole company, not one site. Sorted by name.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of shift patterns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPatternList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Rosters]
+      operationId: createShiftPattern
+      summary: Create a shift pattern
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. When the end time is not after the start
+        time, the shift crosses midnight — a night shift from 18:00 to 06:00
+        ends the next morning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShiftPatternRequest"
+            examples:
+              nightShift:
+                summary: A 12-hour night shift that crosses midnight
+                value:
+                  name: Night Shift
+                  startTime: "18:00"
+                  endTime: "06:00"
+      responses:
+        "201":
+          description: The shift pattern was created.
+          headers:
+            Location:
+              description: URL of the shift pattern list.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPattern"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /shift-patterns/{shiftPatternId}:
+    parameters:
+      - $ref: "#/components/parameters/ShiftPatternId"
+    patch:
+      tags: [Rosters]
+      operationId: updateShiftPattern
+      summary: Update a shift pattern
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change.
+        Changing the times affects every employee assigned to this pattern
+        from now on; past attendance is never rewritten.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateShiftPatternRequest"
+      responses:
+        "200":
+          description: The updated shift pattern.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPattern"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -740,6 +1259,15 @@ components:
         started by another website. `SameSite=Strict` needs the dashboard and
         the API on the same site, as described in
         docs/plan/03-system-architecture.md.
+
+  headers:
+    NoStore:
+      description: >-
+        Always `no-store`: the response carries a one-time secret, so no
+        browser or proxy may keep a copy.
+      schema:
+        type: string
+        const: no-store
 
   parameters:
     Cursor:
@@ -771,6 +1299,30 @@ components:
       in: path
       required: true
       description: The site's ID.
+      schema:
+        type: string
+        format: uuid
+    PostId:
+      name: postId
+      in: path
+      required: true
+      description: The post's ID.
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: The sign-in account's ID.
+      schema:
+        type: string
+        format: uuid
+    ShiftPatternId:
+      name: shiftPatternId
+      in: path
+      required: true
+      description: The shift pattern's ID.
       schema:
         type: string
         format: uuid
@@ -1019,6 +1571,162 @@ components:
           type: [string, "null"]
           format: uuid
           description: The linked employee record for guards and supervisors, or `null` for office-only accounts.
+
+    UserAccountStatus:
+      type: string
+      description: |
+        - `AWAITING_PASSWORD` — created or reset; waiting for the person to
+          choose a password with their one-time link. Cannot sign in yet.
+        - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
+          account sets up two-factor authentication at its first sign-in;
+          `twoFactorEnabled` shows whether that has happened yet.
+        - `DEACTIVATED` — switched off by an administrator, or because the
+          linked employee left. Cannot sign in. Kept for history.
+      enum: [AWAITING_PASSWORD, ACTIVE, DEACTIVATED]
+
+    UserAccount:
+      type: object
+      description: A sign-in account as administrators see it. Never contains a password or secret.
+      required: [id, email, fullName, role, status, twoFactorEnabled, employeeId, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        status:
+          $ref: "#/components/schemas/UserAccountStatus"
+        twoFactorEnabled:
+          type: boolean
+        employeeId:
+          type: [string, "null"]
+          format: uuid
+          description: The linked employee for SUPERVISOR and GUARD accounts; `null` for ADMIN and HR_PAYROLL.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserAccountList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserAccount"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    PasswordSetupToken:
+      type: string
+      minLength: 1
+      maxLength: 512
+      description: >-
+        A one-time token that lets one person choose their password. It works
+        once, for 72 hours. Hand it over only in person or by private message.
+
+    PasswordSetup:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token:
+          $ref: "#/components/schemas/PasswordSetupToken"
+        expiresAt:
+          type: string
+          format: date-time
+
+    UserAccountWithPasswordSetup:
+      type: object
+      description: An account plus its one-time password link token, shown only in this one response.
+      required: [user, passwordSetup]
+      properties:
+        user:
+          $ref: "#/components/schemas/UserAccount"
+        passwordSetup:
+          $ref: "#/components/schemas/PasswordSetup"
+
+    PersonFullName:
+      type: string
+      minLength: 2
+      maxLength: 120
+      examples: [Yaw Asante]
+
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, fullName, role]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Stored lower-case. Unique within the company.
+        fullName:
+          $ref: "#/components/schemas/PersonFullName"
+        role:
+          $ref: "#/components/schemas/UserRole"
+        employeeId:
+          type: string
+          format: uuid
+          description: Required for SUPERVISOR and GUARD; not allowed for ADMIN and HR_PAYROLL.
+
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields you send are changed.
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        fullName:
+          $ref: "#/components/schemas/PersonFullName"
+        role:
+          $ref: "#/components/schemas/UserRole"
+        employeeId:
+          type: [string, "null"]
+          format: uuid
+          description: Link a different employee, or `null` to unlink (for ADMIN and HR_PAYROLL).
+
+    NewPassword:
+      type: string
+      minLength: 12
+      maxLength: 128
+      writeOnly: true
+      description: At least 12 characters. A short sentence is easy to remember and hard to guess.
+
+    SetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, newPassword]
+      properties:
+        token:
+          $ref: "#/components/schemas/PasswordSetupToken"
+        newPassword:
+          $ref: "#/components/schemas/NewPassword"
+
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
+        newPassword:
+          $ref: "#/components/schemas/NewPassword"
 
     LoginRequest:
       type: object
@@ -1299,6 +2007,8 @@ components:
         - hireDate
         - terminationDate
         - currentSite
+        - currentPost
+        - currentShiftPattern
         - createdAt
         - updatedAt
       properties:
@@ -1348,6 +2058,16 @@ components:
           oneOf:
             - $ref: "#/components/schemas/SiteSummary"
             - type: "null"
+        currentPost:
+          description: The post at that site, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/PostSummary"
+            - type: "null"
+        currentShiftPattern:
+          description: The shift pattern they work, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/ShiftPatternSummary"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
@@ -1385,6 +2105,14 @@ components:
           type: string
           format: uuid
           description: Optional. Post the employee to this site straight away.
+        postId:
+          type: string
+          format: uuid
+          description: Optional, only with `siteId`. The post at that site.
+        shiftPatternId:
+          type: string
+          format: uuid
+          description: Optional, only with `siteId`. The shift pattern they work.
 
     UpdateEmployeeRequest:
       type: object
@@ -1414,6 +2142,18 @@ components:
           type: [string, "null"]
           format: uuid
           description: Move the employee to this site, or send `null` to unassign them.
+        postId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            Set or change the post. Only with `siteId`, because a posting
+            change starts a fresh assignment. `null` clears the post.
+        shiftPatternId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            Set or change the shift pattern. Only with `siteId`, because a
+            posting change starts a fresh assignment. `null` clears it.
 
     TerminateEmployeeRequest:
       type: object
@@ -1505,3 +2245,184 @@ components:
         nextCursor:
           type: [string, "null"]
           description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ShiftTime:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: A time of day in 24-hour form, like `06:00` or `18:30`.
+      examples: ["18:00"]
+
+    PostStatus:
+      type: string
+      description: |
+        - `ACTIVE` — the client pays for this post; guards are assigned to it.
+        - `INACTIVE` — no longer staffed. Kept for history, never deleted.
+      enum: [ACTIVE, INACTIVE]
+
+    PostSummary:
+      type: object
+      description: Just enough of a post to show on an employee.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: [Main Gate]
+
+    Post:
+      type: object
+      required: [id, siteId, name, requiredGuards, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        siteId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: What the position is called at the site. Unique per site.
+          examples: [Main Gate]
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: How many guards this post needs on duty per shift.
+        status:
+          $ref: "#/components/schemas/PostStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PostList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreatePostRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 1
+
+    UpdatePostRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields you send are changed.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+        status:
+          $ref: "#/components/schemas/PostStatus"
+
+    ShiftPatternSummary:
+      type: object
+      description: Just enough of a shift pattern to show on an employee.
+      required: [id, name, startTime, endTime]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: [Night Shift]
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+
+    ShiftPattern:
+      type: object
+      required: [id, name, startTime, endTime, crossesMidnight, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: What the company calls this pattern. Unique per company.
+          examples: [Night Shift]
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+        crossesMidnight:
+          type: boolean
+          description: >-
+            `true` when the shift ends on the next calendar day, like 18:00 to
+            06:00. Worked out by the API — the end time is not after the start.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ShiftPatternList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShiftPattern"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreateShiftPatternRequest:
+      type: object
+      additionalProperties: false
+      required: [name, startTime, endTime]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+
+    UpdateShiftPatternRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields you send are changed.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"

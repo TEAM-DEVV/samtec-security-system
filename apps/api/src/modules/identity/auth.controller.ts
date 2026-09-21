@@ -25,10 +25,14 @@ import {
 } from '../../common/cookies.js';
 import { AppConfig } from '../../config/app-config.js';
 import {
+  type ChangePasswordBody,
+  changePasswordSchema,
   type EnableTwoFactorBody,
   enableTwoFactorSchema,
   type LoginBody,
   loginSchema,
+  type SetPasswordBody,
+  setPasswordSchema,
   type TwoFactorSetupBody,
   twoFactorSetupSchema,
   type VerifyTwoFactorBody,
@@ -126,6 +130,26 @@ export class AuthController {
   @Get('me')
   me(@Caller() caller: SignedInUser): Promise<CurrentUser> {
     return this.auth.me(caller.userId);
+  }
+
+  // Public: the one-time link token in the body is the proof.
+  @Public()
+  @Post('set-password')
+  @HttpCode(204)
+  async setPassword(@Body({ schema: setPasswordSchema }) body: SetPasswordBody): Promise<void> {
+    await this.auth.setPassword(body.token, body.newPassword);
+  }
+
+  @Post('change-password')
+  @HttpCode(204)
+  async changePassword(
+    @Caller() caller: SignedInUser,
+    @Body({ schema: changePasswordSchema }) body: ChangePasswordBody,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.auth.changePassword(caller.userId, body.currentPassword, body.newPassword);
+    // Every session just ended, this browser's too: forget its cookie.
+    clearRefreshCookie(response, this.config);
   }
 
   /**

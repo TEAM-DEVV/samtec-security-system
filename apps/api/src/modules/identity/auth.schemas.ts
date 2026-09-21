@@ -33,3 +33,27 @@ export const enableTwoFactorSchema = z.strictObject({
   code: sixDigitCode,
 });
 export type EnableTwoFactorBody = z.infer<typeof enableTwoFactorSchema>;
+
+/**
+ * Contract: `NewPassword`. Length is the rule that matters (NIST SP 800-63B):
+ * at least 12 characters, and at most 128 — the same limit as sign-in, so a
+ * saved password can always be typed in again.
+ */
+export const newPasswordSchema = z
+  .string()
+  .min(12, 'Use at least 12 characters. A short sentence works well.')
+  .max(128);
+
+/** Contract: `SetPasswordRequest`. */
+export const setPasswordSchema = z.strictObject({
+  token: oneTimeToken,
+  newPassword: newPasswordSchema,
+});
+export type SetPasswordBody = z.infer<typeof setPasswordSchema>;
+
+/** Contract: `ChangePasswordRequest`. */
+export const changePasswordSchema = z.strictObject({
+  currentPassword: z.string().min(1, 'Enter your current password.').max(128),
+  newPassword: newPasswordSchema,
+});
+export type ChangePasswordBody = z.infer<typeof changePasswordSchema>;
