@@ -46,12 +46,13 @@ In Phase 2 a device user number is the **digits of the staff number**: `42`, `00
 
 > A work segment is an **IN** followed by an **OUT** of the same person, **at the same site**, **no more than 16 hours later**.
 
+- **Each site is paired on its own.** One person on shift at two sites at once therefore makes two segments that overlap, which the queue then shows (never one silently merged shift).
 - Pairing compares moments in time (UTC) and never reads clock times, dates or shift patterns. A 22:00–06:00 night shift is just an IN followed 8 hours later by an OUT (480 minutes), and midnight never appears in the code. Editing a shift pattern can never rewrite past attendance.
 - **A shift's hours belong to the Ghana date it started.** Monday 22:00 to Tuesday 06:00 counts 480 minutes on Monday. Payroll puts a segment in the period that contains that date and never splits it.
-- **Repeat taps:** a punch less than 2 minutes after the previous punch, in the same direction (or UNKNOWN), is the same act. It is stored but ignored for pairing.
+- **Repeat taps:** a punch less than 2 minutes after the previous punch at the same site, in the same direction (or UNKNOWN), is the same act. It is stored but ignored for pairing.
 - **UNKNOWN direction** counts as OUT when an IN is open and at most 16 hours old; otherwise it counts as IN.
 - Ties at the same second are ordered OUT, then UNKNOWN, then IN. So a 06:00 handover makes two touching segments (06:00–18:00 and 18:00–06:00 never overlap: the ranges include their start and exclude their end).
-- **Re-pairing:** whenever new punches arrive for a person, their **last 62 days are paired again from scratch** and the stored segments are brought in line. Segments that are no longer wanted are voided (never deleted), and new ones are added. A segment a *person* voided is never recreated. Because the result depends only on which punches exist, the order they arrive in cannot change it. Tests prove this by shuffling batches.
+- **Re-pairing:** whenever new punches arrive for a person, their **last 62 days are paired again from scratch** and the stored segments are brought in line. Segments that are no longer wanted are voided (never deleted), and new ones are added. A segment a *person* voided is never recreated. Because the result depends only on which punches exist, the order they arrive in cannot change it. Tests prove this by shuffling batches. Segments that started more than 62 days ago are never changed (their punches stay with them), and a punch that arrives more than 62 days late is stored but not paired.
 
 ## 5. Overlaps and the exception queue
 
@@ -76,7 +77,7 @@ In Phase 2 a device user number is the **digits of the staff number**: `42`, `00
 Everything runs **inside the request that causes it**. There are no background workers, which suits serverless hosting.
 
 - Each ingest batch (up to 100 punches) is **one transaction** under a per-company lock: store, match, raise exceptions, re-pair, commit. If anything fails, nothing is kept and the device resends. The lock waits at most 10 seconds (otherwise `503`, and the device retries), and a stuck transaction is killed after 30 seconds, so a crashed server can never freeze a company.
-- **Clock-ins that never get a clock-out** only become visible with time. Every signed heartbeat checks for INs older than 16 hours with no pair and no exception, and re-pairs those people.
+- **Clock-ins that never get a clock-out** only become visible with time. Every signed heartbeat checks for INs older than 16 hours with no pair and no exception, and re-pairs those people (at most 20 per heartbeat; the next one does the rest). Finding nobody, the usual case, costs one read and takes no lock.
 - **Reads never write.**
 
 ## 7. The mock provider and the demo

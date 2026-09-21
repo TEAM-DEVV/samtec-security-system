@@ -630,5 +630,7 @@ model AttendanceException {
   @@index([siteId, status])
   @@index([secondSiteId])
   @@index([employeeId])
+  /// The heartbeat's overdue check asks "does this punch have an exception?".
+  @@index([punchId])
   @@map("attendance_exceptions")
 }
