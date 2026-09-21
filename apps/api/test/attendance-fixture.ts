@@ -4,6 +4,7 @@ import request from 'supertest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { type SignedRoute, signRequest } from '../src/modules/attendance/device-signature.js';
 import { hashPassword, TEST_ONLY_SCRYPT_PARAMS } from '../src/modules/identity/password.js';
+import { TokensService } from '../src/modules/identity/tokens.service.js';
 
 /**
  * A brand-new fictional company for each attendance test run. Punches are
@@ -15,13 +16,17 @@ export interface AttendanceCompany {
   companyId: string;
   siteA: string;
   siteB: string;
-  /** An ACTIVE guard, a SUSPENDED one and one who left on `leaverLastDay`. */
+  /** An ACTIVE guard (posted to site A), a SUSPENDED one and one who left on `leaverLastDay`. */
   active: { id: string; staffNumber: string };
   suspended: { id: string; staffNumber: string };
   leaver: { id: string; staffNumber: string };
   leaverLastDay: string;
   adminUserId: string;
+  hrUserId: string;
+  /** A GUARD account linked to the ACTIVE employee. */
+  guardUserId: string;
   supervisorUserId: string;
+  /** The supervisor is an employee too, posted to site A. */
   supervisorEmployeeId: string;
 }
 
@@ -68,13 +73,14 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
   const suspended = await employee('SMT-70002', 'SUSPENDED', 2);
   const leaver = await employee('SMT-70003', 'TERMINATED', 3);
   const supervisor = await employee('SMT-70004', 'ACTIVE', 4);
-  await prisma.siteAssignment.create({
-    data: {
+  // The supervisor and the active guard are both posted to site A.
+  await prisma.siteAssignment.createMany({
+    data: [supervisor, active].map((person) => ({
       companyId,
-      employeeId: supervisor.id,
+      employeeId: person.id,
       siteId: siteA.id,
       startsOn: new Date('2026-01-05T00:00:00Z'),
-    },
+    })),
   });
 
   const passwordHash = await hashPassword('demo-password', TEST_ONLY_SCRYPT_PARAMS);
@@ -87,6 +93,26 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
       role: 'ADMIN',
       // A usable admin must have two-factor switched on (the token guard checks).
       twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+    },
+  });
+  const hr = await prisma.user.create({
+    data: {
+      companyId,
+      email: `hr-${run}@attendance.example`,
+      passwordHash,
+      fullName: 'Test HR',
+      role: 'HR_PAYROLL',
+      twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+    },
+  });
+  const guard = await prisma.user.create({
+    data: {
+      companyId,
+      email: `guard-${run}@attendance.example`,
+      passwordHash,
+      fullName: 'Test Guard',
+      role: 'GUARD',
+      employeeId: active.id,
     },
   });
   const supervisorUser = await prisma.user.create({
@@ -109,6 +135,8 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
     leaver: { id: leaver.id, staffNumber: leaver.staffNumber },
     leaverLastDay: '2026-09-10',
     adminUserId: admin.id,
+    hrUserId: hr.id,
+    guardUserId: guard.id,
     supervisorUserId: supervisorUser.id,
     supervisorEmployeeId: supervisor.id,
   };
@@ -151,4 +179,20 @@ export async function registerDevice(
     .send({ name, siteId, kind: 'MOCK' })
     .expect(201);
   return { id: response.body.device.id, secret: response.body.secret };
+}
+
+/** Access tokens for each of the company's accounts, as if they had signed in. */
+export async function tokensFor(app: NestExpressApplication, company: AttendanceCompany) {
+  const tokens = app.get(TokensService);
+  const sign = (
+    userId: string,
+    role: 'ADMIN' | 'HR_PAYROLL' | 'SUPERVISOR' | 'GUARD',
+    employeeId: string | null,
+  ) => tokens.signAccessToken({ userId, companyId: company.companyId, role, employeeId });
+  return {
+    admin: await sign(company.adminUserId, 'ADMIN', null),
+    hr: await sign(company.hrUserId, 'HR_PAYROLL', null),
+    supervisor: await sign(company.supervisorUserId, 'SUPERVISOR', company.supervisorEmployeeId),
+    guard: await sign(company.guardUserId, 'GUARD', company.active.id),
+  };
 }

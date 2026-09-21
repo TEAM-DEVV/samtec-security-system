@@ -95,11 +95,30 @@ export class SitesService {
     return new Map(groups.map((group) => [group.siteId, group._count._all]));
   }
 
-  private async supervisorSiteIds(viewer: SignedInUser): Promise<string[]> {
+  /**
+   * The sites a viewer may see: undefined means every site (ADMIN and
+   * HR_PAYROLL), a GUARD sees none, a SUPERVISOR the sites they are posted to.
+   * Other modules use this to scope their own records the same way. Pass
+   * the transaction client (`db`) to read inside a transaction.
+   */
+  async visibleSiteIds(
+    viewer: SignedInUser,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<string[] | undefined> {
+    if (viewer.role === 'ADMIN' || viewer.role === 'HR_PAYROLL') {
+      return undefined;
+    }
+    return viewer.role === 'SUPERVISOR' ? this.supervisorSiteIds(viewer, db) : [];
+  }
+
+  private async supervisorSiteIds(
+    viewer: SignedInUser,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<string[]> {
     if (!viewer.employeeId) {
       return [];
     }
-    const assignments = await this.prisma.siteAssignment.findMany({
+    const assignments = await db.siteAssignment.findMany({
       where: { employeeId: viewer.employeeId, ...currentAssignmentFilter() },
       select: { siteId: true },
     });

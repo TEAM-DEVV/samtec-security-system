@@ -15,6 +15,9 @@ Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../
 | `device-signature.guard.ts` | `@DeviceSigned(route)` for device routes: no user token, a valid signature instead. It also counts the per-device rate limit. |
 | `ingest.controller.ts`, `ingest.service.ts` | `POST /ingest/punches` and `/ingest/heartbeat`. Stores each punch once and queues who-punched problems. |
 | `punch-rules.ts` | Pure rules: user number → staff number, the payload hash, impossible times, who may clock in. |
+| `pairing.ts` | Pure rules: punches → shifts (IN then OUT, same site, at most 16 hours), and what must change in the stored segments and the queue. |
+| `pairing.service.ts` | Re-pairs people's last 62 days after new punches or a resolution, and the heartbeat's check for forgotten clock-outs. |
+| `attendance.controller.ts`, `attendance.service.ts` | `GET /attendance/segments`, the exception queue, and resolving an exception. |
 | `attendance-lock.ts` | The per-company lock every attendance write takes, with its timeouts. |
 | `biometric-provider.ts` | The `BiometricProvider` interface and the mock provider (`BIOMETRIC_PROVIDER`, default `mock`). |
 
