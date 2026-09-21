@@ -8,6 +8,8 @@ import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
+import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
+import { TwoFactorVerifyPage } from '@/pages/two-factor-verify-page';
 
 /**
  * Every page of the dashboard and its web address.
@@ -17,14 +19,15 @@ import { SystemStatusPage } from '@/pages/system-status-page';
 export const router = createBrowserRouter([
   // The sign-in pages stand alone, outside the app shell: no sidebar until signed in.
   { path: routes.login, element: <LoginPage />, errorElement: <RouteErrorPage /> },
-  // Placeholders until the two-factor screens are built (Phase 1, task 2).
   {
     path: routes.twoFactorVerify,
-    element: <ComingInPhasePage title="Two-factor sign-in" phase={1} />,
+    element: <TwoFactorVerifyPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: routes.twoFactorSetup,
-    element: <ComingInPhasePage title="Two-factor setup" phase={1} />,
+    element: <TwoFactorSetupPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: routes.home,

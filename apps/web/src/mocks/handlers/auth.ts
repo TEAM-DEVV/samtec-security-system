@@ -23,6 +23,8 @@ const MOCK_TWO_FACTOR_SECRET = 'MOCKSECRETMOCKSECRET';
 const MAX_PASSWORD_FAILURES = 5;
 /** …for this long (15 minutes). */
 const LOCK_SECONDS = 900;
+/** The real API's wording for a used or expired challenge/setup token (auth.service.ts). */
+const SIGN_IN_EXPIRED = 'This sign-in has expired. Sign in with your password again.';
 
 type TokenPurpose = 'VERIFY' | 'SETUP';
 
@@ -106,7 +108,7 @@ export const authHandlers = [
       const challengeToken = textField(body, 'challengeToken');
       const user = userForToken(challengeToken, 'VERIFY');
       if (!challengeToken || !user) {
-        return unauthorized('This sign-in has expired. Sign in again.');
+        return unauthorized(SIGN_IN_EXPIRED);
       }
       if (code !== MOCK_TWO_FACTOR_CODE) {
         return unauthorized('The code is incorrect.');
@@ -122,7 +124,7 @@ export const authHandlers = [
       const body: unknown = await request.json().catch(() => undefined);
       const user = userForToken(textField(body, 'setupToken'), 'SETUP');
       if (!user) {
-        return unauthorized('This sign-in has expired. Sign in again.');
+        return unauthorized(SIGN_IN_EXPIRED);
       }
       return HttpResponse.json<TwoFactorSetup>({
         otpauthUri: `otpauth://totp/SAMTEC:${encodeURIComponent(user.email)}?secret=${MOCK_TWO_FACTOR_SECRET}&issuer=SAMTEC`,
@@ -142,7 +144,7 @@ export const authHandlers = [
       const setupToken = textField(body, 'setupToken');
       const user = userForToken(setupToken, 'SETUP');
       if (!setupToken || !user) {
-        return unauthorized('This sign-in has expired. Sign in again.');
+        return unauthorized(SIGN_IN_EXPIRED);
       }
       if (code !== MOCK_TWO_FACTOR_CODE) {
         return unauthorized('The code is incorrect.');
