@@ -108,9 +108,9 @@ The API returns one page and a `nextCursor`, a bookmark for the next page. The e
 
 While the next page loads, the table keeps showing the current page, dimmed (`isPlaceholderData`), and extra clicks on **Next** are ignored. The buttons stay enabled while loading, so keyboard users never lose their place.
 
-### Pages the live API cannot serve yet
+### Mock mode and live mode show the same pages
 
-The Employees page works with the mock API. The real `/employees` endpoint exists too, but it requires sign-in — and until the sign-in screens are built, live mode has no way to get an access token, so every request would fail with 401. `src/app/router.tsx` therefore shows `ComingInPhasePage` in live mode instead of a confusing error. Remove that check once the sign-in screens work against the live API.
+Since the sign-in screens work against the real API, `src/app/router.tsx` serves every page in both modes; only the badge in the top bar tells them apart. If the real API does not have an endpoint yet, the page's error state shows the API's own 404, so build the page against the mock and keep it out of the sidebar (`available: false` in `nav-items.ts`) until the endpoint lands.
 
 ## Adding a page, step by step
 
@@ -192,17 +192,15 @@ export function SitesPage() {
 
 ### 2. Give it a web address
 
-In `src/app/router.tsx`, add it to `children`, wrapped in `RequireRole` with the roles the API allows for `GET /sites` (`pageRoles.sites` in `src/lib/roles.ts`). Until sign-in works against the real API, show the notice in live mode, like the Employees page:
+In `src/app/router.tsx`, add it to `children`, wrapped in `RequireRole` with the roles the API allows for `GET /sites` (`pageRoles.sites` in `src/lib/roles.ts`):
 
 ```tsx
 {
   path: 'sites',
-  element: env.useMocks ? (
+  element: (
     <RequireRole roles={pageRoles.sites}>
       <SitesPage />
     </RequireRole>
-  ) : (
-    <ComingInPhasePage title="Sites" phase={1} />
   ),
 },
 ```
@@ -293,7 +291,7 @@ Signing in gives the dashboard two things. The **access token** proves who you a
 3. Only **one** refresh runs at a time, even across browser tabs (a browser-wide lock). The API replaces the refresh cookie on every call and treats a second use of an old cookie as theft, so two refreshes at once would sign you out everywhere.
 4. A `401` from a sign-in endpoint (wrong password or code) never triggers a refresh.
 
-After a page reload the memory is empty, so `RequireSession` (`src/components/require-session.tsx`) calls `restoreSession()` in `src/lib/auth.ts`: refresh the token from the cookie, ask `GET /auth/me` who you are, and carry on. If that fails, you land on `/login`. **Sign out** tells the API to revoke the cookie and forgets the session here, even when the API cannot be reached.
+After a page reload the memory is empty, so `RequireSession` (`src/components/require-session.tsx`) calls `restoreSession()` in `src/lib/auth.ts`: refresh the token from the cookie, ask `GET /auth/me` who you are, and carry on. If that fails, you land on `/login`. It only tries when a small yes/no note in `localStorage` says this browser signed in before (written on sign-in, wiped on sign-out; never a token), so a first-time visitor is not met with a failed `401` request in the console. Because the browser tells other tabs when that note is removed, signing out in one tab signs out every tab. **Sign out** tells the API to revoke the cookie and forgets the session here, even when the API cannot be reached.
 
 **Roles.** `pageRoles` in `src/lib/roles.ts` copies the `@Roles(...)` rules from the API's controllers. The sidebar shows only the links the signed-in role may open (`navItemsFor`), and each role-limited route is wrapped in `RequireRole`, which shows a "not available for your role" page instead. Both read the same `pageRoles`, so there is one place to change. The API checks the role again on every request: the dashboard's check is a courtesy, never the security boundary.
 
@@ -394,7 +392,7 @@ Testing tips:
 | Red TypeScript error on `$api.useQuery('get', '/something')` | The path or parameters are not in the contract. Check `openapi.yaml`, or change the contract first. |
 | The page shows "Could not reach the SAMTEC API" | You are in live mode without the API. Use `pnpm dev:web`, or start the API. If the API is running, check that `CORS_ORIGINS` in `apps/api/.env` includes `http://localhost:5173`. |
 | The page says **The mock API could not start** | Open http://localhost:5173 in Chrome, Edge or Firefox, not in a private window or a built-in preview browser. |
-| The Employees page says the real API gets it in Phase 1 | You are in live mode. Use `pnpm dev:web` to work with mock data. |
+| A page shows a 404 or 403 from the API in live mode | The API does not have that endpoint yet, or your role may not call it. Check the contract, or use `pnpm dev:web`. |
 | A test fails with "request … has no matching handler" | Add a handler in `src/mocks/handlers/`, or use `server.use(...)` in that test. |
 | Styles look broken | Stop the dev server and start it again. Check `src/index.css` still starts with the Tailwind import. |
 

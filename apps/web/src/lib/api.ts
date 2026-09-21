@@ -52,12 +52,10 @@ function neverRefreshes(url: string): boolean {
   return PATHS_THAT_NEVER_REFRESH.some((path) => pathname.endsWith(path));
 }
 
-const API_ORIGIN = new URL(env.apiBaseUrl).origin;
-
 /** Adds the signed-in user's access token, if there is one. Only ever to our own API. */
 function withAccessToken(request: Request): Request {
   const session = getSession();
-  if (session && new URL(request.url).origin === API_ORIGIN) {
+  if (session && new URL(request.url).origin === env.apiOrigin) {
     request.headers.set('Authorization', `Bearer ${session.accessToken}`);
   }
   return request;

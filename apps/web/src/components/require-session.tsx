@@ -4,21 +4,22 @@ import { Navigate } from 'react-router';
 import { routes } from '@/app/routes';
 import { Skeleton } from '@/components/ui/skeleton';
 import { restoreSession } from '@/lib/auth';
-import { getSession, useSession } from '@/lib/session';
+import { getSession, mayHaveSession, useSession } from '@/lib/session';
 
 type Status = 'checking' | 'checked';
 
 /**
  * Wraps everything that needs a signed-in user. With no session in memory it
- * first tries to restore one from the refresh cookie (a page reload), and only
- * then sends the visitor to the sign-in page. Signing out anywhere inside
- * clears the session, so this also sends the user back to sign in.
+ * first tries to restore one from the refresh cookie (a page reload), but only
+ * when this browser signed in before; otherwise, and when the restore fails,
+ * it sends the visitor to the sign-in page. Signing out anywhere inside clears
+ * the session, so this also sends the user back to sign in.
  */
 export function RequireSession({ children }: { children: ReactNode }) {
   const session = useSession();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<Status>(() =>
-    getSession() === null ? 'checking' : 'checked',
+    getSession() === null && mayHaveSession() ? 'checking' : 'checked',
   );
 
   useEffect(() => {

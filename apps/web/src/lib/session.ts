@@ -48,7 +48,41 @@ export function getSession(): SignedInSession | null {
 export function startSession(session: SignedInSession): void {
   currentSession = session;
   pendingTwoFactor = null;
+  markSignedInOnThisBrowser(true);
   notifyListeners();
+}
+
+/*
+ * A yes/no note that this browser signed in and has not signed out since. It
+ * is only a hint (never a token, never who the user is): after a reload the
+ * dashboard asks the API to restore the session only when the note is there,
+ * so a first-time visitor is not met with a failed request. If the note is
+ * ever wrong, the worst case is one extra sign-in.
+ */
+const SIGNED_IN_NOTE = 'samtec-signed-in';
+
+export function mayHaveSession(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(SIGNED_IN_NOTE) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Written on every sign-in and wiped on every sign-out. It never signs anyone
+ * in by itself; it is exported only so tests can imitate a reload.
+ */
+export function markSignedInOnThisBrowser(signedIn: boolean): void {
+  try {
+    if (signedIn) {
+      globalThis.localStorage?.setItem(SIGNED_IN_NOTE, '1');
+    } else {
+      globalThis.localStorage?.removeItem(SIGNED_IN_NOTE);
+    }
+  } catch {
+    // Storage blocked (private window, strict settings): the hint is simply absent.
+  }
 }
 
 /** Swaps in a fresh access token after `POST /auth/refresh`. The user stays the same. */
@@ -60,10 +94,11 @@ export function updateAccessToken(accessToken: string): void {
   notifyListeners();
 }
 
-/** Forgets everything: the session and any pending two-factor step. */
+/** Forgets everything: the session, any pending two-factor step, and the signed-in note. */
 export function clearSession(): void {
   currentSession = null;
   pendingTwoFactor = null;
+  markSignedInOnThisBrowser(false);
   notifyListeners();
 }
 
@@ -80,6 +115,18 @@ function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/*
+ * Signing out in one tab signs out every tab: the browser tells the other tabs
+ * when the note disappears, and they forget their session too. Only removal
+ * counts. A note appearing is never trusted as a sign-in; the tab would still
+ * have to restore through the API.
+ */
+globalThis.addEventListener?.('storage', (event: StorageEvent) => {
+  if (event.key === SIGNED_IN_NOTE && event.newValue === null && currentSession !== null) {
+    clearSession();
+  }
+});
 
 /** The current session, for components. They redraw when it changes. */
 export function useSession(): SignedInSession | null {

@@ -19,7 +19,8 @@ async function startMockApi(): Promise<void> {
     // handler in src/mocks/handlers/. The request fails and the browser console
     // explains why. Other requests, such as fonts, pass through untouched.
     onUnhandledRequest(request, print) {
-      if (request.url.startsWith(env.apiBaseUrl)) {
+      // The API address may be relative (`/api/v1`), so compare full addresses.
+      if (request.url.startsWith(new URL(env.apiBaseUrl, window.location.origin).href)) {
         print.error();
       }
     },

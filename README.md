@@ -79,4 +79,4 @@ Everything else — every decision and the reason behind it — is written down 
 
 ## Right now
 
-**Phase 0 is merged; Phase 1 (sign-in and workforce) is being built.** The backend's sign-in system and the employee and site endpoints are in. Samuel: build against the mock API as usual — the sign-in screens are your next big piece, and the mock accounts for them are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).
+**Phase 0 is merged; Phase 1 (sign-in and workforce) is being built.** The backend's sign-in system and the employee and site endpoints are in, and the dashboard's Phase 1 screens (sign-in, two-factor, session handling, role-based navigation, employees, employee record, sites) are in review, working against the live API. The mock accounts are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).
