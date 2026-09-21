@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util';
 import { normalizeEmail } from '../src/common/emails.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { loadEnvFile, parseEnv } from '../src/config/env.js';
+import { isOnThisComputer } from '../src/config/local-database.js';
 import { PrismaService } from '../src/database/prisma.service.js';
 import { AccountsService } from '../src/modules/identity/accounts.service.js';
 import { AuditService } from '../src/modules/identity/audit.service.js';
@@ -120,8 +121,7 @@ async function chooseCompany(companyId: string | undefined): Promise<string> {
 
 function refuseRemoteDatabase(url: string): void {
   const host = new URL(url).hostname;
-  const isOnThisComputer = ['localhost', '127.0.0.1', '[::1]'].includes(host);
-  if (!isOnThisComputer && process.env.ALLOW_REMOTE_ADMIN_SCRIPT !== 'yes') {
+  if (!isOnThisComputer(url) && process.env.ALLOW_REMOTE_ADMIN_SCRIPT !== 'yes') {
     throw new Error(
       `Refusing to change accounts in the database at "${host}". ` +
         'Run the command again with ALLOW_REMOTE_ADMIN_SCRIPT=yes if you really mean to.',

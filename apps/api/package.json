@@ -19,7 +19,8 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset && prisma db seed",
     "db:studio": "prisma studio",
-    "account:admin": "tsx scripts/admin-account.ts"
+    "account:admin": "tsx scripts/admin-account.ts",
+    "mock:devices": "tsx scripts/mock-devices.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.2",
