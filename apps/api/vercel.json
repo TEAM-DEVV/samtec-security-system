@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm exec prisma migrate deploy && pnpm build",
+  "buildCommand": "pnpm exec prisma generate && pnpm exec prisma migrate deploy && pnpm build",
   "framework": null,
   "outputDirectory": ".",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
