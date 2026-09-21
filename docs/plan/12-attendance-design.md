@@ -22,6 +22,7 @@ device (or its gateway)
 - A wrong signature bumps the device's `failedSignatureCount` **at most once a minute**. A stranger who knows a device ID can make at most one database write per minute, and can never lock the real device out.
 - **Rotation** gives a new secret and kills the old one at once. The device keeps any batch that was not acknowledged and resends it, so nothing is lost.
 - Rate limit: 60 signed requests per minute per device, counted in one atomic SQL statement (like the sign-in lockout).
+- A request naming a device that does not exist costs one lookup by primary key and writes nothing. Flooding the API from outside is left to the hosting platform's firewall, like any other public endpoint.
 
 *Phase 3:* ZKTeco firmware cannot sign requests. A small gateway on the client's network talks to the terminals (ADMS push or `zkteco-js` pull), translates their records, and signs them with the device's secret. The API side does not change.
 
@@ -66,7 +67,9 @@ In Phase 2 a device user number is the **digits of the staff number**: `42`, `00
 | `INACTIVE_EMPLOYEE` | someone who may not clock in punched | dismiss |
 | `OVERLAP` | one person, two shifts at once | keep one, or void both |
 
-**Who resolves:** ADMIN for any site. A SUPERVISOR for their own sites (both sites, for an overlap). **HR_PAYROLL reads but never creates hours**, which keeps Phase 4's maker–checker split meaningful. **Nobody resolves their own attendance.** A hand-added shift must contain the real punch's time, last at most 16 hours and end in the past, so hours are only ever completed around real biometric evidence. Every resolution is audited; its free-text note is not.
+**Who sees and resolves:** ADMIN for any site. A SUPERVISOR only exceptions whose every site is theirs: an overlap that reaches a site they do not run is hidden from them (`404`), so they never see a shift at someone else's site, and an ADMIN deals with it. **HR_PAYROLL reads but never creates hours**, which keeps Phase 4's maker–checker split meaningful. **Nobody resolves their own attendance.** A hand-added shift must contain the real punch's time, last at most 16 hours and end in the past, so hours are only ever completed around real biometric evidence. It may not overlap any other counted shift of the person (`409`); the exclusion constraint is the final guard. Every resolution is audited; its free-text note is not.
+
+**Why one person may resolve alone:** a resolution never pays anyone by itself. The hours it confirms flow into a payroll run, and Phase 4's payroll approval is maker–checker (the person who prepares a run can never approve it), so a second person always reviews the hours before money moves. Each resolution is also in the audit log with who did it, and the hours a person added by hand are marked `MANUAL`, which the Phase 5 ghost rules can count.
 
 ## 6. When the work happens
 

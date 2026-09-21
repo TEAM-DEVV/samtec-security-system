@@ -9,6 +9,8 @@ import type {
 } from '@samtec/contracts';
 import { HttpResponse, http, type PathParams } from 'msw';
 import { mockExceptions, mockSegments } from '../data/attendance';
+import { mockEmployees } from '../data/employees';
+import { mockSites } from '../data/sites';
 import {
   apiUrl,
   conflict,
@@ -22,7 +24,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
-import { visibleSiteIds } from '../scope';
+import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
 
 /**
@@ -69,13 +71,20 @@ const ACTIONS_FOR_TYPE: Record<AttendanceException['type'], ExceptionResolutionA
   OVERLAP: ['KEEP_SEGMENT', 'VOID_ALL'],
 };
 
+/** Every site an exception touches: two for an overlap, otherwise one. */
+function sitesOf(exception: AttendanceException): string[] {
+  return exception.secondSiteId === null
+    ? [exception.siteId]
+    : [exception.siteId, exception.secondSiteId];
+}
+
+/**
+ * A supervisor sees an exception only when every site it touches is theirs,
+ * so an overlap never shows them a shift at a site they do not run. Such an
+ * overlap is for an administrator.
+ */
 function canSee(user: CurrentUser, exception: AttendanceException): boolean {
-  const allowed = visibleSiteIds(user);
-  return (
-    allowed === undefined ||
-    allowed.includes(exception.siteId) ||
-    (exception.secondSiteId !== null && allowed.includes(exception.secondSiteId))
-  );
+  return sitesOf(exception).every((siteId) => canSeeSite(user, siteId));
 }
 
 /** Why this user may not resolve this exception, or undefined when they may. */
@@ -86,9 +95,7 @@ function resolveRefusal(user: CurrentUser, exception: AttendanceException) {
   if (exception.employee !== null && exception.employee.id === user.employeeId) {
     return 'self';
   }
-  const allowed = visibleSiteIds(user);
-  const sites = [exception.siteId, exception.secondSiteId].filter((id) => id !== null);
-  if (allowed !== undefined && !sites.every((id) => allowed.includes(id))) {
+  if (!canSee(user, exception)) {
     return 'other-site';
   }
   return undefined;
@@ -98,6 +105,14 @@ function resolveRefusal(user: CurrentUser, exception: AttendanceException) {
 function forCaller(user: CurrentUser, exception: AttendanceException): AttendanceException {
   const mayResolve = exception.status === 'OPEN' && resolveRefusal(user, exception) === undefined;
   return { ...exception, allowedActions: mayResolve ? ACTIONS_FOR_TYPE[exception.type] : [] };
+}
+
+/** A guard may view only themselves; others follow the employees API's site rule. */
+function mayViewEmployee(user: CurrentUser, employeeId: string): boolean {
+  const employee = mockEmployees.find((candidate) => candidate.id === employeeId);
+  if (!employee) return false;
+  if (user.role === 'GUARD') return employee.id === user.employeeId;
+  return canSeeSite(user, employee.currentSite?.id ?? null);
 }
 
 function overlaps(a: WorkSegment, startMs: number, endMs: number): boolean {
@@ -137,13 +152,16 @@ export const attendanceHandlers = [
         return validationProblem('employeeId', 'Must be a valid ID.');
       }
 
-      // A guard sees only themselves; asking about anyone else "does not exist".
-      if (user.role === 'GUARD' && employeeId !== null && employeeId !== user.employeeId) {
-        return notFound('No employee exists with this ID.');
-      }
-      const allowed = visibleSiteIds(user);
-      if (user.role === 'SUPERVISOR' && siteId !== null && !allowed?.includes(siteId)) {
+      // A site or employee the caller may not see "does not exist" (404),
+      // exactly like one that really does not exist.
+      if (
+        siteId !== null &&
+        !(mockSites.some((site) => site.id === siteId) && canSeeSite(user, siteId))
+      ) {
         return notFound('No site exists with this ID.');
+      }
+      if (employeeId !== null && !mayViewEmployee(user, employeeId)) {
+        return notFound('No employee exists with this ID.');
       }
 
       const matches = segments
@@ -154,7 +172,7 @@ export const attendanceHandlers = [
         .filter((segment) => siteId === null || segment.siteId === siteId)
         .filter((segment) => employeeId === null || segment.employee.id === employeeId)
         .filter((segment) => user.role !== 'GUARD' || segment.employee.id === user.employeeId)
-        .filter((segment) => user.role !== 'SUPERVISOR' || (allowed ?? []).includes(segment.siteId))
+        .filter((segment) => user.role === 'GUARD' || canSeeSite(user, segment.siteId))
         .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
       const page = pageOf(matches, limit, query.get('cursor'));
       return page
@@ -185,8 +203,10 @@ export const attendanceHandlers = [
       const siteId = query.get('siteId');
       if (siteId !== null && !isUuid(siteId))
         return validationProblem('siteId', 'Must be a valid ID.');
-      const allowed = visibleSiteIds(user);
-      if (siteId !== null && allowed !== undefined && !allowed.includes(siteId)) {
+      if (
+        siteId !== null &&
+        !(mockSites.some((site) => site.id === siteId) && canSeeSite(user, siteId))
+      ) {
         return notFound('No site exists with this ID.');
       }
 
