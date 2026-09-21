@@ -5,6 +5,9 @@
 export const routes = {
   home: '/',
   login: '/login',
+  employees: '/employees',
+  /** One employee's record. */
+  employee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}`,
   /** The 6-digit code screen, after a sign-in answered TWO_FACTOR_REQUIRED. */
   twoFactorVerify: '/login/two-factor',
   /** The QR code screen, after a sign-in answered TWO_FACTOR_SETUP_REQUIRED. */

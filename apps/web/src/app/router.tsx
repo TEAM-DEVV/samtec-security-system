@@ -6,6 +6,7 @@ import { RequireSession } from '@/components/require-session';
 import { env } from '@/lib/env';
 import { pageRoles } from '@/lib/roles';
 import { ComingInPhasePage } from '@/pages/coming-in-phase-page';
+import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
@@ -53,6 +54,16 @@ export const router = createBrowserRouter([
           </RequireRole>
         ) : (
           <ComingInPhasePage title="Employees" phase={1} />
+        ),
+      },
+      {
+        // No RequireRole: any signed-in user may ask, and the API decides
+        // record by record (a guard sees only their own).
+        path: 'employees/:employeeId',
+        element: env.useMocks ? (
+          <EmployeeDetailPage />
+        ) : (
+          <ComingInPhasePage title="Employee" phase={1} />
         ),
       },
       { path: '*', element: <NotFoundPage /> },
