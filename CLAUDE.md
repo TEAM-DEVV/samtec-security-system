@@ -57,6 +57,6 @@ Branch from `main` with a prefix (`feat/`, `fix/`, `contract/`, `docs/`, `chore/
 
 ## Current phase
 
-Phase 0 is merged. Phase 1 (identity and workforce) is in progress: sign-in, two-factor, the audit log, the employee/site read endpoints, the employee write endpoints (create, update, terminate) and employment periods are built; next are posts and shift patterns, and Samuel's sign-in screens. Two owner tasks outside the repository remain (repository protection settings and ordering a ZKTeco device). See `docs/plan/07-roadmap.md`.
+Phase 0 is merged. Phase 1 (identity and workforce) is in progress: sign-in, two-factor, the audit log, the employee/site read endpoints, the employee write endpoints (create, update, terminate), employment periods, posts and shift patterns are built; the backend's remaining Phase 1 item is user management, and Samuel's screens complete the frontend side. Two owner tasks outside the repository remain (repository protection settings and ordering a ZKTeco device). See `docs/plan/07-roadmap.md`.
 
 Phase 1 API rules: every route requires sign-in unless marked `@Public()`; restrict roles with `@Roles(...)` and read the caller with `@Caller()` (`src/common/auth.decorators.ts`). Record every important change through `AuditService`. The database-backed tests in `apps/api/test/db.e2e-spec.ts` run when `TEST_DATABASE_URL` points at a migrated database (CI's database job does this; locally point it at the running local database).

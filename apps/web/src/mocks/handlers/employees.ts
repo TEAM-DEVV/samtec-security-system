@@ -9,6 +9,7 @@ import type {
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
 import { EMPLOYEE_STATUSES } from '@/components/employee-status-badge';
 import { mockEmployees } from '../data/employees';
+import { mockPosts, mockShiftPatterns } from '../data/rosters';
 import { mockSites } from '../data/sites';
 import {
   apiUrl,
@@ -123,13 +124,43 @@ export const employeeHandlers = [
         return conflict('An employee with this Ghana Card number is already registered.');
       }
       // An optional first posting, like the real API's site assignment.
+      if (body.postId !== undefined && body.siteId === undefined) {
+        return validationProblem('postId', 'Send `siteId` too — a post belongs to a site.');
+      }
+      if (body.shiftPatternId !== undefined && body.siteId === undefined) {
+        return validationProblem(
+          'shiftPatternId',
+          'Send `siteId` too — a shift is worked at a site.',
+        );
+      }
       let currentSite = null;
+      let currentPost = null;
+      let currentShiftPattern = null;
       if (body.siteId !== undefined) {
         const summary = isUuid(body.siteId) ? siteSummaryFor(body.siteId) : undefined;
         if (!summary) {
           return validationProblem('siteId', 'No site exists with this ID.');
         }
         currentSite = summary;
+        if (body.postId !== undefined) {
+          const post = mockPosts.find((p) => p.id === body.postId && p.siteId === body.siteId);
+          if (!post) {
+            return validationProblem('postId', 'No post with this ID exists at this site.');
+          }
+          currentPost = { id: post.id, name: post.name };
+        }
+        if (body.shiftPatternId !== undefined) {
+          const pattern = mockShiftPatterns.find((p) => p.id === body.shiftPatternId);
+          if (!pattern) {
+            return validationProblem('shiftPatternId', 'No shift pattern exists with this ID.');
+          }
+          currentShiftPattern = {
+            id: pattern.id,
+            name: pattern.name,
+            startTime: pattern.startTime,
+            endTime: pattern.endTime,
+          };
+        }
       }
 
       const nextNumber =
@@ -151,6 +182,8 @@ export const employeeHandlers = [
         hireDate: body.hireDate,
         terminationDate: null,
         currentSite,
+        currentPost,
+        currentShiftPattern,
         createdAt: now,
         updatedAt: now,
       };
@@ -201,6 +234,8 @@ export const employeeHandlers = [
         'email',
         'position',
         'siteId',
+        'postId',
+        'shiftPatternId',
       ];
       const unknown = Object.keys(body).find((key) => !allowed.includes(key));
       if (unknown !== undefined) {
@@ -209,16 +244,66 @@ export const employeeHandlers = [
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
       }
+      // A post or shift only makes sense as part of a posting (like the real API).
+      if (body.postId !== undefined && body.siteId === undefined) {
+        return validationProblem(
+          'postId',
+          'Send `siteId` too — changing the post starts a fresh posting.',
+        );
+      }
+      if (body.shiftPatternId !== undefined && body.siteId === undefined) {
+        return validationProblem(
+          'shiftPatternId',
+          'Send `siteId` too — changing the shift starts a fresh posting.',
+        );
+      }
       // `siteId` moves the posting: a new site, or null to unassign.
       if (body.siteId !== undefined) {
         if (body.siteId === null) {
+          if (body.postId != null) {
+            return validationProblem(
+              'postId',
+              'Send a real `siteId` too — a post belongs to a site.',
+            );
+          }
+          if (body.shiftPatternId != null) {
+            return validationProblem(
+              'shiftPatternId',
+              'Send a real `siteId` too — a shift is worked at a site.',
+            );
+          }
           employee.currentSite = null;
+          employee.currentPost = null;
+          employee.currentShiftPattern = null;
         } else {
           const summary = isUuid(body.siteId) ? siteSummaryFor(body.siteId) : undefined;
           if (!summary) {
             return validationProblem('siteId', 'No site exists with this ID.');
           }
           employee.currentSite = summary;
+          const post =
+            body.postId == null
+              ? null
+              : mockPosts.find((p) => p.id === body.postId && p.siteId === body.siteId);
+          if (post === undefined) {
+            return validationProblem('postId', 'No post with this ID exists at this site.');
+          }
+          const pattern =
+            body.shiftPatternId == null
+              ? null
+              : mockShiftPatterns.find((p) => p.id === body.shiftPatternId);
+          if (pattern === undefined) {
+            return validationProblem('shiftPatternId', 'No shift pattern exists with this ID.');
+          }
+          employee.currentPost = post ? { id: post.id, name: post.name } : null;
+          employee.currentShiftPattern = pattern
+            ? {
+                id: pattern.id,
+                name: pattern.name,
+                startTime: pattern.startTime,
+                endTime: pattern.endTime,
+              }
+            : null;
         }
       }
 
