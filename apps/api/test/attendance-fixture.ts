@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import request from 'supertest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
+import { type SignedRoute, signRequest } from '../src/modules/attendance/device-signature.js';
 import { hashPassword, TEST_ONLY_SCRYPT_PARAMS } from '../src/modules/identity/password.js';
 
 /**
@@ -109,4 +112,43 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
     supervisorUserId: supervisorUser.id,
     supervisorEmployeeId: supervisor.id,
   };
+}
+
+/** A registered device and its one-time secret. */
+export interface TestDevice {
+  id: string;
+  secret: string;
+}
+
+/** Sends a request exactly as a device does: serialise once, sign that text, send it. */
+export function signedPost(
+  app: NestExpressApplication,
+  route: SignedRoute,
+  body: unknown,
+  device: TestDevice,
+  timestamp = String(Math.floor(Date.now() / 1000)),
+) {
+  const text = JSON.stringify(body);
+  return request(app.getHttpServer())
+    .post(`/api/v1/${route}`)
+    .set('Content-Type', 'application/json')
+    .set('X-Samtec-Device', device.id)
+    .set('X-Samtec-Timestamp', timestamp)
+    .set('X-Samtec-Signature', signRequest(device.secret, timestamp, route, text))
+    .send(text);
+}
+
+/** Registers a device through the API, as an administrator would. */
+export async function registerDevice(
+  app: NestExpressApplication,
+  adminToken: string,
+  siteId: string,
+  name: string,
+): Promise<TestDevice> {
+  const response = await request(app.getHttpServer())
+    .post('/api/v1/devices')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ name, siteId, kind: 'MOCK' })
+    .expect(201);
+  return { id: response.body.device.id, secret: response.body.secret };
 }
