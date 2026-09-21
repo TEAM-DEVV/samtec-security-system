@@ -4,7 +4,7 @@ import { routes } from '@/app/routes';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { TwoFactorCodeForm } from '@/components/two-factor-code-form';
 import { $api } from '@/lib/api';
-import { getPendingTwoFactor, startSession } from '@/lib/session';
+import { getPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
 /**
  * The second sign-in step for accounts with two-factor authentication: the
@@ -17,6 +17,7 @@ export function TwoFactorVerifyPage() {
   // token, and reading it again on that re-render would wrongly send the
   // newly signed-in user back to the password screen.
   const [pending] = useState(getPendingTwoFactor);
+  const session = useSession();
 
   const verify = $api.useMutation('post', '/auth/2fa/verify', {
     onSuccess: (session) => {
@@ -25,6 +26,10 @@ export function TwoFactorVerifyPage() {
     },
   });
 
+  // Already signed in (for example the Back button after finishing): nothing to do here.
+  if (session !== null) {
+    return <Navigate to={routes.home} replace />;
+  }
   // This account is mid-setup, not mid-verification: go to the right step.
   if (pending?.step === 'SETUP') {
     return <Navigate to={routes.twoFactorSetup} replace />;

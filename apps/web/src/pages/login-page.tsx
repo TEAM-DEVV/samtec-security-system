@@ -1,6 +1,6 @@
 import type { LoginResponse } from '@samtec/contracts';
 import { type FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { routes } from '@/app/routes';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { $api } from '@/lib/api';
 import { env } from '@/lib/env';
 import { describeApiError } from '@/lib/problem';
-import { setPendingTwoFactor, startSession } from '@/lib/session';
+import { setPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
 // The contract's limits for the sign-in fields.
 const EMAIL_MAX_LENGTH = 254;
@@ -23,12 +23,18 @@ const PASSWORD_MAX_LENGTH = 128;
  */
 export function LoginPage() {
   const navigate = useNavigate();
+  const session = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const login = $api.useMutation('post', '/auth/login', {
     onSuccess: (outcome) => continueSignIn(outcome),
   });
+
+  // Already signed in: nothing to do here.
+  if (session !== null) {
+    return <Navigate to={routes.home} replace />;
+  }
 
   function continueSignIn(outcome: LoginResponse) {
     switch (outcome.status) {

@@ -9,8 +9,10 @@ import {
   type OrProblem,
   pageOf,
   readLimit,
+  unauthorized,
   validationProblem,
 } from '../helpers';
+import { userForRequest } from './auth';
 
 const SITE_STATUSES: readonly SiteStatus[] = ['ACTIVE', 'INACTIVE'];
 
@@ -33,10 +35,11 @@ const GHANA_REGIONS: readonly GhanaRegion[] = [
   'WESTERN_NORTH',
 ];
 
-// Phase 1: once the dashboard signs in, make these handlers answer 401 without
-// an access token, like the real API.
 export const siteHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<SiteList>>(apiUrl('/sites'), ({ request }) => {
+    if (!userForRequest(request)) {
+      return unauthorized('Sign in to continue.');
+    }
     const query = new URL(request.url).searchParams;
 
     const limit = readLimit(query);
@@ -70,7 +73,10 @@ export const siteHandlers = [
 
   http.get<{ siteId: string }, DefaultBodyType, OrProblem<Site>>(
     apiUrl('/sites/:siteId'),
-    ({ params }) => {
+    ({ request, params }) => {
+      if (!userForRequest(request)) {
+        return unauthorized('Sign in to continue.');
+      }
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }

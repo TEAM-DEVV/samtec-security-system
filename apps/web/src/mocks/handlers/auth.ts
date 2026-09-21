@@ -28,6 +28,15 @@ const SIGN_IN_EXPIRED = 'This sign-in has expired. Sign in with your password ag
 
 type TokenPurpose = 'VERIFY' | 'SETUP';
 
+/*
+ * The real refresh token is an HttpOnly cookie, which the browser keeps across
+ * page reloads. The mock stands in for it with a user ID in sessionStorage,
+ * so reloading the dashboard in mock mode keeps you signed in, like the real
+ * thing. This is mock code only: it never reaches a production build, and it
+ * holds no real token. (Declared before `memory`, which reads it at start-up.)
+ */
+const MOCK_COOKIE_KEY = 'samtec-mock-refresh-cookie';
+
 /**
  * What the mock API remembers between requests. It stands in for the real
  * API's database and for the refresh token cookie.
@@ -36,7 +45,7 @@ type TokenPurpose = 'VERIFY' | 'SETUP';
  * counts wrong two-factor codes. The real API does all of these (see the contract).
  */
 const memory = {
-  signedInUserId: undefined as string | undefined,
+  signedInUserId: readMockCookie(),
   pendingTokens: new Map<string, { userId: string; purpose: TokenPurpose }>(),
   usersWhoEnabledTwoFactor: new Set<string>(),
   /** Wrong passwords per email, counted whether or not the email has an account. */
@@ -45,10 +54,31 @@ const memory = {
 
 /** Forgets every sign-in. Tests call this after each test, so tests never affect each other. */
 export function resetMockSession(): void {
-  memory.signedInUserId = undefined;
+  setSignedInUser(undefined);
   memory.pendingTokens.clear();
   memory.usersWhoEnabledTwoFactor.clear();
   memory.passwordFailures.clear();
+}
+
+function readMockCookie(): string | undefined {
+  try {
+    return globalThis.sessionStorage?.getItem(MOCK_COOKIE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function setSignedInUser(userId: string | undefined): void {
+  memory.signedInUserId = userId;
+  try {
+    if (userId === undefined) {
+      globalThis.sessionStorage?.removeItem(MOCK_COOKIE_KEY);
+    } else {
+      globalThis.sessionStorage?.setItem(MOCK_COOKIE_KEY, userId);
+    }
+  } catch {
+    // No sessionStorage here (for example in Node.js tests): memory alone is fine.
+  }
 }
 
 export const authHandlers = [
@@ -170,17 +200,14 @@ export const authHandlers = [
   ),
 
   http.post(apiUrl('/auth/logout'), () => {
-    memory.signedInUserId = undefined;
+    setSignedInUser(undefined);
     return new HttpResponse(null, { status: 204 });
   }),
 
   http.get<PathParams, DefaultBodyType, OrProblem<CurrentUser>>(
     apiUrl('/auth/me'),
     ({ request }) => {
-      const authorization = request.headers.get('Authorization');
-      const user = mockUsers.find(
-        (candidate) => authorization === `Bearer ${accessTokenFor(candidate)}`,
-      );
+      const user = userForRequest(request);
       if (!user) {
         return unauthorized('Sign in to continue.');
       }
@@ -189,8 +216,18 @@ export const authHandlers = [
   ),
 ];
 
+/**
+ * The user whose access token is in the request's `Authorization` header, or
+ * undefined. Every protected mock endpoint starts with this check, like the
+ * real API's `AccessTokenGuard`.
+ */
+export function userForRequest(request: Request): CurrentUser | undefined {
+  const authorization = request.headers.get('Authorization');
+  return mockUsers.find((candidate) => authorization === `Bearer ${accessTokenFor(candidate)}`);
+}
+
 function signIn(user: CurrentUser): AuthenticatedSession {
-  memory.signedInUserId = user.id;
+  setSignedInUser(user.id);
   return {
     status: 'AUTHENTICATED',
     accessToken: accessTokenFor(user),

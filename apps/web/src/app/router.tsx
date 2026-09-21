@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router';
 import { routes } from '@/app/routes';
 import { AppShell } from '@/components/layout/app-shell';
+import { RequireSession } from '@/components/require-session';
 import { env } from '@/lib/env';
 import { ComingInPhasePage } from '@/pages/coming-in-phase-page';
 import { EmployeesPage } from '@/pages/employees-page';
@@ -31,7 +32,12 @@ export const router = createBrowserRouter([
   },
   {
     path: routes.home,
-    element: <AppShell />,
+    // Everything inside the shell needs a signed-in user.
+    element: (
+      <RequireSession>
+        <AppShell />
+      </RequireSession>
+    ),
     errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <SystemStatusPage /> },
