@@ -95,6 +95,18 @@ export class SitesService {
     return new Map(groups.map((group) => [group.siteId, group._count._all]));
   }
 
+  /**
+   * The sites a viewer may see: undefined means every site (ADMIN and
+   * HR_PAYROLL), a GUARD sees none, a SUPERVISOR the sites they are posted to.
+   * Other modules use this to scope their own records the same way.
+   */
+  async visibleSiteIds(viewer: SignedInUser): Promise<string[] | undefined> {
+    if (viewer.role === 'ADMIN' || viewer.role === 'HR_PAYROLL') {
+      return undefined;
+    }
+    return viewer.role === 'SUPERVISOR' ? this.supervisorSiteIds(viewer) : [];
+  }
+
   private async supervisorSiteIds(viewer: SignedInUser): Promise<string[]> {
     if (!viewer.employeeId) {
       return [];

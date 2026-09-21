@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Employee as ApiEmployee, EmployeeList } from '@samtec/contracts';
+import type { Employee as ApiEmployee, EmployeeList, EmployeeRef } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
@@ -15,7 +15,7 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import type { EmployeeStatus } from '../../generated/prisma/enums.js';
 import { AccountsService } from '../identity/accounts.service.js';
 import { AuditService } from '../identity/audit.service.js';
-import { toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
+import { fullNameOf, toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
 import {
   type CreateEmployeeBody,
   type ListEmployeesQuery,
@@ -407,6 +407,25 @@ export class EmployeesService {
           terminationDate: row.terminationDate ? toIsoDate(row.terminationDate) : null,
         },
       ]),
+    );
+  }
+
+  /**
+   * For the attendance module: the name and staff number of each employee,
+   * to label work segments and exceptions. One query per page, scoped to one
+   * company. The caller has already decided what the viewer may see.
+   */
+  async refsByIds(companyId: string, employeeIds: string[]): Promise<Map<string, EmployeeRef>> {
+    const ids = [...new Set(employeeIds)];
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.employee.findMany({
+      where: { companyId, id: { in: ids } },
+      select: { id: true, staffNumber: true, firstName: true, otherNames: true, lastName: true },
+    });
+    return new Map(
+      rows.map((row) => [row.id, { id: row.id, staffNumber: row.staffNumber, fullName: fullNameOf(row) }]),
     );
   }
 

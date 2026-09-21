@@ -69,3 +69,65 @@ export type IngestPunchesBody = z.infer<typeof ingestPunchesSchema>;
 /** Contract: `HeartbeatRequest`. */
 export const heartbeatSchema = z.strictObject({ deviceClockAt: instant.optional() });
 export type HeartbeatBody = z.infer<typeof heartbeatSchema>;
+
+// --- Work segments and the exception queue ------------------------------------
+
+/** A calendar date like 2026-09-15 that really exists on the calendar. */
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date like 2026-09-15.')
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, 'This date does not exist on the calendar.');
+
+const DAY_MS = 86_400_000;
+
+/** Contract: `listWorkSegments`. At most 31 days, so one request never reads a year. */
+export const listSegmentsQuerySchema = z
+  .strictObject({
+    from: calendarDate,
+    to: calendarDate,
+    siteId: z.uuid().optional(),
+    employeeId: z.uuid().optional(),
+    status: z.enum(['CONFIRMED', 'DISPUTED', 'VOIDED']).optional(),
+    limit,
+    cursor: cursor.optional(),
+  })
+  .refine(
+    (query) => {
+      const days = (Date.parse(query.to) - Date.parse(query.from)) / DAY_MS;
+      return days >= 0 && days <= 31;
+    },
+    { path: ['to'], error: 'Must be on or after `from`, and at most 31 days later.' },
+  );
+export type ListSegmentsQuery = z.infer<typeof listSegmentsQuerySchema>;
+
+/** Contract: `listAttendanceExceptions`. */
+export const listExceptionsQuerySchema = z.strictObject({
+  status: z.enum(['OPEN', 'RESOLVED', 'AUTO_CLOSED']).default('OPEN'),
+  type: z
+    .enum(['MISSING_CLOCK_OUT', 'MISSING_CLOCK_IN', 'UNKNOWN_EMPLOYEE', 'INACTIVE_EMPLOYEE', 'OVERLAP'])
+    .optional(),
+  siteId: z.uuid().optional(),
+  limit,
+  cursor: cursor.optional(),
+});
+export type ListExceptionsQuery = z.infer<typeof listExceptionsQuerySchema>;
+
+/** Contract: `ResolutionNote`. Shown to reviewers, never copied into the audit log. */
+const note = z.string().trim().min(3).max(500);
+
+/** Contract: `ResolveExceptionRequest`, one shape per action. */
+export const resolveExceptionSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('DISMISS'), note }),
+  z.strictObject({
+    action: z.literal('ADD_SEGMENT'),
+    startedAt: instant,
+    endedAt: instant,
+    note,
+  }),
+  z.strictObject({ action: z.literal('KEEP_SEGMENT'), segmentId: z.uuid(), note }),
+  z.strictObject({ action: z.literal('VOID_ALL'), note }),
+]);
+export type ResolveExceptionBody = z.infer<typeof resolveExceptionSchema>;
