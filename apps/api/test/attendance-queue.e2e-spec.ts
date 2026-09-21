@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -61,6 +62,8 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     // Day 5: an ordinary day shift at A. Day 4: a shift at B.
     await send(gateA, punch('70001', at(5, 6), 'IN'), punch('70001', at(5, 18), 'OUT'));
     await send(gateB, punch('70001', at(4, 6), 'IN'), punch('70001', at(4, 18), 'OUT'));
+    // Day 4, 20:00: a clock-out at A with no clock-in (the shift at B ran 06:00-18:00).
+    await send(gateA, punch('70001', at(4, 20), 'OUT'));
     // Day 3: a clock-in at A with no clock-out, and an unknown number at A.
     await send(gateA, punch('70001', at(3, 6), 'IN'), punch('99001', at(3, 7), 'IN'));
     // Day 2: two shifts at once, at A and at B.
@@ -165,6 +168,18 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
       await resolve(tokens.hr, unknown.id, { action: 'DISMISS', note: 'Checked.' }).expect(403);
     });
 
+    it('pages the queue newest first with a cursor, never repeating an item', async () => {
+      const first = await get(tokens.admin, '/attendance/exceptions', { limit: 1 }).expect(200);
+      expect(first.body.nextCursor).toBeTruthy();
+      const second = await get(tokens.admin, '/attendance/exceptions', {
+        limit: 1,
+        cursor: first.body.nextCursor,
+      }).expect(200);
+      expect(second.body.items[0].id).not.toBe(first.body.items[0].id);
+      expect(second.body.items[0].occurredAt <= first.body.items[0].occurredAt).toBe(true);
+      await get(tokens.admin, '/attendance/exceptions', { cursor: 'nonsense!' }).expect(400);
+    });
+
     it('refuses the queue to a guard', async () => {
       await get(tokens.guard, '/attendance/exceptions').expect(403);
     });
@@ -243,11 +258,32 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
         where: { id: body.resolutionSegmentId },
       });
       expect(manual).toMatchObject({ basis: 'MANUAL', status: 'CONFIRMED', workedMinutes: 720 });
+
+      // A clock-out at 20:00 whose hand-added hours would reach back over the 06:00-18:00 shift.
+      const missingIn = await exceptionOf('MISSING_CLOCK_IN', company.active.id);
+      const clash = await resolve(tokens.supervisor, missingIn.id, {
+        action: 'ADD_SEGMENT',
+        startedAt: at(4, 10),
+        endedAt: at(4, 20),
+        note: 'This would double-count the morning.',
+      }).expect(409);
+      expect(clash.body.detail).toContain('overlap');
+      const unchanged = await prisma.attendanceException.findUniqueOrThrow({
+        where: { id: missingIn.id },
+      });
+      expect(unchanged.status).toBe('OPEN');
     });
 
     it('keeps one side of an overlap; the other is voided for good', async () => {
       const overlap = await exceptionOf('OVERLAP', company.active.id);
       const keep = overlap.segmentId ?? '';
+      const foreign = await resolve(tokens.admin, overlap.id, {
+        action: 'KEEP_SEGMENT',
+        segmentId: randomUUID(),
+        note: 'Not one of the two.',
+      }).expect(400);
+      expect(foreign.body.errors[0].path).toBe('segmentId');
+
       const { body } = await resolve(tokens.admin, overlap.id, {
         action: 'KEEP_SEGMENT',
         segmentId: keep,
@@ -262,6 +298,14 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
         [keep, 'CONFIRMED'],
         [overlap.secondSegmentId, 'VOIDED'],
       ]);
+
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: 'attendance.exception_resolved', entityId: overlap.id },
+      });
+      expect(audit.detail).toMatchObject({
+        keptSegmentId: keep,
+        voidedSegmentIds: overlap.secondSegmentId,
+      });
 
       // A later punch re-pairs the person, and the voided shift stays voided.
       events += 1;
