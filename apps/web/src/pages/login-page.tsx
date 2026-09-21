@@ -129,6 +129,9 @@ function MockAccountsHint() {
           <code>supervisor@samtec.example</code> signs straight in
         </li>
         <li>
+          <code>guard@samtec.example</code> signs straight in, sees only their own records
+        </li>
+        <li>
           <code>admin@samtec.example</code> asks for a two-factor code
         </li>
         <li>

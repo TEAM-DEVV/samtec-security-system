@@ -9,8 +9,9 @@ import { signInForTests } from '@/test/session';
 import { EmployeesPage } from './employees-page';
 
 describe('EmployeesPage', () => {
-  // The employee list needs a signed-in user, like the real API.
-  beforeEach(() => signInForTests());
+  // The employee list needs a signed-in user, like the real API. An
+  // administrator sees every employee; a supervisor would see one site only.
+  beforeEach(() => signInForTests('admin@samtec.example'));
 
   it('lists employees from the API', async () => {
     renderWithProviders(<EmployeesPage />);

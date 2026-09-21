@@ -118,9 +118,9 @@ const people: MockPerson[] = [
 const DAY_IN_MILLISECONDS = 86_400_000;
 
 /**
- * Full employee records, shaped exactly like the contract's `Employee` schema.
- * The mock API answers as an HR user would see them, so the Ghana Card number
- * is included.
+ * Full employee records, shaped exactly like the contract's `Employee` schema,
+ * as an HR user would see them. The handlers withhold the Ghana Card number
+ * and hide other sites' people for roles that may not see them, like the real API.
  */
 export const mockEmployees: Employee[] = people.map((person, index) => {
   const number = index + 1;

@@ -1,8 +1,10 @@
 import { createBrowserRouter } from 'react-router';
 import { routes } from '@/app/routes';
 import { AppShell } from '@/components/layout/app-shell';
+import { RequireRole } from '@/components/require-role';
 import { RequireSession } from '@/components/require-session';
 import { env } from '@/lib/env';
+import { pageRoles } from '@/lib/roles';
 import { ComingInPhasePage } from '@/pages/coming-in-phase-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { LoginPage } from '@/pages/login-page';
@@ -43,12 +45,12 @@ export const router = createBrowserRouter([
       { index: true, element: <SystemStatusPage /> },
       {
         path: 'employees',
-        // The real /employees endpoint exists, but it requires sign-in and
-        // the dashboard has no sign-in screens yet — so live mode would only
-        // show 401 errors. Keep this notice until the sign-in screens work
-        // against the live API, then use `element: <EmployeesPage />` for both.
+        // Keep this notice in live mode until sign-in has been verified against
+        // the real API (task 7), then use the mock-mode element for both.
         element: env.useMocks ? (
-          <EmployeesPage />
+          <RequireRole roles={pageRoles.employees}>
+            <EmployeesPage />
+          </RequireRole>
         ) : (
           <ComingInPhasePage title="Employees" phase={1} />
         ),

@@ -38,6 +38,16 @@ export function unauthorized(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Unauthorized', status: 401, detail });
 }
 
+/** The real API's 403 for a role the route does not allow (RolesGuard). */
+export function forbidden(): HttpResponse<ProblemDetails> {
+  return problemResponse({
+    type: 'about:blank',
+    title: 'Forbidden',
+    status: 403,
+    detail: 'Your role does not allow this action.',
+  });
+}
+
 export function notFound(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Not Found', status: 404, detail });
 }

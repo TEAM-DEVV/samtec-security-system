@@ -39,6 +39,24 @@ describe('AppShell', () => {
     expect(screen.getByText('Administrator')).toBeInTheDocument();
   });
 
+  it('shows a supervisor the Employees link', async () => {
+    await signInForTests('supervisor@samtec.example');
+
+    renderShell();
+
+    expect(await screen.findByRole('link', { name: 'Employees' })).toBeInTheDocument();
+  });
+
+  it('hides the Employees link from a guard, who may not list employees', async () => {
+    await signInForTests('guard@samtec.example');
+
+    renderShell();
+
+    await screen.findByText('Kwame Kofi Mensah');
+    expect(screen.queryByRole('link', { name: 'Employees' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'System status' })).toBeInTheDocument();
+  });
+
   it('signs out on the API and in the dashboard, then opens the sign-in page', async () => {
     await signInForTests();
     renderShell();

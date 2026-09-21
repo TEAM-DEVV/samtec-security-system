@@ -15,6 +15,7 @@ export const MOCK_TWO_FACTOR_CODE = '123456';
  * - admin@samtec.example has two-factor authentication, so it gets a code challenge.
  * - hr@samtec.example must set up two-factor authentication before signing in.
  * - supervisor@samtec.example signs straight in.
+ * - guard@samtec.example signs straight in, and may see only their own records.
  */
 export const mockUsers: CurrentUser[] = [
   {
@@ -41,5 +42,14 @@ export const mockUsers: CurrentUser[] = [
     twoFactorEnabled: false,
     // Yaw Boateng is also employee SMT-00003 in data/employees.ts.
     employeeId: '01927c3e-5a4b-7c8d-9e0f-000000000003',
+  },
+  {
+    id: '01927c3e-2222-7ccc-9ddd-000000000004',
+    email: 'guard@samtec.example',
+    fullName: 'Kwame Kofi Mensah',
+    role: 'GUARD',
+    twoFactorEnabled: false,
+    // Kwame Kofi Mensah is employee SMT-00001 in data/employees.ts.
+    employeeId: '01927c3e-5a4b-7c8d-9e0f-000000000001',
   },
 ];
