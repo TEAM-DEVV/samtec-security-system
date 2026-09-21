@@ -7,10 +7,13 @@ import type {
   TwoFactorSetupRequired,
 } from '@samtec/contracts';
 import { REFRESH_COOKIE_MAX_AGE_SECONDS } from '../../common/cookies.js';
+import { normalizeEmail } from '../../common/emails.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthChallenge, User } from '../../generated/prisma/client.js';
+import { mayUseAccount } from './account-rules.js';
+import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
-import { NO_SUCH_USER_HASH, verifyPassword } from './password.js';
+import { hashPassword, NO_SUCH_USER_HASH, verifyPassword } from './password.js';
 import { SignInThrottleService } from './sign-in-throttle.service.js';
 import { ACCESS_TOKEN_SECONDS, TokensService } from './tokens.service.js';
 import { generateTotpSecret, otpauthUri, verifyTotpCode } from './totp.js';
@@ -26,6 +29,8 @@ const MAX_CODE_ATTEMPTS = 5;
 const WRONG_CREDENTIALS = 'Email or password is incorrect.';
 /** The one message for every dead or foreign challenge token. */
 const CHALLENGE_GONE = 'This sign-in has expired. Sign in with your password again.';
+/** The one message for every dead, used or foreign password link. */
+const LINK_GONE = 'This link has expired or was already used. Ask an administrator for a new one.';
 
 /** What `login` can decide. The controller turns each kind into its HTTP shape. */
 export type LoginOutcome =
@@ -57,18 +62,20 @@ export class AuthService {
     private readonly tokens: TokensService,
     private readonly throttle: SignInThrottleService,
     private readonly audit: AuditService,
+    private readonly accounts: AccountsService,
   ) {}
 
   async login(rawEmail: string, password: string): Promise<LoginOutcome> {
-    const email = rawEmail.trim().toLowerCase();
+    const email = normalizeEmail(rawEmail);
     await this.throttle.assertNotLocked('password', email);
 
     const user = await this.prisma.user.findFirst({ where: { email } });
-    // When the email has no account, still check the password against a
-    // stand-in hash: both cases then cost the same time, so response timing
+    // When the email has no account (or the account is still waiting for its
+    // owner to choose a password), still check the password against a
+    // stand-in hash: every case then costs the same time, so response timing
     // cannot reveal which emails have accounts.
     const passwordOk = await verifyPassword(password, user?.passwordHash ?? NO_SUCH_USER_HASH);
-    if (!user || !passwordOk || !user.isActive) {
+    if (!user || user.passwordHash === null || !passwordOk || !user.isActive) {
       const lockedNow = await this.throttle.recordFailure('password', email);
       if (lockedNow && user) {
         await this.recordLockout(user, 'password');
@@ -189,6 +196,11 @@ export class AuthService {
    * token itself. A refresh token that was already rotated must never appear
    * again — if it does, someone copied it, and every session of that user is
    * revoked so both the thief and the user are signed out everywhere.
+   *
+   * A session that simply ended (signed out, or ended by an administrator)
+   * is different: it has no replacement, so it answers 401 without raising
+   * the alarm — otherwise an admin action would sign the person out of the
+   * session they create next.
    */
   async refresh(refreshToken: string | undefined): Promise<RotatedSession> {
     if (!refreshToken) {
@@ -202,29 +214,33 @@ export class AuthService {
       throw new UnauthorizedException('Sign in to continue.');
     }
     if (session.revokedAt) {
-      await this.handleRefreshReuse(session.userId, session.user.companyId);
+      if (session.replacedById) {
+        await this.handleRefreshReuse(session.userId, session.user.companyId);
+      }
+      throw new UnauthorizedException('Sign in to continue.');
     }
-    if (!session.user.isActive) {
+    if (!mayUseAccount(session.user)) {
+      // Switched off, reset, or an office role without two-factor: end this
+      // session too, so nothing stays alive for later.
+      await this.prisma.userSession.updateMany({
+        where: { id: session.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
       throw new UnauthorizedException('Sign in to continue.');
     }
 
     // "Claim" the token atomically: only the request that flips revokedAt
-    // from null wins. Two requests racing with the same token would otherwise
-    // both pass the check above and both mint sessions — exactly the replay
-    // this rotation scheme exists to catch.
+    // from null wins, and the same write records the replacement. Two
+    // requests racing with the same token would otherwise both pass the check
+    // above and both mint sessions — exactly the replay rotation catches.
+    const next = await this.createSessionRow(session.userId);
     const claimed = await this.prisma.userSession.updateMany({
       where: { id: session.id, revokedAt: null },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: new Date(), replacedById: next.sessionId },
     });
     if (claimed.count === 0) {
       await this.handleRefreshReuse(session.userId, session.user.companyId);
     }
-
-    const next = await this.createSessionRow(session.userId);
-    await this.prisma.userSession.update({
-      where: { id: session.id },
-      data: { replacedById: next.sessionId },
-    });
     return {
       accessToken: await this.tokens.signAccessToken(this.asSignedIn(session.user)),
       expiresInSeconds: ACCESS_TOKEN_SECONDS,
@@ -260,20 +276,105 @@ export class AuthService {
   /** The signed-in user, fresh from the database (roles can change). */
   async me(userId: string): Promise<CurrentUser> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.isActive) {
+    if (!user || !mayUseAccount(user)) {
       throw new UnauthorizedException('Sign in to continue.');
     }
     return toCurrentUser(user);
+  }
+
+  /**
+   * The person chooses their own password with the one-time link an
+   * administrator gave them. The link works once: claiming it deletes it, in
+   * the same transaction that saves the password.
+   */
+  async setPassword(token: string, newPassword: string): Promise<void> {
+    const challenge = await this.prisma.authChallenge.findUnique({
+      where: { tokenHash: this.tokens.hashToken(token) },
+      include: { user: true },
+    });
+    if (
+      challenge?.purpose !== 'SET_PASSWORD' ||
+      challenge.expiresAt < new Date() ||
+      !challenge.user.isActive
+    ) {
+      throw linkGone();
+    }
+    // Hash before the transaction: scrypt is slow on purpose, and a
+    // transaction should never wait on it.
+    const passwordHash = await hashPassword(newPassword);
+
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.authChallenge.deleteMany({ where: { id: challenge.id } });
+      if (claimed.count === 0) {
+        throw linkGone(); // Another request used the link a moment ago.
+      }
+      await tx.user.update({ where: { id: challenge.userId }, data: { passwordHash } });
+      await this.accounts.endAllAccess(challenge.userId, tx);
+      await this.audit.record(
+        {
+          companyId: challenge.user.companyId,
+          actorUserId: challenge.userId,
+          action: 'auth.password_set',
+          entityType: 'user',
+          entityId: challenge.userId,
+        },
+        tx,
+      );
+    });
+    // A fresh password deserves a fresh start: forget earlier wrong guesses.
+    await this.throttle.recordSuccess('password', challenge.user.email);
+  }
+
+  /**
+   * Changes the caller's own password. A wrong current password answers 400
+   * (not 401, so the dashboard does not try a refresh) and counts towards the
+   * same per-email lockout as signing in. Success ends every session.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !mayUseAccount(user) || user.passwordHash === null) {
+      throw new UnauthorizedException('Sign in to continue.');
+    }
+    await this.throttle.assertNotLocked('password', user.email);
+
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      const lockedNow = await this.throttle.recordFailure('password', user.email);
+      if (lockedNow) {
+        await this.recordLockout(user, 'password');
+      }
+      throw fieldProblem('currentPassword', 'Your current password is incorrect.');
+    }
+    if (newPassword === currentPassword) {
+      throw fieldProblem('newPassword', 'Choose a password different from your current one.');
+    }
+    await this.throttle.recordSuccess('password', user.email);
+
+    const passwordHash = await hashPassword(newPassword);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+      await this.accounts.endAllAccess(user.id, tx);
+      await this.audit.record(
+        {
+          companyId: user.companyId,
+          actorUserId: user.id,
+          action: 'auth.password_changed',
+          entityType: 'user',
+          entityId: user.id,
+        },
+        tx,
+      );
+    });
   }
 
   // ---------------------------------------------------------------------------
 
   /** A rotated token came back: sign this user out everywhere and record it. */
   private async handleRefreshReuse(userId: string, companyId: string): Promise<never> {
-    await this.prisma.userSession.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.accounts.endAllAccess(userId);
     await this.audit.record({
       companyId,
       actorUserId: userId,
@@ -420,6 +521,15 @@ export class AuthService {
       employeeId: user.employeeId,
     };
   }
+}
+
+/** A 400 that points at one request field, in the same shape as validation errors. */
+function fieldProblem(path: string, message: string): BadRequestException {
+  return new BadRequestException({ message: [{ path: [path], message }] });
+}
+
+function linkGone(): BadRequestException {
+  return fieldProblem('token', LINK_GONE);
 }
 
 /** Maps a database user to the contract's `CurrentUser` shape. */

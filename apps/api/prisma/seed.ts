@@ -256,6 +256,7 @@ async function main(): Promise<void> {
     }
   }
 
+  await seedRosters(company.id, sites);
   await seedUsers(company.id);
 
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
@@ -263,6 +264,37 @@ async function main(): Promise<void> {
   console.log(
     `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees and ${userCount} sign-in accounts (all fictional).`,
   );
+}
+
+/**
+ * Two posts per site and the two classic 12-hour shift patterns, so the
+ * rosters part of the dashboard has something to show.
+ */
+async function seedRosters(companyId: string, sites: Site[]): Promise<void> {
+  for (const site of sites) {
+    for (const post of [
+      { name: 'Main Gate', requiredGuards: 2 },
+      { name: 'Reception', requiredGuards: 1 },
+    ]) {
+      await prisma.post.upsert({
+        where: { siteId_name: { siteId: site.id, name: post.name } },
+        update: { requiredGuards: post.requiredGuards },
+        create: { ...post, companyId, siteId: site.id },
+      });
+    }
+  }
+
+  for (const pattern of [
+    { name: 'Day Shift', startMinutes: 6 * 60, endMinutes: 18 * 60 },
+    // Crosses midnight: starts one evening and ends the next morning.
+    { name: 'Night Shift', startMinutes: 18 * 60, endMinutes: 6 * 60 },
+  ]) {
+    await prisma.shiftPattern.upsert({
+      where: { companyId_name: { companyId, name: pattern.name } },
+      update: { startMinutes: pattern.startMinutes, endMinutes: pattern.endMinutes },
+      create: { ...pattern, companyId },
+    });
+  }
 }
 
 /**
@@ -283,6 +315,10 @@ async function seedUsers(companyId: string): Promise<void> {
   const supervisorEmployee = await prisma.employee.findUnique({
     where: { companyId_staffNumber: { companyId, staffNumber: 'SMT-00003' } },
   });
+  // A SUPERVISOR account must be linked to an employee (a database CHECK).
+  if (!supervisorEmployee) {
+    throw new Error('Employee SMT-00003 is missing, so the supervisor account cannot be linked.');
+  }
 
   const accounts = [
     {
@@ -301,7 +337,7 @@ async function seedUsers(companyId: string): Promise<void> {
       email: 'supervisor@samtec.example',
       fullName: 'Yaw Boateng',
       role: UserRole.SUPERVISOR,
-      employeeId: supervisorEmployee?.id ?? null,
+      employeeId: supervisorEmployee.id,
     },
   ];
 

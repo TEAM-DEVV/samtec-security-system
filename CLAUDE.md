@@ -55,8 +55,18 @@ Branch from `main` with a prefix (`feat/`, `fix/`, `contract/`, `docs/`, `chore/
 
 **Every merge to `main` deploys automatically to the shared TEST environment** (https://samtec-test.vercel.app, fictional data only) — see `docs/guides/09-test-environment.md`. Migrations apply themselves during the deploy.
 
+## Working in parallel (two developers, two Claude sessions)
+
+Francis's and Samuel's sessions never message each other; they stay in sync through GitHub. Every session follows these steps without being asked:
+
+1. **At the start of every session:** `git fetch --all --prune`, then `gh pr list`. If the other developer opened a pull request **into one of your branches** (usually a `fix/…` branch that resolves a conflict for you), review it and merge it first, with a normal merge (not squash).
+2. **Before merging any pull request:** update the branch from `main` (`git merge origin/main`). If files conflict, **keep both sides**: never delete the other developer's code to make a conflict go away. Then run `pnpm check` and wait for CI to be green.
+3. **Expect overlaps in the shared files:** `apps/web/src/mocks/**`, `apps/web/src/test/setup.ts`, `packages/contracts/openapi.yaml` and `docs/plan/07-roadmap.md`. Both sides edit them; the fix is always to keep every change.
+4. **Merge as soon as a pull request is green,** and keep stacks short (two branches at most), so conflicts stay small.
+5. **Say what the other side must do in the pull request description,** not in chat. For example, a backend pull request that changes the contract lists the new endpoints and mock handlers for the dashboard.
+
 ## Current phase
 
-Phase 0 is merged. Phase 1 (identity and workforce) is in progress: sign-in, two-factor, the audit log, the employee/site read endpoints, the employee write endpoints (create, update, terminate) and employment periods are built; next are posts and shift patterns, and Samuel's sign-in screens. Two owner tasks outside the repository remain (repository protection settings and ordering a ZKTeco device). See `docs/plan/07-roadmap.md`.
+Phase 0 is merged. **The Phase 1 backend is complete**: sign-in, two-factor, the audit log, employees (read, create, update, terminate), employment periods, sites, posts, shift patterns and user management are built. Samuel's screens complete the frontend side. His next dashboard tasks, after his sign-in stack lands, are the Users pages (ADMIN only), a public `/set-password` page (it reads the one-time token from the link's `#token=` part and calls `POST /auth/set-password`) and a change-password form (`POST /auth/change-password`; on success clear the session and go to `/login`). The contract's `Users` operations describe them, and the mock API already supports them. Two owner tasks outside the repository remain (repository protection settings and ordering a ZKTeco device). See `docs/plan/07-roadmap.md`.
 
 Phase 1 API rules: every route requires sign-in unless marked `@Public()`; restrict roles with `@Roles(...)` and read the caller with `@Caller()` (`src/common/auth.decorators.ts`). Record every important change through `AuditService`. The database-backed tests in `apps/api/test/db.e2e-spec.ts` run when `TEST_DATABASE_URL` points at a migrated database (CI's database job does this; locally point it at the running local database).
