@@ -24,6 +24,8 @@ import {
 } from './pairing.js';
 
 const DAY_MS = 86_400_000;
+/** At most this many people per heartbeat check, so one transaction stays small; the next heartbeat continues. */
+const OVERDUE_PEOPLE_PER_CHECK = 50;
 
 /**
  * Keeps work segments and the exception queue in line with the punches. The
@@ -246,9 +248,14 @@ export class PairingService {
    * last check, and moves the company's bookmark (`attendance_checks`)
    * forward. Pairing then decides what is missing: the rules exist only once,
    * in `pairing.ts`. When no punch turned 16 hours old (the usual case), the
-   * check costs two small reads and one small write, and takes no lock.
+   * check costs two small reads and one small write, and takes no lock. At
+   * most 50 people are re-paired per heartbeat.
    */
-  async repairOverdueClockIns(companyId: string, now: Date): Promise<void> {
+  async repairOverdueClockIns(
+    companyId: string,
+    now: Date,
+    peoplePerCheck = OVERDUE_PEOPLE_PER_CHECK,
+  ): Promise<void> {
     const slice = await this.nextOverdueSlice(this.prisma, companyId, now);
     if (!slice) {
       return;
@@ -269,18 +276,39 @@ export class PairingService {
         if (!locked) {
           return;
         }
-        const punched = await tx.punchEvent.findMany({
+        // The people who punched in the slice, earliest first. With more than
+        // 50, this check stops where the 51st person's first punch is, and the
+        // next heartbeat carries on from there.
+        const punched = await tx.punchEvent.groupBy({
+          by: ['employeeId'],
           where: overdueSliceFilter(companyId, locked),
-          select: { employeeId: true },
-          distinct: ['employeeId'],
+          _min: { deviceTime: true },
+          orderBy: { _min: { deviceTime: 'asc' } },
+          take: peoplePerCheck + 1,
         });
+        let done = locked;
+        let people = punched.map((row) => row.employeeId);
+        const next = punched[peoplePerCheck]?._min.deviceTime;
+        if (next && next > locked.from) {
+          done = { ...locked, to: next };
+          people = people.slice(0, peoplePerCheck);
+        } else if (next) {
+          // Over 50 first punches at the very same moment (practically never): do them all.
+          const everyone = await tx.punchEvent.findMany({
+            where: overdueSliceFilter(companyId, locked),
+            select: { employeeId: true },
+            distinct: ['employeeId'],
+          });
+          people = everyone.map((row) => row.employeeId);
+        }
         await this.repair(
           tx,
           companyId,
-          punched.flatMap((row) => (row.employeeId ? [row.employeeId] : [])),
+          people.filter((id): id is string => id !== null),
           now,
         );
-        await this.moveBookmark(tx, companyId, locked);
+        // The last step, so the bookmark row is only locked for a moment.
+        await this.moveBookmark(tx, companyId, done);
       }, ATTENDANCE_TRANSACTION_OPTIONS);
     } catch (error) {
       throw isLockTimeout(error) ? new AttendanceBusyException() : error;
