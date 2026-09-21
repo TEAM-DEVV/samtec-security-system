@@ -4,6 +4,7 @@ import {
   clearSession,
   getPendingTwoFactor,
   getSession,
+  mayHaveSession,
   setPendingTwoFactor,
   startSession,
   useSession,
@@ -25,6 +26,7 @@ describe('session', () => {
   it('starts empty', () => {
     expect(getSession()).toBeNull();
     expect(getPendingTwoFactor()).toBeNull();
+    expect(mayHaveSession()).toBe(false);
   });
 
   it('remembers a finished sign-in and drops the pending two-factor step', () => {
@@ -33,6 +35,8 @@ describe('session', () => {
 
     expect(getSession()).toEqual(session);
     expect(getPendingTwoFactor()).toBeNull();
+    // The note that tells the next page load a restore is worth trying.
+    expect(mayHaveSession()).toBe(true);
   });
 
   it('forgets everything on clear', () => {
@@ -42,6 +46,22 @@ describe('session', () => {
 
     expect(getSession()).toBeNull();
     expect(getPendingTwoFactor()).toBeNull();
+    expect(mayHaveSession()).toBe(false);
+  });
+
+  it('signs this tab out when another tab removes the note', () => {
+    startSession(session);
+
+    // What the browser sends to the other tabs when one of them signs out.
+    window.dispatchEvent(new StorageEvent('storage', { key: 'samtec-signed-in', newValue: null }));
+
+    expect(getSession()).toBeNull();
+  });
+
+  it('ignores a note appearing in another tab: only the API can sign this tab in', () => {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'samtec-signed-in', newValue: '1' }));
+
+    expect(getSession()).toBeNull();
   });
 
   it('redraws components when the session changes', () => {
