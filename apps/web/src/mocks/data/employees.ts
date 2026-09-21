@@ -144,6 +144,24 @@ export const mockEmployees: Employee[] = people.map((person, index) => {
     hireDate: person.hireDate,
     terminationDate: person.terminationDate ?? null,
     currentSite: site ? { id: site.id, code: site.code, name: site.name } : null,
+    // Guards at a site work its Main Gate on the day shift in mock data;
+    // supervisors and unassigned people have no post or shift.
+    currentPost:
+      site && person.position === 'Security Guard'
+        ? {
+            id: `01927c3e-2222-7bbb-8ccc-${String(mockSites.indexOf(site) * 2 + 1).padStart(12, '0')}`,
+            name: 'Main Gate',
+          }
+        : null,
+    currentShiftPattern:
+      site && person.position === 'Security Guard'
+        ? {
+            id: '01927c3e-3333-7ccc-8ddd-000000000001',
+            name: 'Day Shift',
+            startTime: '06:00',
+            endTime: '18:00',
+          }
+        : null,
     createdAt: `${person.hireDate}T09:00:00Z`,
     updatedAt: '2026-09-10T12:00:00Z',
   };

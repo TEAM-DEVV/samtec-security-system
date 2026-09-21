@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AccessTokenGuard } from './access-token.guard.js';
+import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -21,12 +22,13 @@ import { TokensService } from './tokens.service.js';
   controllers: [AuthController],
   providers: [
     AuthService,
+    AccountsService,
     TokensService,
     SignInThrottleService,
     AuditService,
     { provide: APP_GUARD, useClass: AccessTokenGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuditService, TokensService],
+  exports: [AccountsService, AuditService, SignInThrottleService, TokensService],
 })
 export class IdentityModule {}

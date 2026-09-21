@@ -1,6 +1,13 @@
-import type { Employee as ApiEmployee, EmployeeListItem, SiteSummary } from '@samtec/contracts';
+import type {
+  Employee as ApiEmployee,
+  EmployeeListItem,
+  PostSummary,
+  ShiftPatternSummary,
+  SiteSummary,
+} from '@samtec/contracts';
 import { toIsoDate } from '../../common/dates.js';
-import type { Employee, Site } from '../../generated/prisma/client.js';
+import type { Employee, Post, ShiftPattern, Site } from '../../generated/prisma/client.js';
+import { toShiftTime } from './workforce.schemas.js';
 
 /**
  * Turns database rows into exactly the shapes the contract promises. Pure
@@ -12,10 +19,31 @@ export interface EmployeeWithSite {
   employee: Employee;
   /** The site the employee is posted to today, or null. */
   currentSite: Site | null;
+  /** The post at that site, when one is set. */
+  currentPost?: Post | null;
+  /** The shift pattern they work, when one is set. */
+  currentShiftPattern?: ShiftPattern | null;
 }
 
 function toSiteSummary(site: Site | null): SiteSummary | null {
   return site ? { id: site.id, code: site.code, name: site.name } : null;
+}
+
+function toPostSummary(post: Post | null | undefined): PostSummary | null {
+  return post ? { id: post.id, name: post.name } : null;
+}
+
+function toShiftPatternSummary(
+  pattern: ShiftPattern | null | undefined,
+): ShiftPatternSummary | null {
+  return pattern
+    ? {
+        id: pattern.id,
+        name: pattern.name,
+        startTime: toShiftTime(pattern.startMinutes),
+        endTime: toShiftTime(pattern.endMinutes),
+      }
+    : null;
 }
 
 /** First, other and last names joined for display: "Kwame Kofi Mensah". */
@@ -45,7 +73,7 @@ export function toEmployeeListItem({ employee, currentSite }: EmployeeWithSite):
  * themselves (data minimisation, docs/plan/05-api-contract.md).
  */
 export function toEmployeeDetail(
-  { employee, currentSite }: EmployeeWithSite,
+  { employee, currentSite, currentPost, currentShiftPattern }: EmployeeWithSite,
   includeGhanaCardNumber: boolean,
 ): ApiEmployee {
   return {
@@ -64,6 +92,8 @@ export function toEmployeeDetail(
     hireDate: toIsoDate(employee.hireDate),
     terminationDate: employee.terminationDate ? toIsoDate(employee.terminationDate) : null,
     currentSite: toSiteSummary(currentSite),
+    currentPost: toPostSummary(currentPost),
+    currentShiftPattern: toShiftPatternSummary(currentShiftPattern),
     createdAt: employee.createdAt.toISOString(),
     updatedAt: employee.updatedAt.toISOString(),
   };
