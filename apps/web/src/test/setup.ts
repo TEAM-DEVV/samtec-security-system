@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 import { clearSession } from '@/lib/session';
 import { resetMockSession } from '@/mocks/handlers/auth';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
+import { resetMockRosters } from '@/mocks/handlers/rosters';
 import { server } from '@/mocks/node';
 
 // Every test talks to the mock API. A request with no mock handler fails the
@@ -16,6 +17,7 @@ afterEach(() => {
   server.resetHandlers();
   resetMockSession();
   resetMockEmployees();
+  resetMockRosters();
   clearSession();
   cleanup();
 });

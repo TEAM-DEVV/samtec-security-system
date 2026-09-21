@@ -25,6 +25,8 @@ export const ADMIN_TOTP_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 
 export const EMAILS = {
   admin: 'admin@dbtest.example',
+  /** A second administrator, for the rules about two admins acting on each other. */
+  admin2: 'admin2@dbtest.example',
   hr: 'hr@dbtest.example',
   supervisor: 'supervisor@dbtest.example',
   guard: 'guard@dbtest.example',
@@ -43,6 +45,8 @@ export async function resetFixture(prisma: PrismaClient): Promise<void> {
   await prisma.siteAssignment.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.employmentPeriod.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.employee.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
+  await prisma.post.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
+  await prisma.shiftPattern.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.site.deleteMany({ where: { companyId: TEST_COMPANY_ID } });
   await prisma.signInThrottle.deleteMany({});
 
@@ -107,6 +111,15 @@ export async function resetFixture(prisma: PrismaClient): Promise<void> {
         role: 'ADMIN',
         // The admin already uses an authenticator app, with a secret the
         // tests know, so they can compute real codes.
+        twoFactorSecretEncrypted: sealSecret(ADMIN_TOTP_SECRET, boxKey),
+        twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        companyId: TEST_COMPANY_ID,
+        email: EMAILS.admin2,
+        passwordHash,
+        fullName: 'Ama Admin',
+        role: 'ADMIN',
         twoFactorSecretEncrypted: sealSecret(ADMIN_TOTP_SECRET, boxKey),
         twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
       },
