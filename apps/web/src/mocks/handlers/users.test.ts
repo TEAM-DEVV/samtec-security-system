@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
+import { mockAccounts } from '../data/accounts';
+import { mockEmployees } from '../data/employees';
 import { resetMockUsers } from './users';
 
 // This file resets its own mock store, so it needs no change to test/setup.ts.
 afterEach(() => resetMockUsers());
 
-const GUARD_EMPLOYEE_ID = '01927c3e-5a4b-7c8d-9e0f-000000000001';
+/** An employee who has not left and has no sign-in account yet, whatever the mock data holds. */
+const linkable = mockEmployees.find(
+  (employee) =>
+    employee.status !== 'TERMINATED' &&
+    !mockAccounts.some((account) => account.employeeId === employee.id),
+);
+const LINKABLE_EMPLOYEE_ID = linkable?.id ?? '';
 
 /** The mock Users API follows the same rules as the real one. */
 describe('mock users API', () => {
@@ -15,7 +23,7 @@ describe('mock users API', () => {
         email: 'New.Guard@samtec.example',
         fullName: 'New Guard',
         role: 'GUARD',
-        employeeId: GUARD_EMPLOYEE_ID,
+        employeeId: LINKABLE_EMPLOYEE_ID,
       },
     });
 
