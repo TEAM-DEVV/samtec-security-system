@@ -1,7 +1,9 @@
 import { authHandlers } from './auth';
 import { employeeHandlers } from './employees';
+import { rosterHandlers } from './rosters';
 import { siteHandlers } from './sites';
 import { systemHandlers } from './system';
+import { userHandlers } from './users';
 
 /**
  * The mock API: pretend versions of the real endpoints, so the dashboard can be
@@ -15,4 +17,11 @@ import { systemHandlers } from './system';
  * - Behave the way the contract describes, including its errors (400, 401, 404).
  * - When `openapi.yaml` changes, update these handlers in the same pull request.
  */
-export const handlers = [...systemHandlers, ...authHandlers, ...employeeHandlers, ...siteHandlers];
+export const handlers = [
+  ...systemHandlers,
+  ...authHandlers,
+  ...employeeHandlers,
+  ...siteHandlers,
+  ...rosterHandlers,
+  ...userHandlers,
+];

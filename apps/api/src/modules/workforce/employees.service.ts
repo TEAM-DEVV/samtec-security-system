@@ -8,8 +8,10 @@ import {
 import type { Employee as ApiEmployee, EmployeeList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { AccountsService } from '../identity/accounts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
 import {
@@ -29,25 +31,6 @@ export function currentAssignmentFilter(today: Date = new Date()) {
 }
 
 /**
- * True when the database rejected a write because a unique rule (Prisma error
- * P2002) covering the named column was broken — for example a second employee
- * with the same Ghana Card number.
- */
-function isUniqueViolation(error: unknown, column: string): boolean {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-  const candidate = error as { code?: unknown; meta?: { target?: unknown } };
-  if (candidate.code !== 'P2002') {
-    return false;
-  }
-  // Which columns broke the rule sits in the error's metadata; its exact
-  // shape varies by driver, so search the whole thing for the column name.
-  const normalize = (value: string) => value.toLowerCase().replaceAll('_', '');
-  return normalize(JSON.stringify(candidate.meta ?? {})).includes(normalize(column));
-}
-
-/**
  * Reading and changing employees, with the contract's access rules built in:
  *
  * - ADMIN and HR_PAYROLL see every employee of the company.
@@ -61,6 +44,7 @@ export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly accounts: AccountsService,
   ) {}
 
   async list(viewer: SignedInUser, query: ListEmployeesQuery): Promise<EmployeeList> {
@@ -160,7 +144,15 @@ export class EmployeesService {
 
     const includeGhanaCardNumber =
       viewer.role === 'ADMIN' || viewer.role === 'HR_PAYROLL' || viewer.employeeId === employeeId;
-    return toEmployeeDetail({ employee: row, currentSite }, includeGhanaCardNumber);
+    return toEmployeeDetail(
+      {
+        employee: row,
+        currentSite,
+        currentPost: row.assignments[0]?.post ?? null,
+        currentShiftPattern: row.assignments[0]?.shiftPattern ?? null,
+      },
+      includeGhanaCardNumber,
+    );
   }
 
   /**
@@ -174,6 +166,8 @@ export class EmployeesService {
    */
   async create(viewer: SignedInUser, body: CreateEmployeeBody): Promise<ApiEmployee> {
     await this.assertSiteInCompany(viewer, body.siteId);
+    await this.assertPostAtSite(viewer, body.postId, body.siteId);
+    await this.assertShiftPatternInCompany(viewer, body.shiftPatternId);
     const hireDate = toDatabaseDate(body.hireDate);
 
     // A rare race (two people registering at once) can collide on the
@@ -208,6 +202,8 @@ export class EmployeesService {
                 companyId: viewer.companyId,
                 employeeId: employee.id,
                 siteId: body.siteId,
+                postId: body.postId ?? null,
+                shiftPatternId: body.shiftPatternId ?? null,
                 startsOn: hireDate,
               },
             });
@@ -267,15 +263,24 @@ export class EmployeesService {
     if (body.siteId != null) {
       await this.assertSiteInCompany(viewer, body.siteId);
     }
+    if (body.postId != null) {
+      await this.assertPostAtSite(viewer, body.postId, body.siteId ?? undefined);
+    }
+    if (body.shiftPatternId != null) {
+      await this.assertShiftPatternInCompany(viewer, body.shiftPatternId);
+    }
 
-    const { siteId, ...fields } = body;
+    const { siteId, postId, shiftPatternId, ...fields } = body;
     await this.prisma.$transaction(async (tx) => {
       if (Object.keys(fields).length > 0) {
         await tx.employee.update({ where: { id: employeeId }, data: fields });
       }
       // `siteId` present means a posting change: a new site, or null to unassign.
       if (siteId !== undefined) {
-        await this.movePosting(tx, viewer.companyId, employeeId, siteId);
+        await this.movePosting(tx, viewer.companyId, employeeId, siteId, {
+          postId: postId ?? null,
+          shiftPatternId: shiftPatternId ?? null,
+        });
       }
       await this.audit.record(
         {
@@ -355,6 +360,13 @@ export class EmployeesService {
         },
         tx,
       );
+      // A leaver's sign-in account (if they have one) is switched off in the
+      // same transaction, as soon as the leave is recorded.
+      await this.accounts.deactivateForLeaver(tx, {
+        companyId: viewer.companyId,
+        employeeId,
+        actorUserId: viewer.userId,
+      });
     });
     return this.get(viewer, employeeId);
   }
@@ -382,6 +394,7 @@ export class EmployeesService {
     companyId: string,
     employeeId: string,
     siteId: string | null,
+    roster: { postId: string | null; shiftPatternId: string | null },
   ): Promise<void> {
     const today = toDatabaseDate(new Date().toISOString().slice(0, 10));
     // The old posting ends YESTERDAY so it no longer covers today — otherwise
@@ -393,7 +406,53 @@ export class EmployeesService {
     });
     if (siteId !== null) {
       await tx.siteAssignment.create({
-        data: { companyId, employeeId, siteId, startsOn: today },
+        data: {
+          companyId,
+          employeeId,
+          siteId,
+          postId: roster.postId,
+          shiftPatternId: roster.shiftPatternId,
+          startsOn: today,
+        },
+      });
+    }
+  }
+
+  /** The post must exist at exactly the site being assigned; anything else is a clear 400. */
+  private async assertPostAtSite(
+    viewer: SignedInUser,
+    postId: string | undefined,
+    siteId: string | undefined,
+  ): Promise<void> {
+    if (postId === undefined) {
+      return;
+    }
+    const post = await this.prisma.post.findFirst({
+      where: { id: postId, companyId: viewer.companyId, siteId },
+      select: { id: true },
+    });
+    if (!post) {
+      throw new BadRequestException({
+        message: [{ path: ['postId'], message: 'No post with this ID exists at this site.' }],
+      });
+    }
+  }
+
+  /** The shift pattern must belong to this company; anything else is a clear 400. */
+  private async assertShiftPatternInCompany(
+    viewer: SignedInUser,
+    shiftPatternId: string | undefined,
+  ): Promise<void> {
+    if (shiftPatternId === undefined) {
+      return;
+    }
+    const pattern = await this.prisma.shiftPattern.findFirst({
+      where: { id: shiftPatternId, companyId: viewer.companyId },
+      select: { id: true },
+    });
+    if (!pattern) {
+      throw new BadRequestException({
+        message: [{ path: ['shiftPatternId'], message: 'No shift pattern exists with this ID.' }],
       });
     }
   }
@@ -433,7 +492,7 @@ export class EmployeesService {
     return {
       assignments: {
         where: currentAssignmentFilter(),
-        include: { site: true },
+        include: { site: true, post: true, shiftPattern: true },
         take: 1,
       },
     } satisfies Prisma.EmployeeInclude;
