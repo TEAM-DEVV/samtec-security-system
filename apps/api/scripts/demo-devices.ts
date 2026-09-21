@@ -16,18 +16,20 @@ export interface DemoDevice {
 }
 
 export const DEMO_DEVICES: DemoDevice[] = [
-  { siteCode: 'ACC-01', name: 'ACC-01 Main Gate' },
-  { siteCode: 'ACC-02', name: 'ACC-02 Main Gate' },
-  { siteCode: 'TEM-01', name: 'TEM-01 Main Gate', clockDriftSeconds: 420 },
-  { siteCode: 'KSI-01', name: 'KSI-01 Main Gate' },
-  { siteCode: 'TKD-01', name: 'TKD-01 Main Gate', resendsLastBatch: true },
+  { siteCode: 'ACC-01', name: 'Demo terminal ACC-01' },
+  { siteCode: 'ACC-02', name: 'Demo terminal ACC-02' },
+  { siteCode: 'TEM-01', name: 'Demo terminal TEM-01', clockDriftSeconds: 420 },
+  { siteCode: 'KSI-01', name: 'Demo terminal KSI-01' },
+  { siteCode: 'TKD-01', name: 'Demo terminal TKD-01', resendsLastBatch: true },
 ];
 
 /**
  * A demo device's secret, derived from AUTH_SECRET and the device's name. The
  * simulator on the same computer computes the same value, so the secret is
- * never printed or stored in plain text. Real devices get 32 random bytes,
- * shown once (docs/plan/12 §1).
+ * never printed or stored in plain text. Anyone who knows AUTH_SECRET could
+ * compute it, which is why the seed only registers these devices in a
+ * database on this computer. Real devices get 32 random bytes, shown once
+ * (docs/plan/12 §1).
  */
 export function demoDeviceSecret(authSecret: string, deviceName: string): string {
   return createHmac('sha256', authSecret)

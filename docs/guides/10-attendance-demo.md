@@ -12,7 +12,7 @@ Everything here is fictional: the demo company, its guards and its devices.
 - The local database running: `pnpm db:start` (keep that terminal open).
 - The demo data: `pnpm db:seed`. Besides the company, the sites and the 50
   guards, it now also creates:
-  - one **MOCK clock-in device per site**, named like `ACC-01 Main Gate`;
+  - one **MOCK clock-in device per site**, named like `Demo terminal ACC-01` (on this computer only);
   - a **Night Watch** shift (22:00–06:00);
   - a post and a shift on every posting. Every fourth guard works nights,
     the rest work days.
@@ -27,11 +27,21 @@ pnpm --filter @samtec/api mock:devices
 ```
 
 Each device prints one line, for example
-`ACC-01 Main Gate: 9 guards, 478 punches → 478 new, 0 duplicates, 0 conflicts.`
+`Demo terminal ACC-01: 9 guards, 478 punches → 478 new, 0 duplicates, 0 conflicts.`
 The whole replay takes a few seconds.
 
-Then open the dashboard (http://localhost:5173) and sign in as
-`admin@samtec.example`. Look at the attendance pages and the exception queue.
+**Where to look.** The dashboard's attendance pages are Samuel's next task. Once
+they exist, sign in as `admin@samtec.example` and open Attendance and the
+exception queue. Until then, look at the data itself:
+
+```bash
+pnpm --filter @samtec/api db:studio
+```
+
+Prisma Studio opens in the browser. Look at the tables `work_segments` (the
+shifts), `attendance_exceptions` (the queue) and `devices` (drift and last
+seen). The API answers the same data at `GET /api/v1/attendance/segments`
+and `GET /api/v1/attendance/exceptions` for a signed-in user.
 
 **Run it a second time.** Every punch now comes back as a duplicate, and
 nothing changes. That is idempotency: a device can always resend safely,
@@ -41,8 +51,8 @@ because `(device, event ID)` is unique.
 
 | In the replay | What the API does | Where to see it |
 |---|---|---|
-| Normal day shifts (06:00–18:00, a few minutes early or late) | Pairs each IN with its OUT: one CONFIRMED shift of about 720 minutes | Attendance |
-| Night Watch shifts (22:00–06:00) | One shift of about 480 minutes, counted on the day it **started** | Attendance |
+| Normal day shifts (06:00–18:00, a few minutes early or late) | Pairs each IN with its OUT: one CONFIRMED shift of about 720 minutes | Attendance (`work_segments`) |
+| Night Watch shifts (22:00–06:00) | One shift of about 480 minutes, counted on the day it **started** | Attendance (`work_segments`) |
 | A forgotten clock-out or clock-in (about 1 shift in 60) | `MISSING_CLOCK_OUT` / `MISSING_CLOCK_IN` in the queue | Exception queue |
 | A nervous second tap within 2 minutes | Stored, but ignored for pairing | Nowhere, which is the point |
 | A wrong key (direction `UNKNOWN`) | Read as a clock-out, because a clock-in is open | Attendance |
@@ -95,8 +105,14 @@ device at a time, the same way a real device would be set up:
    `--shift` is `day`, `night` (18:00–06:00) or `night-watch` (22:00–06:00),
    and `--days` defaults to 30.
 
-The secret goes in an environment variable, not an option. Clear your
-terminal afterwards, and rotate the device's secret when the demo is over.
+The secret goes in an environment variable, not an option, because other
+users on a computer can read a program's options but not its environment.
+Your shell may still remember the command, so rotate the device's secret
+when the demo is over.
+
+Demo devices with derived secrets are never created on TEST. The seed only
+registers them in a database on this computer, because anyone who knows
+`AUTH_SECRET` could compute their secrets.
 
 ## Starting again
 

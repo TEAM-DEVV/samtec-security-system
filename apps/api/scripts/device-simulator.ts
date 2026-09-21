@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { HeartbeatResponse, IngestPunch, IngestPunchesResponse } from '@samtec/contracts';
 import { type SignedRoute, signRequest } from '../src/modules/attendance/device-signature.js';
 
 /**
@@ -25,19 +26,11 @@ export interface SimulatedGuard {
   endMinutes: number;
 }
 
-export interface SimulatedPunch {
-  deviceEventId: string;
-  deviceUserRef: string;
-  deviceTime: string;
-  direction: 'IN' | 'OUT' | 'UNKNOWN';
-  method: 'FINGERPRINT' | 'FACE' | 'PIN_FALLBACK';
-}
+/** A punch exactly as the contract describes it (`IngestPunch`). */
+export type SimulatedPunch = IngestPunch;
 
-export interface SendSummary {
-  accepted: number;
-  duplicates: number;
-  conflicts: number;
-}
+/** The totals of `IngestPunchesResponse`, added up over every batch. */
+export type SendSummary = Pick<IngestPunchesResponse, 'accepted' | 'duplicates' | 'conflicts'>;
 
 /** The usual shifts, for `--shift`. */
 export const SHIFTS = {
@@ -56,11 +49,14 @@ function chance(key: string): number {
 }
 
 /**
- * The punches these guards would have made over the last `days` days: their
+ * The punches these guards would have made over the last `days` days
+ * (today included): their
  * shift pattern with a few minutes' jitter, about one rest day in seven, and
  * the everyday mistakes the exception queue exists for (a forgotten clock-out
  * or clock-in, a repeat tap, the wrong key, a PIN instead of a finger). Event
  * IDs are fixed per guard, day and act, so sending them twice changes nothing.
+ * Times are what the terminal's own clock said, so a fast clock's punches
+ * can be up to its drift later than the real time.
  */
 export function planPunches(input: {
   guards: SimulatedGuard[];
@@ -75,7 +71,7 @@ export function planPunches(input: {
 
   for (const guard of input.guards) {
     const shiftMinutes = (guard.endMinutes - guard.startMinutes + 1440) % 1440 || 1440;
-    for (let daysAgo = input.days; daysAgo >= 0; daysAgo -= 1) {
+    for (let daysAgo = input.days - 1; daysAgo >= 0; daysAgo -= 1) {
       const midnight = today.getTime() - daysAgo * DAY_MS;
       const date = new Date(midnight).toISOString().slice(0, 10);
       const key = `${guard.deviceUserRef}:${date}`;
@@ -111,7 +107,7 @@ export function planPunches(input: {
       } else {
         punch('in', inAt, 'IN', mistake >= 0.09 && mistake < 0.1 ? 'PIN_FALLBACK' : 'FINGERPRINT');
       }
-      if (mistake >= 0.025 && mistake < 0.07) {
+      if (mistake >= 0.025 && mistake < 0.07 && inAt + 40_000 <= input.now.getTime()) {
         punch('in-again', inAt + 40_000, 'IN'); // A nervous second tap.
       }
       const forgotOut = mistake < 0.015;
@@ -143,10 +139,10 @@ export async function sendPunches(
     batches.push(lastBatch);
   }
   for (const batch of batches) {
-    const answer = (await postSigned(device, 'ingest/punches', {
+    const answer = await postSigned<IngestPunchesResponse>(device, 'ingest/punches', {
       deviceClockAt: deviceClock(device),
       punches: batch,
-    })) as SendSummary;
+    });
     total.accepted += answer.accepted;
     total.duplicates += answer.duplicates;
     total.conflicts += answer.conflicts;
@@ -156,7 +152,9 @@ export async function sendPunches(
 
 /** A heartbeat: the API measures the clock drift and looks for forgotten clock-outs. */
 export async function sendHeartbeat(device: SimulatedDevice): Promise<void> {
-  await postSigned(device, 'ingest/heartbeat', { deviceClockAt: deviceClock(device) });
+  await postSigned<HeartbeatResponse>(device, 'ingest/heartbeat', {
+    deviceClockAt: deviceClock(device),
+  });
 }
 
 function deviceClock(device: SimulatedDevice): string {
@@ -168,7 +166,11 @@ function deviceClock(device: SimulatedDevice): string {
  * correct clock (like the Phase 3 gateway's), never from the terminal's, so a
  * terminal with a fast clock can still connect and its drift gets measured.
  */
-async function postSigned(device: SimulatedDevice, route: SignedRoute, body: unknown) {
+async function postSigned<Answer>(
+  device: SimulatedDevice,
+  route: SignedRoute,
+  body: unknown,
+): Promise<Answer> {
   const text = JSON.stringify(body);
   for (let attempt = 1; ; attempt += 1) {
     const timestamp = String(Math.floor(Date.now() / 1000));
@@ -190,6 +192,7 @@ async function postSigned(device: SimulatedDevice, route: SignedRoute, body: unk
     if (!response.ok) {
       throw new Error(`${route} answered ${response.status}: ${await response.text()}`);
     }
-    return response.json();
+    // A successful answer has the contract's shape; anything else stopped the demo above.
+    return (await response.json()) as Answer;
   }
 }

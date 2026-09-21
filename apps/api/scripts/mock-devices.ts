@@ -16,12 +16,15 @@
  *
  *   API_URL=https://… DEVICE_ID=… DEVICE_SECRET=… pnpm --filter @samtec/api mock:devices -- --users 1,2,3 --shift day
  *
- * The device secret comes from an environment variable, never an option, so
- * it is not saved in the shell's list of past commands as easily.
+ * The device secret comes from an environment variable, never an option:
+ * other users on the computer can read a program's options, but not its
+ * environment. Your shell may still remember the command, so rotate the
+ * device's secret after the demo.
  */
 import { parseArgs } from 'node:util';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { loadEnvFile, parseEnv } from '../src/config/env.js';
+import { isOnThisComputer } from '../src/config/local-database.js';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { DEMO_DEVICES, demoDeviceSecret } from './demo-devices.js';
 import {
@@ -210,7 +213,9 @@ async function playDemoCompany(): Promise<void> {
         `${row.name}: ${guards.length} guards, ${punches.length} punches → ${summary.accepted} new, ${summary.duplicates} duplicates, ${summary.conflicts} conflicts.`,
       );
     }
-    console.log('Done. Open the dashboard and look at Attendance and the exception queue.');
+    console.log(
+      'Done. See the shifts and the queue with `pnpm --filter @samtec/api db:studio` (work_segments, attendance_exceptions), or on the dashboard once its attendance pages exist.',
+    );
   } finally {
     await prisma.$disconnect();
   }
@@ -219,7 +224,7 @@ async function playDemoCompany(): Promise<void> {
 /** The demo plays a database on this computer only, like `pnpm db:seed`. */
 function refuseRemoteDatabase(url: string): void {
   const host = new URL(url).hostname;
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(host)) {
+  if (!isOnThisComputer(url)) {
     throw new Error(
       `Refusing to play the demo against the database at "${host}". To use another API, set API_URL, DEVICE_ID and DEVICE_SECRET instead.`,
     );

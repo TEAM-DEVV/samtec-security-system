@@ -6,7 +6,7 @@
  * Every person, phone number, Ghana Card number and company here is made up.
  * Never put real personal data in seed files (see SECURITY.md).
  *
- * It also registers one MOCK clock-in device per site, for the Phase 2 demo
+ * On this computer it also registers one MOCK clock-in device per site, for the Phase 2 demo
  * (`pnpm --filter @samtec/api mock:devices`, docs/guides/10-attendance-demo.md).
  *
  * It only writes to a database on this computer. To fill a hosted demo
@@ -15,6 +15,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { DEMO_DEVICES, demoDeviceSecret } from '../scripts/demo-devices.js';
 import { loadEnvFile, parseEnv } from '../src/config/env.js';
+import { isOnThisComputer } from '../src/config/local-database.js';
 import { PrismaClient, type Site } from '../src/generated/prisma/client.js';
 import {
   EmployeeStatus,
@@ -265,13 +266,19 @@ async function main(): Promise<void> {
 
   await seedRosters(company.id, sites);
   await assignShifts(company.id);
-  await seedDevices(company.id, sites);
+  if (isOnThisComputer(databaseUrl)) {
+    await seedDevices(company.id, sites);
+  } else {
+    console.log(
+      'Skipped the demo devices: their secrets come from AUTH_SECRET, so they only belong on this computer. Register MOCK devices on the Devices page instead.',
+    );
+  }
   await seedUsers(company.id);
 
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
   const userCount = await prisma.user.count({ where: { companyId: company.id } });
   console.log(
-    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${DEMO_DEVICES.length} demo devices and ${userCount} sign-in accounts (all fictional).`,
+    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${await prisma.device.count({ where: { companyId: company.id } })} devices and ${userCount} sign-in accounts (all fictional).`,
   );
 }
 
@@ -321,19 +328,22 @@ async function assignShifts(companyId: string): Promise<void> {
   if (!day || !nightWatch) {
     throw new Error('The Day Shift and Night Watch patterns are missing.');
   }
+  const mainGates = new Map(
+    (await prisma.post.findMany({ where: { companyId, name: 'Main Gate' } })).map((post) => [
+      post.siteId,
+      post.id,
+    ]),
+  );
   const postings = await prisma.siteAssignment.findMany({
     where: { companyId, endsOn: null, shiftPatternId: null },
     include: { employee: { select: { staffNumber: true } } },
     orderBy: { employee: { staffNumber: 'asc' } },
   });
   for (const [index, posting] of postings.entries()) {
-    const mainGate = await prisma.post.findUnique({
-      where: { siteId_name: { siteId: posting.siteId, name: 'Main Gate' } },
-    });
     await prisma.siteAssignment.update({
       where: { id: posting.id },
       data: {
-        postId: posting.postId ?? mainGate?.id ?? null,
+        postId: posting.postId ?? mainGates.get(posting.siteId) ?? null,
         shiftPatternId: index % 4 === 3 ? nightWatch.id : day.id,
       },
     });
@@ -341,9 +351,10 @@ async function assignShifts(companyId: string): Promise<void> {
 }
 
 /**
- * One MOCK clock-in device per site. Each secret is derived from AUTH_SECRET
- * (see scripts/demo-devices.ts), so the demo simulator on this computer can
- * sign with it, while the database only ever holds it encrypted.
+ * One MOCK clock-in device per site, on this computer only. Each secret is
+ * derived from AUTH_SECRET (see scripts/demo-devices.ts), so the demo
+ * simulator on this computer can sign with it, while the database only ever
+ * holds it encrypted. It never takes over a device someone else registered.
  */
 async function seedDevices(companyId: string, sites: Site[]): Promise<void> {
   const key = deviceSecretKey(env.AUTH_SECRET);
@@ -351,6 +362,14 @@ async function seedDevices(companyId: string, sites: Site[]): Promise<void> {
     const site = sites.find((candidate) => candidate.code === demo.siteCode);
     if (!site) {
       throw new Error(`Site ${demo.siteCode} is missing, so its demo device cannot be registered.`);
+    }
+    const existing = await prisma.device.findUnique({
+      where: { companyId_name: { companyId, name: demo.name } },
+    });
+    if (existing && (existing.kind !== 'MOCK' || existing.siteId !== site.id)) {
+      throw new Error(
+        `A device called "${demo.name}" already exists and is not the seed's demo device. Rename it, or run the seed on a fresh database.`,
+      );
     }
     const secretEncrypted = sealSecret(demoDeviceSecret(env.AUTH_SECRET, demo.name), key);
     await prisma.device.upsert({
@@ -422,8 +441,7 @@ async function seedUsers(companyId: string): Promise<void> {
  */
 function refuseRemoteDatabase(url: string): void {
   const host = new URL(url).hostname;
-  const isOnThisComputer = ['localhost', '127.0.0.1', '[::1]'].includes(host);
-  if (!isOnThisComputer && process.env.ALLOW_REMOTE_SEED !== 'yes') {
+  if (!isOnThisComputer(url) && process.env.ALLOW_REMOTE_SEED !== 'yes') {
     throw new Error(
       `Refusing to seed the database at "${host}" because it is not on this computer. ` +
         'To fill a hosted demo database on purpose, run the command again with ALLOW_REMOTE_SEED=yes.',

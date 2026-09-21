@@ -48,6 +48,14 @@ describe('planPunches', () => {
     );
   });
 
+  it('never plans a punch later than the terminal clock says it is now', () => {
+    const drift = 420;
+    const punches = planPunches({ guards, days: 30, now, clockDriftSeconds: drift });
+    expect(
+      punches.every((punch) => Date.parse(punch.deviceTime) <= now.getTime() + drift * 1000),
+    ).toBe(true);
+  });
+
   it('shows a fast terminal clock in the punch times', () => {
     const [plain] = planPunches({ guards: [dayGuard], days: 1, now });
     const [fast] = planPunches({ guards: [dayGuard], days: 1, now, clockDriftSeconds: 420 });
