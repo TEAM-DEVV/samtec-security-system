@@ -344,6 +344,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the posts of a site
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only). Sorted by name. A site a supervisor may not see answers `404`.
+         */
+        get: operations["listPosts"];
+        put?: never;
+        /**
+         * Create a post at a site
+         * @description **Roles:** ADMIN, HR_PAYROLL. A post is a named guard position at the site, like "Main Gate" or "Reception", with the number of guards it needs per shift.
+         */
+        post: operations["createPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{postId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The post's ID. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a post
+         * @description **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change. A post is never deleted; set its status to `INACTIVE` when the client stops paying for it, so history keeps its meaning.
+         */
+        patch: operations["updatePost"];
+        trace?: never;
+    };
+    "/shift-patterns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List shift patterns
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. Shift patterns belong to the whole company, not one site. Sorted by name.
+         */
+        get: operations["listShiftPatterns"];
+        put?: never;
+        /**
+         * Create a shift pattern
+         * @description **Roles:** ADMIN, HR_PAYROLL. When the end time is not after the start time, the shift crosses midnight — a night shift from 18:00 to 06:00 ends the next morning.
+         */
+        post: operations["createShiftPattern"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shift-patterns/{shiftPatternId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The shift pattern's ID. */
+                shiftPatternId: components["parameters"]["ShiftPatternId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a shift pattern
+         * @description **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change. Changing the times affects every employee assigned to this pattern from now on; past attendance is never rewritten.
+         */
+        patch: operations["updateShiftPattern"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -606,6 +703,10 @@ export interface components {
             terminationDate: string | null;
             /** @description The site the employee is posted to today, or `null` if unassigned. */
             currentSite: components["schemas"]["SiteSummary"] | null;
+            /** @description The post at that site, or `null` when none is set. */
+            currentPost: components["schemas"]["PostSummary"] | null;
+            /** @description The shift pattern they work, or `null` when none is set. */
+            currentShiftPattern: components["schemas"]["ShiftPatternSummary"] | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -627,6 +728,16 @@ export interface components {
              * @description Optional. Post the employee to this site straight away.
              */
             siteId?: string;
+            /**
+             * Format: uuid
+             * @description Optional, only with `siteId`. The post at that site.
+             */
+            postId?: string;
+            /**
+             * Format: uuid
+             * @description Optional, only with `siteId`. The shift pattern they work.
+             */
+            shiftPatternId?: string;
         };
         /** @description Only the fields you send are changed. Send `null` to clear an optional field. */
         UpdateEmployeeRequest: {
@@ -642,6 +753,16 @@ export interface components {
              * @description Move the employee to this site, or send `null` to unassign them.
              */
             siteId?: string | null;
+            /**
+             * Format: uuid
+             * @description Set or change the post. Only with `siteId`, because a posting change starts a fresh assignment. `null` clears the post.
+             */
+            postId?: string | null;
+            /**
+             * Format: uuid
+             * @description Set or change the shift pattern. Only with `siteId`, because a posting change starts a fresh assignment. `null` clears it.
+             */
+            shiftPatternId?: string | null;
         };
         TerminateEmployeeRequest: {
             /**
@@ -690,6 +811,100 @@ export interface components {
             items: components["schemas"]["Site"][];
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
+        };
+        /**
+         * @description A time of day in 24-hour form, like `06:00` or `18:30`.
+         * @example 18:00
+         */
+        ShiftTime: string;
+        /**
+         * @description - `ACTIVE` — the client pays for this post; guards are assigned to it.
+         *     - `INACTIVE` — no longer staffed. Kept for history, never deleted.
+         * @enum {string}
+         */
+        PostStatus: "ACTIVE" | "INACTIVE";
+        /** @description Just enough of a post to show on an employee. */
+        PostSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @example Main Gate */
+            name: string;
+        };
+        Post: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            siteId: string;
+            /**
+             * @description What the position is called at the site. Unique per site.
+             * @example Main Gate
+             */
+            name: string;
+            /** @description How many guards this post needs on duty per shift. */
+            requiredGuards: number;
+            status: components["schemas"]["PostStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PostList: {
+            items: components["schemas"]["Post"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        CreatePostRequest: {
+            name: string;
+            /** @default 1 */
+            requiredGuards: number;
+        };
+        /** @description Only the fields you send are changed. */
+        UpdatePostRequest: {
+            name?: string;
+            requiredGuards?: number;
+            status?: components["schemas"]["PostStatus"];
+        };
+        /** @description Just enough of a shift pattern to show on an employee. */
+        ShiftPatternSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @example Night Shift */
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+        };
+        ShiftPattern: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description What the company calls this pattern. Unique per company.
+             * @example Night Shift
+             */
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+            /** @description `true` when the shift ends on the next calendar day, like 18:00 to 06:00. Worked out by the API — the end time is not after the start. */
+            crossesMidnight: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ShiftPatternList: {
+            items: components["schemas"]["ShiftPattern"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        CreateShiftPatternRequest: {
+            name: string;
+            startTime: components["schemas"]["ShiftTime"];
+            endTime: components["schemas"]["ShiftTime"];
+        };
+        /** @description Only the fields you send are changed. */
+        UpdateShiftPatternRequest: {
+            name?: string;
+            startTime?: components["schemas"]["ShiftTime"];
+            endTime?: components["schemas"]["ShiftTime"];
         };
     };
     responses: {
@@ -768,6 +983,10 @@ export interface components {
         EmployeeId: string;
         /** @description The site's ID. */
         SiteId: string;
+        /** @description The post's ID. */
+        PostId: string;
+        /** @description The shift pattern's ID. */
+        ShiftPatternId: string;
     };
     requestBodies: never;
     headers: never;
@@ -810,6 +1029,18 @@ export type SiteStatus = components['schemas']['SiteStatus'];
 export type GhanaRegion = components['schemas']['GhanaRegion'];
 export type Site = components['schemas']['Site'];
 export type SiteList = components['schemas']['SiteList'];
+export type ShiftTime = components['schemas']['ShiftTime'];
+export type PostStatus = components['schemas']['PostStatus'];
+export type PostSummary = components['schemas']['PostSummary'];
+export type Post = components['schemas']['Post'];
+export type PostList = components['schemas']['PostList'];
+export type CreatePostRequest = components['schemas']['CreatePostRequest'];
+export type UpdatePostRequest = components['schemas']['UpdatePostRequest'];
+export type ShiftPatternSummary = components['schemas']['ShiftPatternSummary'];
+export type ShiftPattern = components['schemas']['ShiftPattern'];
+export type ShiftPatternList = components['schemas']['ShiftPatternList'];
+export type CreateShiftPatternRequest = components['schemas']['CreateShiftPatternRequest'];
+export type UpdateShiftPatternRequest = components['schemas']['UpdateShiftPatternRequest'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
 export type ResponseUnauthorized = components['responses']['Unauthorized'];
 export type ResponseInvalidCredentials = components['responses']['InvalidCredentials'];
@@ -821,6 +1052,8 @@ export type ParameterCursor = components['parameters']['Cursor'];
 export type ParameterLimit = components['parameters']['Limit'];
 export type ParameterEmployeeId = components['parameters']['EmployeeId'];
 export type ParameterSiteId = components['parameters']['SiteId'];
+export type ParameterPostId = components['parameters']['PostId'];
+export type ParameterShiftPatternId = components['parameters']['ShiftPatternId'];
 export type $defs = Record<string, never>;
 export interface operations {
     getHealth: {
@@ -1264,6 +1497,193 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listPosts: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description The post was created. */
+            201: {
+                headers: {
+                    /** @description URL of the site's posts. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updatePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The post's ID. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listShiftPatterns: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of shift patterns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPatternList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createShiftPattern: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShiftPatternRequest"];
+            };
+        };
+        responses: {
+            /** @description The shift pattern was created. */
+            201: {
+                headers: {
+                    /** @description URL of the shift pattern list. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPattern"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateShiftPattern: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The shift pattern's ID. */
+                shiftPatternId: components["parameters"]["ShiftPatternId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateShiftPatternRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated shift pattern. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftPattern"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
 }

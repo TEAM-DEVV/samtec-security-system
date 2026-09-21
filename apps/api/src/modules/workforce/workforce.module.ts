@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module.js';
 import { EmployeesController } from './employees.controller.js';
 import { EmployeesService } from './employees.service.js';
+import { PostsController, ShiftPatternsController } from './rosters.controller.js';
+import { RostersService } from './rosters.service.js';
 import { SitesController } from './sites.controller.js';
 import { SitesService } from './sites.service.js';
 
@@ -12,8 +14,8 @@ import { SitesService } from './sites.service.js';
  */
 @Module({
   imports: [IdentityModule],
-  controllers: [EmployeesController, SitesController],
-  providers: [EmployeesService, SitesService],
-  exports: [EmployeesService, SitesService],
+  controllers: [EmployeesController, SitesController, PostsController, ShiftPatternsController],
+  providers: [EmployeesService, SitesService, RostersService],
+  exports: [EmployeesService, SitesService, RostersService],
 })
 export class WorkforceModule {}

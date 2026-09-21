@@ -46,6 +46,12 @@ enum SiteStatus {
   INACTIVE
 }
 
+/// ACTIVE means the client pays for this post; INACTIVE keeps it for history.
+enum PostStatus {
+  ACTIVE
+  INACTIVE
+}
+
 /// What a user account is allowed to do. Mirrors `UserRole` in the API contract.
 enum UserRole {
   ADMIN
@@ -96,6 +102,8 @@ model Company {
   users       User[]
   auditLogs   AuditLog[]
   periods     EmploymentPeriod[]
+  posts       Post[]
+  shiftPatterns ShiftPattern[]
 
   @@map("companies")
 }
@@ -242,9 +250,52 @@ model Site {
 
   company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   assignments SiteAssignment[]
+  posts       Post[]
 
   @@unique([companyId, code])
   @@map("sites")
+}
+
+/// A named guard position at a site, like "Main Gate" or "Reception", with
+/// how many guards it needs per shift. Never deleted — set `status` to
+/// INACTIVE when the client stops paying for it. Owned by the workforce module.
+model Post {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  companyId      String     @map("company_id") @db.Uuid
+  siteId         String     @map("site_id") @db.Uuid
+  name           String
+  requiredGuards Int        @default(1) @map("required_guards")
+  status         PostStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  site        Site             @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  assignments SiteAssignment[]
+
+  @@unique([siteId, name])
+  @@index([companyId])
+  @@map("posts")
+}
+
+/// A company-wide working-hours pattern, like "Night Shift 18:00–06:00".
+/// Times are minutes from midnight (0–1439); when the end is not after the
+/// start, the shift crosses midnight. Owned by the workforce module.
+model ShiftPattern {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  name         String
+  /// Minutes from midnight, so 06:00 is 360 and 18:30 is 1110.
+  startMinutes Int      @map("start_minutes")
+  endMinutes   Int      @map("end_minutes")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments SiteAssignment[]
+
+  @@unique([companyId, name])
+  @@map("shift_patterns")
 }
 
 /// A guard or staff member on the payroll. Employees are never deleted: when
@@ -315,18 +366,25 @@ model EmploymentPeriod {
 /// `companyId` must match the employee's and the site's company; the workforce
 /// service checks this before saving.
 model SiteAssignment {
-  id         String    @id @default(uuid(7)) @db.Uuid
-  companyId  String    @map("company_id") @db.Uuid
-  employeeId String    @map("employee_id") @db.Uuid
-  siteId     String    @map("site_id") @db.Uuid
-  startsOn   DateTime  @map("starts_on") @db.Date
-  endsOn     DateTime? @map("ends_on") @db.Date
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id             String    @id @default(uuid(7)) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  employeeId     String    @map("employee_id") @db.Uuid
+  siteId         String    @map("site_id") @db.Uuid
+  /// The post at the site, when one is set. Null means "at this site, no
+  /// particular post" — fine for office staff and new sites.
+  postId         String?   @map("post_id") @db.Uuid
+  /// The shift pattern worked, when one is set.
+  shiftPatternId String?   @map("shift_pattern_id") @db.Uuid
+  startsOn       DateTime  @map("starts_on") @db.Date
+  endsOn         DateTime? @map("ends_on") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  site     Site     @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  site         Site          @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  post         Post?         @relation(fields: [postId], references: [id], onDelete: Restrict)
+  shiftPattern ShiftPattern? @relation(fields: [shiftPatternId], references: [id], onDelete: Restrict)
 
   @@index([companyId])
   @@index([employeeId, endsOn])

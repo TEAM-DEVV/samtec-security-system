@@ -45,6 +45,11 @@ tags:
     description: Guards and staff on the company payroll. Built in Phase 1.
   - name: Sites
     description: Client locations where guards are posted. Built in Phase 1.
+  - name: Rosters
+    description: >-
+      Posts (named guard positions at a site, like "Main Gate") and shift
+      patterns (working hours, like a night shift from 18:00 to 06:00).
+      Built in Phase 1.
 
 security:
   - bearerAuth: []
@@ -548,6 +553,14 @@ paths:
                       id: 01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01
                       code: ACC-01
                       name: Ridge Towers Office Complex
+                    currentPost:
+                      id: 01927c3e-2222-7bbb-8ccc-0d0d0d0d0d01
+                      name: Main Gate
+                    currentShiftPattern:
+                      id: 01927c3e-3333-7ccc-8ddd-0e0e0e0e0e01
+                      name: Day Shift
+                      startTime: "06:00"
+                      endTime: "18:00"
                     createdAt: "2024-03-08T09:15:00Z"
                     updatedAt: "2026-08-30T14:02:11Z"
         "400":
@@ -719,6 +732,213 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /sites/{siteId}/posts:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      tags: [Rosters]
+      operationId: listPosts
+      summary: List the posts of a site
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only). Sorted by
+        name. A site a supervisor may not see answers `404`.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Rosters]
+      operationId: createPost
+      summary: Create a post at a site
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A post is a named guard position at the
+        site, like "Main Gate" or "Reception", with the number of guards it
+        needs per shift.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostRequest"
+            examples:
+              mainGate:
+                summary: The main gate, guarded by two people per shift
+                value:
+                  name: Main Gate
+                  requiredGuards: 2
+      responses:
+        "201":
+          description: The post was created.
+          headers:
+            Location:
+              description: URL of the site's posts.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /posts/{postId}:
+    parameters:
+      - $ref: "#/components/parameters/PostId"
+    patch:
+      tags: [Rosters]
+      operationId: updatePost
+      summary: Update a post
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change.
+        A post is never deleted; set its status to `INACTIVE` when the client
+        stops paying for it, so history keeps its meaning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePostRequest"
+      responses:
+        "200":
+          description: The updated post.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /shift-patterns:
+    get:
+      tags: [Rosters]
+      operationId: listShiftPatterns
+      summary: List shift patterns
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. Shift patterns belong to the
+        whole company, not one site. Sorted by name.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of shift patterns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPatternList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Rosters]
+      operationId: createShiftPattern
+      summary: Create a shift pattern
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. When the end time is not after the start
+        time, the shift crosses midnight — a night shift from 18:00 to 06:00
+        ends the next morning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShiftPatternRequest"
+            examples:
+              nightShift:
+                summary: A 12-hour night shift that crosses midnight
+                value:
+                  name: Night Shift
+                  startTime: "18:00"
+                  endTime: "06:00"
+      responses:
+        "201":
+          description: The shift pattern was created.
+          headers:
+            Location:
+              description: URL of the shift pattern list.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPattern"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /shift-patterns/{shiftPatternId}:
+    parameters:
+      - $ref: "#/components/parameters/ShiftPatternId"
+    patch:
+      tags: [Rosters]
+      operationId: updateShiftPattern
+      summary: Update a shift pattern
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change.
+        Changing the times affects every employee assigned to this pattern
+        from now on; past attendance is never rewritten.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateShiftPatternRequest"
+      responses:
+        "200":
+          description: The updated shift pattern.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftPattern"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -771,6 +991,22 @@ components:
       in: path
       required: true
       description: The site's ID.
+      schema:
+        type: string
+        format: uuid
+    PostId:
+      name: postId
+      in: path
+      required: true
+      description: The post's ID.
+      schema:
+        type: string
+        format: uuid
+    ShiftPatternId:
+      name: shiftPatternId
+      in: path
+      required: true
+      description: The shift pattern's ID.
       schema:
         type: string
         format: uuid
@@ -1299,6 +1535,8 @@ components:
         - hireDate
         - terminationDate
         - currentSite
+        - currentPost
+        - currentShiftPattern
         - createdAt
         - updatedAt
       properties:
@@ -1348,6 +1586,16 @@ components:
           oneOf:
             - $ref: "#/components/schemas/SiteSummary"
             - type: "null"
+        currentPost:
+          description: The post at that site, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/PostSummary"
+            - type: "null"
+        currentShiftPattern:
+          description: The shift pattern they work, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/ShiftPatternSummary"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
@@ -1385,6 +1633,14 @@ components:
           type: string
           format: uuid
           description: Optional. Post the employee to this site straight away.
+        postId:
+          type: string
+          format: uuid
+          description: Optional, only with `siteId`. The post at that site.
+        shiftPatternId:
+          type: string
+          format: uuid
+          description: Optional, only with `siteId`. The shift pattern they work.
 
     UpdateEmployeeRequest:
       type: object
@@ -1414,6 +1670,18 @@ components:
           type: [string, "null"]
           format: uuid
           description: Move the employee to this site, or send `null` to unassign them.
+        postId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            Set or change the post. Only with `siteId`, because a posting
+            change starts a fresh assignment. `null` clears the post.
+        shiftPatternId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            Set or change the shift pattern. Only with `siteId`, because a
+            posting change starts a fresh assignment. `null` clears it.
 
     TerminateEmployeeRequest:
       type: object
@@ -1505,3 +1773,184 @@ components:
         nextCursor:
           type: [string, "null"]
           description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ShiftTime:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: A time of day in 24-hour form, like `06:00` or `18:30`.
+      examples: ["18:00"]
+
+    PostStatus:
+      type: string
+      description: |
+        - `ACTIVE` — the client pays for this post; guards are assigned to it.
+        - `INACTIVE` — no longer staffed. Kept for history, never deleted.
+      enum: [ACTIVE, INACTIVE]
+
+    PostSummary:
+      type: object
+      description: Just enough of a post to show on an employee.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: [Main Gate]
+
+    Post:
+      type: object
+      required: [id, siteId, name, requiredGuards, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        siteId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: What the position is called at the site. Unique per site.
+          examples: [Main Gate]
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: How many guards this post needs on duty per shift.
+        status:
+          $ref: "#/components/schemas/PostStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PostList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreatePostRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 1
+
+    UpdatePostRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields you send are changed.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        requiredGuards:
+          type: integer
+          minimum: 1
+          maximum: 50
+        status:
+          $ref: "#/components/schemas/PostStatus"
+
+    ShiftPatternSummary:
+      type: object
+      description: Just enough of a shift pattern to show on an employee.
+      required: [id, name, startTime, endTime]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: [Night Shift]
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+
+    ShiftPattern:
+      type: object
+      required: [id, name, startTime, endTime, crossesMidnight, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: What the company calls this pattern. Unique per company.
+          examples: [Night Shift]
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+        crossesMidnight:
+          type: boolean
+          description: >-
+            `true` when the shift ends on the next calendar day, like 18:00 to
+            06:00. Worked out by the API — the end time is not after the start.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ShiftPatternList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShiftPattern"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreateShiftPatternRequest:
+      type: object
+      additionalProperties: false
+      required: [name, startTime, endTime]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"
+
+    UpdateShiftPatternRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields you send are changed.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        startTime:
+          $ref: "#/components/schemas/ShiftTime"
+        endTime:
+          $ref: "#/components/schemas/ShiftTime"

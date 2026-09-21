@@ -31,7 +31,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 - [x] Append-only audit log (database-enforced), recording sign-in events; coverage grows with each write endpoint
 - [x] Read endpoints: employees and sites with role scoping (supervisors see their sites, guards themselves)
 - [x] Employees: create, update, terminate; employment periods for rehired guards
-- [ ] Posts, shift patterns and assignments (contract first)
+- [x] Posts, shift patterns and assignments (contract first): posts per site with required guard counts, company-wide shift patterns (night shifts cross midnight), and employees assignable to site + post + shift
 - [ ] Dashboard (Samuel): sign-in and two-factor screens, employee list and detail, site pages — the mock API already supports all of them
 - [ ] Dashboard (Samuel): once the sign-in screens work against the live API, remove the live-mode notice in `apps/web/src/app/router.tsx`
 - **Exit demo:** create an employee, assign them to a site and shift, and see the change in the audit trail
