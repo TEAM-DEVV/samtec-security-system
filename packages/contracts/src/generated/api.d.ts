@@ -601,6 +601,239 @@ export interface paths {
         patch: operations["updateShiftPattern"];
         trace?: never;
     };
+    "/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List clock-in devices
+         * @description **Roles:** ADMIN. Every terminal and kiosk of the company, sorted by name, with its health: when it was last seen, how far its clock is off, and how often someone tried to sign requests as it with the wrong secret. The secret itself is never returned.
+         */
+        get: operations["listDevices"];
+        put?: never;
+        /**
+         * Register a clock-in device
+         * @description **Roles:** ADMIN. A device belongs to one site for life; to move a terminal, register it again. The response carries the device's secret, shown **only this once**: it goes into the device (or its gateway) and signs every request the device sends.
+         */
+        post: operations["registerDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devices/{deviceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one device
+         * @description **Roles:** ADMIN.
+         */
+        get: operations["getDevice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a device or switch it off
+         * @description **Roles:** ADMIN. Send only the fields you want to change. A device is never deleted; `INACTIVE` refuses everything it sends from then on.
+         */
+        patch: operations["updateDevice"];
+        trace?: never;
+    };
+    "/devices/{deviceId}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give a device a new secret
+         * @description **Roles:** ADMIN. The old secret stops working **at once**; there is no overlap. The device keeps any batch that was not acknowledged and sends it again once it has the new secret, so no punch is lost. The new secret is shown only this once.
+         */
+        post: operations["rotateDeviceSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/punches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a batch of punches from a device
+         * @description **Signed by a device, not a user.** Every request carries the three
+         *     `X-Samtec-*` headers described in the `deviceSignature` security
+         *     scheme. User access tokens are not accepted here.
+         *
+         *     - **Idempotent.** A punch is identified by its device and its
+         *       `deviceEventId`. Sending it again answers `DUPLICATE` and changes
+         *       nothing. The same `deviceEventId` with different content answers
+         *       `CONFLICT`: it is not stored, and the attempt is audited.
+         *     - **Up to 100 punches per batch.** A `deviceEventId` repeated inside
+         *       one batch is a `400`.
+         *     - **Rate limit:** 60 signed requests per minute per device (`429`
+         *       with `Retry-After`).
+         *
+         *     **What an ingest client does with each answer:**
+         *     `200` — every listed item is final (conflicts included): clear the
+         *     batch. `429` — wait `Retry-After` seconds. `401`, `5xx` or no answer —
+         *     keep the batch and send it again unchanged; that is always safe.
+         *     `400` or `413` — a software bug: do not resend the same batch forever.
+         */
+        post: operations["ingestPunches"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tell the API a device is alive
+         * @description **Signed by a device** (see `ingestPunches`). Marks the device as seen, records how far its clock is off (`deviceClockAt`), and lets the API notice clock-ins that never got a clock-out. Send one every few minutes. The answer carries the server's clock, so the device can correct its own.
+         */
+        post: operations["sendHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List worked shifts
+         * @description **Roles:** every signed-in role, scoped. ADMIN and HR_PAYROLL see the whole company; a SUPERVISOR sees only their own sites; a GUARD sees only themselves. A site or employee the caller may not see answers `404`. A work segment is one clock-in paired with its clock-out (or an administrator's manual correction); its hours belong to the Ghana date it started, so a 22:00–06:00 night shift counts on the first day. Sorted by start time.
+         */
+        get: operations["listWorkSegments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The attendance exception queue
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only exceptions whose every site is theirs: an overlap that reaches a site they do not run is for an ADMIN). Things a person must look at: a clock-in with no clock-out, a clock-out with no clock-in, a user number that matches nobody, a punch from someone who may not clock in, and one person on two shifts at once. Newest first. Each item lists the actions the caller may take on it.
+         */
+        get: operations["listAttendanceExceptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/exceptions/{exceptionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The exception's ID. */
+                exceptionId: components["parameters"]["ExceptionId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one exception with its evidence
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only when every site it touches is theirs; others answer `404`).
+         */
+        get: operations["getAttendanceException"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/exceptions/{exceptionId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The exception's ID. */
+                exceptionId: components["parameters"]["ExceptionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an exception
+         * @description **Roles:** ADMIN for any site; SUPERVISOR for their own sites (both
+         *     sites, for an overlap; otherwise they cannot see it). HR_PAYROLL may read the queue but never
+         *     resolve it: the people who run payroll must not also create hours.
+         *     **Nobody resolves an exception about their own attendance** (`403`).
+         *
+         *     Every resolution needs a `note` (3–500 characters) and is audited.
+         *     The allowed actions depend on the type (see `allowedActions`):
+         *
+         *     - `DISMISS` — checked, nothing to change.
+         *     - `ADD_SEGMENT` (missing clock-in or clock-out) — records the shift
+         *       by hand. The window must contain the real punch's time, be at most
+         *       16 hours long and end in the past, so hours are only ever
+         *       completed around real biometric evidence. Hours that would overlap
+         *       another counted shift of the same person answer `409`.
+         *     - `KEEP_SEGMENT` (overlap) — keeps one of the two shifts and voids
+         *       the other.
+         *     - `VOID_ALL` (overlap) — voids both shifts.
+         */
+        post: operations["resolveAttendanceException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1152,8 +1385,349 @@ export interface components {
             startTime?: components["schemas"]["ShiftTime"];
             endTime?: components["schemas"]["ShiftTime"];
         };
+        /**
+         * @description What sends the punches. Descriptive only: every kind signs its
+         *     requests the same way.
+         *     - `MOCK` — the simulator, for development and the demo.
+         *     - `ZKTECO` — a ZKTeco fingerprint or face terminal (through its gateway, Phase 3).
+         *     - `FACE_KIOSK` — the SAMTEC face kiosk (Phase 3).
+         * @enum {string}
+         */
+        DeviceKind: "MOCK" | "ZKTECO" | "FACE_KIOSK";
+        /**
+         * @description `INACTIVE` refuses every request the device sends. Devices are never deleted.
+         * @enum {string}
+         */
+        DeviceStatus: "ACTIVE" | "INACTIVE";
+        Device: {
+            /** Format: uuid */
+            id: string;
+            /** @example Ridge Towers main gate */
+            name: string;
+            /** Format: uuid */
+            siteId: string;
+            kind: components["schemas"]["DeviceKind"];
+            status: components["schemas"]["DeviceStatus"];
+            /**
+             * Format: date-time
+             * @description The last correctly signed request, or `null` if none yet.
+             */
+            lastSeenAt: string | null;
+            /** @description How far the device's clock was from the server's at its last report (positive = the device runs fast). More than 300 seconds either way means its punch times are suspect. */
+            lastClockDriftSeconds: number | null;
+            /** @description Minutes in which someone sent requests as this device with a wrong signature (counted at most once a minute). Anything above zero is worth a look. */
+            failedSignatureCount: number;
+            /** Format: date-time */
+            lastFailedSignatureAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DeviceList: {
+            items: components["schemas"]["Device"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        RegisterDeviceRequest: {
+            /** @description Unique within the company. */
+            name: string;
+            /** Format: uuid */
+            siteId: string;
+            kind: components["schemas"]["DeviceKind"];
+        };
+        UpdateDeviceRequest: {
+            name?: string;
+            status?: components["schemas"]["DeviceStatus"];
+        };
+        /** @description A device plus its secret, shown only in this one response. */
+        DeviceWithSecret: {
+            device: components["schemas"]["Device"];
+            /**
+             * @description 32 random bytes, base64url-encoded. Put it into the device or its gateway; the API keeps only an encrypted copy and never shows it again.
+             * @example 3q2-7wQkXv9m0y1ZbTn8LpRsUe4GhJcA5dKfWxYz6iB
+             */
+            secret: string;
+        };
+        /**
+         * @description `UNKNOWN` when the device does not say; pairing then works it out.
+         * @enum {string}
+         */
+        PunchDirection: "IN" | "OUT" | "UNKNOWN";
+        /**
+         * @description `PIN_FALLBACK` is flagged everywhere: a PIN proves nothing about who typed it.
+         * @enum {string}
+         */
+        PunchMethod: "FINGERPRINT" | "FACE" | "PIN_FALLBACK";
+        IngestPunch: {
+            /** @description The device's own ID for this punch (printable ASCII, no spaces). Together with the device it identifies the punch forever. */
+            deviceEventId: string;
+            /** @description The user number the device matched: the digits of the staff number (`42` or `00042` for SMT-00042), or the staff number itself. */
+            deviceUserRef: string;
+            /**
+             * Format: date-time
+             * @description When the punch happened, by the device's clock, with its UTC offset.
+             */
+            deviceTime: string;
+            direction: components["schemas"]["PunchDirection"];
+            method: components["schemas"]["PunchMethod"];
+        };
+        IngestPunchesRequest: {
+            /**
+             * Format: date-time
+             * @description The device's clock at the moment it sent the batch, used to measure drift.
+             */
+            deviceClockAt?: string;
+            punches: components["schemas"]["IngestPunch"][];
+        };
+        /**
+         * @description - `ACCEPTED` — stored now.
+         *     - `DUPLICATE` — already stored earlier, identical. Nothing changed.
+         *     - `CONFLICT` — this `deviceEventId` was stored earlier with different
+         *       content. The new version was not stored; the attempt is audited.
+         * @enum {string}
+         */
+        PunchResultStatus: "ACCEPTED" | "DUPLICATE" | "CONFLICT";
+        PunchResult: {
+            deviceEventId: string;
+            status: components["schemas"]["PunchResultStatus"];
+            /**
+             * Format: uuid
+             * @description The stored punch (for `CONFLICT`, the one stored earlier).
+             */
+            punchId: string;
+        };
+        IngestPunchesResponse: {
+            /** Format: date-time */
+            serverTime: string;
+            accepted: number;
+            duplicates: number;
+            conflicts: number;
+            results: components["schemas"]["PunchResult"][];
+        };
+        HeartbeatRequest: {
+            /** Format: date-time */
+            deviceClockAt?: string;
+        };
+        HeartbeatResponse: {
+            /** Format: date-time */
+            serverTime: string;
+        };
+        /** @description Just enough of an employee to name them. */
+        EmployeeRef: {
+            /** Format: uuid */
+            id: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            fullName: string;
+        };
+        /**
+         * @description - `BIOMETRIC` — a fingerprint or face clock-in paired with its clock-out.
+         *     - `PIN_FALLBACK` — at least one of the two punches used a PIN: flagged.
+         *     - `MANUAL` — recorded by a person while resolving an exception.
+         * @enum {string}
+         */
+        SegmentBasis: "BIOMETRIC" | "PIN_FALLBACK" | "MANUAL";
+        /**
+         * @description - `CONFIRMED` — counts as worked time.
+         *     - `DISPUTED` — overlaps another shift of the same person; counts only
+         *       once a person resolves the overlap.
+         *     - `VOIDED` — no longer counts (replaced by later punches, or voided by a person).
+         * @enum {string}
+         */
+        SegmentStatus: "CONFIRMED" | "DISPUTED" | "VOIDED";
+        WorkSegment: {
+            /** Format: uuid */
+            id: string;
+            employee: components["schemas"]["EmployeeRef"];
+            /** Format: uuid */
+            siteId: string;
+            /**
+             * Format: date
+             * @description The Ghana (Africa/Accra) date the shift started on. All its hours belong to it.
+             */
+            workDate: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            endedAt: string;
+            workedMinutes: number;
+            basis: components["schemas"]["SegmentBasis"];
+            status: components["schemas"]["SegmentStatus"];
+            /**
+             * Format: uuid
+             * @description `null` for MANUAL segments.
+             */
+            clockInPunchId: string | null;
+            /** Format: uuid */
+            clockOutPunchId: string | null;
+        };
+        WorkSegmentList: {
+            items: components["schemas"]["WorkSegment"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /**
+         * @description - `MISSING_CLOCK_OUT` — a clock-in with no clock-out within 16 hours.
+         *     - `MISSING_CLOCK_IN` — a clock-out with no clock-in in the 16 hours before it.
+         *     - `UNKNOWN_EMPLOYEE` — a device user number that matches nobody
+         *       (grouped per device, number and day).
+         *     - `INACTIVE_EMPLOYEE` — a punch from someone who may not clock in:
+         *       waiting for enrollment, suspended, or after their termination date
+         *       (grouped per person and day).
+         *     - `OVERLAP` — one person on two shifts at the same time (often at two sites).
+         * @enum {string}
+         */
+        AttendanceExceptionType: "MISSING_CLOCK_OUT" | "MISSING_CLOCK_IN" | "UNKNOWN_EMPLOYEE" | "INACTIVE_EMPLOYEE" | "OVERLAP";
+        /**
+         * @description - `OPEN` — waiting for a person.
+         *     - `RESOLVED` — a person dealt with it (see `resolution`).
+         *     - `AUTO_CLOSED` — later punches cleared it (for example a late clock-out arrived).
+         * @enum {string}
+         */
+        AttendanceExceptionStatus: "OPEN" | "RESOLVED" | "AUTO_CLOSED";
+        /** @enum {string} */
+        ExceptionResolutionAction: "DISMISS" | "ADD_SEGMENT" | "KEEP_SEGMENT" | "VOID_ALL";
+        /** @description The evidence behind an exception. */
+        PunchSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deviceId: string;
+            deviceName: string;
+            deviceUserRef: string;
+            /** Format: date-time */
+            deviceTime: string;
+            /**
+             * Format: date-time
+             * @description When the API received it. Much later than `deviceTime` means the device was offline.
+             */
+            serverTime: string;
+            direction: components["schemas"]["PunchDirection"];
+            method: components["schemas"]["PunchMethod"];
+            /** @description The device's clock was more than 5 minutes off, or the time is impossible. */
+            clockSuspect: boolean;
+        };
+        ExceptionResolution: {
+            action: components["schemas"]["ExceptionResolutionAction"];
+            note: string;
+            /** Format: date-time */
+            resolvedAt: string;
+            /** Format: uuid */
+            resolvedByUserId: string;
+        };
+        AttendanceException: {
+            /** Format: uuid */
+            id: string;
+            type: components["schemas"]["AttendanceExceptionType"];
+            status: components["schemas"]["AttendanceExceptionStatus"];
+            /** Format: uuid */
+            siteId: string;
+            /**
+             * Format: uuid
+             * @description For an OVERLAP at two sites, the other site.
+             */
+            secondSiteId: string | null;
+            /** @description `null` for UNKNOWN_EMPLOYEE. */
+            employee: components["schemas"]["EmployeeRef"] | null;
+            /** Format: date */
+            workDate: string;
+            /** Format: date-time */
+            occurredAt: string;
+            /** @description The punch it is about; `null` for OVERLAP. */
+            punch: components["schemas"]["PunchSummary"] | null;
+            /** @description For OVERLAP, the two shifts; otherwise empty. */
+            segments: components["schemas"]["WorkSegment"][];
+            resolution: components["schemas"]["ExceptionResolution"] | null;
+            /**
+             * Format: uuid
+             * @description The MANUAL segment an `ADD_SEGMENT` resolution created.
+             */
+            resolutionSegmentId: string | null;
+            /** @description What the caller may do now. Empty when it is not OPEN or the caller may not resolve it. */
+            allowedActions: components["schemas"]["ExceptionResolutionAction"][];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AttendanceExceptionList: {
+            items: components["schemas"]["AttendanceException"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description Why. Shown to other reviewers; never copied into the audit log. */
+        ResolutionNote: string;
+        DismissResolution: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "DISMISS";
+            note: components["schemas"]["ResolutionNote"];
+        };
+        AddSegmentResolution: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "ADD_SEGMENT";
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            endedAt: string;
+            note: components["schemas"]["ResolutionNote"];
+        };
+        KeepSegmentResolution: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "KEEP_SEGMENT";
+            /**
+             * Format: uuid
+             * @description The one of the exception's two segments to keep.
+             */
+            segmentId: string;
+            note: components["schemas"]["ResolutionNote"];
+        };
+        VoidAllResolution: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "VOID_ALL";
+            note: components["schemas"]["ResolutionNote"];
+        };
+        ResolveExceptionRequest: components["schemas"]["DismissResolution"] | components["schemas"]["AddSegmentResolution"] | components["schemas"]["KeepSegmentResolution"] | components["schemas"]["VoidAllResolution"];
     };
     responses: {
+        /** @description The signature is wrong, the device is unknown or switched off, or the timestamp is more than 5 minutes from the server clock. Always the same answer, so nobody can learn which device IDs exist. */
+        DeviceNotTrusted: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description The request body is larger than 100 kB. Send smaller batches. */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description The API is busy with another batch for the same company. Nothing was stored; send the same request again in a few seconds. */
+        Busy: {
+            headers: {
+                /** @description How many seconds to wait before trying again. */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description The request is invalid. The `errors` list says which fields are wrong. */
         BadRequest: {
             headers: {
@@ -1221,6 +1795,14 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The device's ID. */
+        DeviceId: string;
+        /** @description The exception's ID. */
+        ExceptionId: string;
+        /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+        DeviceHeader: string;
+        /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+        TimestampHeader: string;
         /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
         Cursor: string;
         /** @description How many items to return in one page. */
@@ -1304,6 +1886,43 @@ export type ShiftPattern = components['schemas']['ShiftPattern'];
 export type ShiftPatternList = components['schemas']['ShiftPatternList'];
 export type CreateShiftPatternRequest = components['schemas']['CreateShiftPatternRequest'];
 export type UpdateShiftPatternRequest = components['schemas']['UpdateShiftPatternRequest'];
+export type DeviceKind = components['schemas']['DeviceKind'];
+export type DeviceStatus = components['schemas']['DeviceStatus'];
+export type Device = components['schemas']['Device'];
+export type DeviceList = components['schemas']['DeviceList'];
+export type RegisterDeviceRequest = components['schemas']['RegisterDeviceRequest'];
+export type UpdateDeviceRequest = components['schemas']['UpdateDeviceRequest'];
+export type DeviceWithSecret = components['schemas']['DeviceWithSecret'];
+export type PunchDirection = components['schemas']['PunchDirection'];
+export type PunchMethod = components['schemas']['PunchMethod'];
+export type IngestPunch = components['schemas']['IngestPunch'];
+export type IngestPunchesRequest = components['schemas']['IngestPunchesRequest'];
+export type PunchResultStatus = components['schemas']['PunchResultStatus'];
+export type PunchResult = components['schemas']['PunchResult'];
+export type IngestPunchesResponse = components['schemas']['IngestPunchesResponse'];
+export type HeartbeatRequest = components['schemas']['HeartbeatRequest'];
+export type HeartbeatResponse = components['schemas']['HeartbeatResponse'];
+export type EmployeeRef = components['schemas']['EmployeeRef'];
+export type SegmentBasis = components['schemas']['SegmentBasis'];
+export type SegmentStatus = components['schemas']['SegmentStatus'];
+export type WorkSegment = components['schemas']['WorkSegment'];
+export type WorkSegmentList = components['schemas']['WorkSegmentList'];
+export type AttendanceExceptionType = components['schemas']['AttendanceExceptionType'];
+export type AttendanceExceptionStatus = components['schemas']['AttendanceExceptionStatus'];
+export type ExceptionResolutionAction = components['schemas']['ExceptionResolutionAction'];
+export type PunchSummary = components['schemas']['PunchSummary'];
+export type ExceptionResolution = components['schemas']['ExceptionResolution'];
+export type AttendanceException = components['schemas']['AttendanceException'];
+export type AttendanceExceptionList = components['schemas']['AttendanceExceptionList'];
+export type ResolutionNote = components['schemas']['ResolutionNote'];
+export type DismissResolution = components['schemas']['DismissResolution'];
+export type AddSegmentResolution = components['schemas']['AddSegmentResolution'];
+export type KeepSegmentResolution = components['schemas']['KeepSegmentResolution'];
+export type VoidAllResolution = components['schemas']['VoidAllResolution'];
+export type ResolveExceptionRequest = components['schemas']['ResolveExceptionRequest'];
+export type ResponseDeviceNotTrusted = components['responses']['DeviceNotTrusted'];
+export type ResponsePayloadTooLarge = components['responses']['PayloadTooLarge'];
+export type ResponseBusy = components['responses']['Busy'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
 export type ResponseUnauthorized = components['responses']['Unauthorized'];
 export type ResponseInvalidCredentials = components['responses']['InvalidCredentials'];
@@ -1311,6 +1930,10 @@ export type ResponseForbidden = components['responses']['Forbidden'];
 export type ResponseNotFound = components['responses']['NotFound'];
 export type ResponseConflict = components['responses']['Conflict'];
 export type ResponseTooManyRequests = components['responses']['TooManyRequests'];
+export type ParameterDeviceId = components['parameters']['DeviceId'];
+export type ParameterExceptionId = components['parameters']['ExceptionId'];
+export type ParameterDeviceHeader = components['parameters']['DeviceHeader'];
+export type ParameterTimestampHeader = components['parameters']['TimestampHeader'];
 export type ParameterCursor = components['parameters']['Cursor'];
 export type ParameterLimit = components['parameters']['Limit'];
 export type ParameterEmployeeId = components['parameters']['EmployeeId'];
@@ -2203,6 +2826,347 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShiftPattern"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listDevices: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of devices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    registerDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description The device was registered, with its one-time secret. */
+            201: {
+                headers: {
+                    /** @description URL of the new device. */
+                    Location?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceWithSecret"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The device. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated device. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rotateDeviceSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The device and its new one-time secret. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceWithSecret"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    ingestPunches: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestPunchesRequest"];
+            };
+        };
+        responses: {
+            /** @description The batch was processed; each punch has its own result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestPunchesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    sendHeartbeat: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description The heartbeat was recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    listWorkSegments: {
+        parameters: {
+            query: {
+                /** @description The first work date, like `2026-09-01`. */
+                from: string;
+                /** @description The last work date. At most 31 days after `from`. */
+                to: string;
+                siteId?: string;
+                employeeId?: string;
+                /** @description Only this status. Leave it out for CONFIRMED and DISPUTED together. */
+                status?: components["schemas"]["SegmentStatus"];
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of work segments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkSegmentList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAttendanceExceptions: {
+        parameters: {
+            query?: {
+                /** @description Defaults to OPEN. */
+                status?: components["schemas"]["AttendanceExceptionStatus"];
+                type?: components["schemas"]["AttendanceExceptionType"];
+                siteId?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of exceptions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceExceptionList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAttendanceException: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The exception's ID. */
+                exceptionId: components["parameters"]["ExceptionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exception. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceException"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resolveAttendanceException: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The exception's ID. */
+                exceptionId: components["parameters"]["ExceptionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveExceptionRequest"];
+            };
+        };
+        responses: {
+            /** @description The resolved exception. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceException"];
                 };
             };
             400: components["responses"]["BadRequest"];

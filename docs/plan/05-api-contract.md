@@ -43,8 +43,9 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
 | Rosters | `GET/POST /sites/{id}/posts`, `PATCH /posts/{id}`, `GET/POST /shift-patterns`, `PATCH /shift-patterns/{id}`; employee create/update take `postId` and `shiftPatternId` | **Built** |
 | Enrollment | `POST /employees/{id}/biometrics`, duplicate check, activation | Phase 3 |
-| Devices | device registry, heartbeat, `POST /ingest/punches` | Phase 2 |
-| Attendance | daily attendance, exceptions and their resolution | Phase 2 |
+| Devices (ADMIN) | `GET/POST /devices`, `GET/PATCH /devices/{id}`, `POST /devices/{id}/rotate-secret` | In the contract (Phase 2) |
+| Ingest (device-signed) | `POST /ingest/punches`, `POST /ingest/heartbeat` | In the contract (Phase 2) |
+| Attendance | `GET /attendance/segments`, `GET /attendance/exceptions`, `GET /attendance/exceptions/{id}`, `POST /attendance/exceptions/{id}/resolve` | In the contract (Phase 2) — see [12 · Attendance design](12-attendance-design.md) |
 | Payroll | periods, runs, submit, approve, payslips, bank export | Phase 4 |
 | Detection | alerts, resolution, rules, sweep | Phase 5 |
 | Reports | attendance and payroll summaries, CSV and PDF export | Phase 6 |

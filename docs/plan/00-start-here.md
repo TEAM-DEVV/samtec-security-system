@@ -20,6 +20,7 @@ A biometric attendance and payroll platform for security companies that makes it
 9. [Payroll engine (Ghana)](09-payroll-engine-ghana.md): PAYE, SSNIT and locked payroll runs
 10. [Biometric integration](10-biometric-integration.md): hardware options and the provider interface
 11. [Client presentation plan](11-client-presentation-plan.md): turning the project into a sale
+12. [Attendance design](12-attendance-design.md): how a punch becomes paid-for hours (Phase 2)
 
 New to the project? Read [How the system works](../guides/01-how-the-system-works.md) first.
 
