@@ -47,7 +47,13 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
 
     const punch = (ref: string, deviceTime: string, direction: 'IN' | 'OUT') => {
       events += 1;
-      return { deviceEventId: `q-${events}`, deviceUserRef: ref, deviceTime, direction, method: 'FINGERPRINT' };
+      return {
+        deviceEventId: `q-${events}`,
+        deviceUserRef: ref,
+        deviceTime,
+        direction,
+        method: 'FINGERPRINT',
+      };
     };
     const send = (device: TestDevice, ...punches: ReturnType<typeof punch>[]) =>
       signedPost(app, 'ingest/punches', { punches }, device).expect(200);
@@ -61,7 +67,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     await send(gateA, punch('70001', at(2, 6), 'IN'), punch('70001', at(2, 18), 'OUT'));
     await send(gateB, punch('70001', at(2, 10), 'IN'), punch('70001', at(2, 12), 'OUT'));
     // Day 1: the supervisor's own clock-in with no clock-out.
-    await send(gateA, punch('70004', at(1, 6), 'IN'), punch('70004', at(1, 6) , 'IN'));
+    await send(gateA, punch('70004', at(1, 6), 'IN'), punch('70004', at(1, 6), 'IN'));
   }, 120_000);
 
   afterAll(async () => {
@@ -95,7 +101,9 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     });
 
     it('pages with a cursor, never repeating a row', async () => {
-      const first = await get(tokens.admin, '/attendance/segments', { ...range, limit: 1 }).expect(200);
+      const first = await get(tokens.admin, '/attendance/segments', { ...range, limit: 1 }).expect(
+        200,
+      );
       expect(first.body.nextCursor).toBeTruthy();
       const second = await get(tokens.admin, '/attendance/segments', {
         ...range,
@@ -103,27 +111,38 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
         cursor: first.body.nextCursor,
       }).expect(200);
       expect(second.body.items[0].id).not.toBe(first.body.items[0].id);
-      await get(tokens.admin, '/attendance/segments', { ...range, cursor: 'nonsense!' }).expect(400);
+      await get(tokens.admin, '/attendance/segments', { ...range, cursor: 'nonsense!' }).expect(
+        400,
+      );
     });
 
     it('shows a supervisor only their own site, and 404s the other one', async () => {
       const { body } = await get(tokens.supervisor, '/attendance/segments', range).expect(200);
       expect(body.items.length).toBeGreaterThan(0);
-      expect(body.items.every((item: { siteId: string }) => item.siteId === company.siteA)).toBe(true);
-      await get(tokens.supervisor, '/attendance/segments', { ...range, siteId: company.siteB }).expect(404);
+      expect(body.items.every((item: { siteId: string }) => item.siteId === company.siteA)).toBe(
+        true,
+      );
+      await get(tokens.supervisor, '/attendance/segments', {
+        ...range,
+        siteId: company.siteB,
+      }).expect(404);
     });
 
     it('shows a guard only themselves, and 404s anyone or anything else', async () => {
       const { body } = await get(tokens.guard, '/attendance/segments', range).expect(200);
       expect(body.items.length).toBeGreaterThan(0);
       expect(
-        body.items.every((item: { employee: { id: string } }) => item.employee.id === company.active.id),
+        body.items.every(
+          (item: { employee: { id: string } }) => item.employee.id === company.active.id,
+        ),
       ).toBe(true);
       await get(tokens.guard, '/attendance/segments', {
         ...range,
         employeeId: company.supervisorEmployeeId,
       }).expect(404);
-      await get(tokens.guard, '/attendance/segments', { ...range, siteId: company.siteA }).expect(404);
+      await get(tokens.guard, '/attendance/segments', { ...range, siteId: company.siteA }).expect(
+        404,
+      );
     });
 
     it('refuses more than 31 days', async () => {
@@ -139,7 +158,9 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     it('lets HR read the queue but never resolve it', async () => {
       const { body } = await get(tokens.hr, '/attendance/exceptions').expect(200);
       expect(body.items.length).toBeGreaterThan(0);
-      expect(body.items.every((item: { allowedActions: string[] }) => item.allowedActions.length === 0)).toBe(true);
+      expect(
+        body.items.every((item: { allowedActions: string[] }) => item.allowedActions.length === 0),
+      ).toBe(true);
       const unknown = await exceptionOf('UNKNOWN_EMPLOYEE', null);
       await resolve(tokens.hr, unknown.id, { action: 'DISMISS', note: 'Checked.' }).expect(403);
     });
@@ -150,10 +171,15 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
 
     it('hides an overlap reaching another site from a supervisor', async () => {
       const overlap = await exceptionOf('OVERLAP', company.active.id);
-      const { body } = await get(tokens.supervisor, '/attendance/exceptions', { type: 'OVERLAP' }).expect(200);
+      const { body } = await get(tokens.supervisor, '/attendance/exceptions', {
+        type: 'OVERLAP',
+      }).expect(200);
       expect(body.items).toEqual([]);
       await get(tokens.supervisor, `/attendance/exceptions/${overlap.id}`).expect(404);
-      await resolve(tokens.supervisor, overlap.id, { action: 'VOID_ALL', note: 'Not mine.' }).expect(404);
+      await resolve(tokens.supervisor, overlap.id, {
+        action: 'VOID_ALL',
+        note: 'Not mine.',
+      }).expect(404);
     });
 
     it('never lets anyone resolve their own attendance', async () => {
@@ -181,7 +207,9 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
       });
       expect(JSON.stringify(audit.detail)).not.toContain('visitor');
 
-      await resolve(tokens.supervisor, unknown.id, { action: 'DISMISS', note: 'Twice.' }).expect(409);
+      await resolve(tokens.supervisor, unknown.id, { action: 'DISMISS', note: 'Twice.' }).expect(
+        409,
+      );
     });
 
     it('adds a missing shift only around the real punch, and never over another shift', async () => {
@@ -225,7 +253,12 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
         segmentId: keep,
         note: 'The site log shows site A only.',
       }).expect(200);
-      expect(body.segments.map((segment: { id: string; status: string }) => [segment.id, segment.status])).toEqual([
+      expect(
+        body.segments.map((segment: { id: string; status: string }) => [
+          segment.id,
+          segment.status,
+        ]),
+      ).toEqual([
         [keep, 'CONFIRMED'],
         [overlap.secondSegmentId, 'VOIDED'],
       ]);
@@ -237,7 +270,13 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
         'ingest/punches',
         {
           punches: [
-            { deviceEventId: `q-${events}`, deviceUserRef: '70001', deviceTime: at(1, 6), direction: 'IN', method: 'FINGERPRINT' },
+            {
+              deviceEventId: `q-${events}`,
+              deviceUserRef: '70001',
+              deviceTime: at(1, 6),
+              direction: 'IN',
+              method: 'FINGERPRINT',
+            },
           ],
         },
         gateA,

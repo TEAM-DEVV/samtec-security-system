@@ -7,10 +7,10 @@ import {
 } from '@nestjs/common';
 import type {
   AttendanceException as ApiException,
+  WorkSegment as ApiSegment,
   AttendanceExceptionList,
   EmployeeRef,
   ExceptionResolutionAction,
-  WorkSegment as ApiSegment,
   WorkSegmentList,
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
@@ -93,10 +93,7 @@ export class AttendanceService {
             : {},
         after
           ? {
-              OR: [
-                { startedAt: { gt: after.at } },
-                { startedAt: after.at, id: { gt: after.id } },
-              ],
+              OR: [{ startedAt: { gt: after.at } }, { startedAt: after.at, id: { gt: after.id } }],
             }
           : {},
       ],
@@ -178,7 +175,9 @@ export class AttendanceService {
         await lockCompanyAttendance(tx, viewer.companyId);
         const row = await this.findVisibleException(tx, viewer, exceptionId, visible);
         if (row.employeeId !== null && row.employeeId === viewer.employeeId) {
-          throw new ForbiddenException('Nobody may resolve an exception about their own attendance.');
+          throw new ForbiddenException(
+            'Nobody may resolve an exception about their own attendance.',
+          );
         }
         if (row.status !== 'OPEN') {
           throw new ConflictException('This exception has already been dealt with.');
@@ -329,11 +328,13 @@ export class AttendanceService {
   private refsFor(companyId: string, rows: ExceptionRow[]): Promise<Map<string, EmployeeRef>> {
     return this.employees.refsByIds(
       companyId,
-      rows.flatMap((row) => [
-        row.employeeId,
-        row.segment?.employeeId ?? null,
-        row.secondSegment?.employeeId ?? null,
-      ]).filter((id): id is string => id !== null),
+      rows
+        .flatMap((row) => [
+          row.employeeId,
+          row.segment?.employeeId ?? null,
+          row.secondSegment?.employeeId ?? null,
+        ])
+        .filter((id): id is string => id !== null),
     );
   }
 }

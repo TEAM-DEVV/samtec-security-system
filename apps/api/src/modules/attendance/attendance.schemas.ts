@@ -107,7 +107,13 @@ export type ListSegmentsQuery = z.infer<typeof listSegmentsQuerySchema>;
 export const listExceptionsQuerySchema = z.strictObject({
   status: z.enum(['OPEN', 'RESOLVED', 'AUTO_CLOSED']).default('OPEN'),
   type: z
-    .enum(['MISSING_CLOCK_OUT', 'MISSING_CLOCK_IN', 'UNKNOWN_EMPLOYEE', 'INACTIVE_EMPLOYEE', 'OVERLAP'])
+    .enum([
+      'MISSING_CLOCK_OUT',
+      'MISSING_CLOCK_IN',
+      'UNKNOWN_EMPLOYEE',
+      'INACTIVE_EMPLOYEE',
+      'OVERLAP',
+    ])
     .optional(),
   siteId: z.uuid().optional(),
   limit,

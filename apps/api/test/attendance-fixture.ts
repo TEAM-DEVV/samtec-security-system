@@ -3,8 +3,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { type SignedRoute, signRequest } from '../src/modules/attendance/device-signature.js';
-import { TokensService } from '../src/modules/identity/tokens.service.js';
 import { hashPassword, TEST_ONLY_SCRYPT_PARAMS } from '../src/modules/identity/password.js';
+import { TokensService } from '../src/modules/identity/tokens.service.js';
 
 /**
  * A brand-new fictional company for each attendance test run. Punches are
@@ -184,8 +184,11 @@ export async function registerDevice(
 /** Access tokens for each of the company's accounts, as if they had signed in. */
 export async function tokensFor(app: NestExpressApplication, company: AttendanceCompany) {
   const tokens = app.get(TokensService);
-  const sign = (userId: string, role: 'ADMIN' | 'HR_PAYROLL' | 'SUPERVISOR' | 'GUARD', employeeId: string | null) =>
-    tokens.signAccessToken({ userId, companyId: company.companyId, role, employeeId });
+  const sign = (
+    userId: string,
+    role: 'ADMIN' | 'HR_PAYROLL' | 'SUPERVISOR' | 'GUARD',
+    employeeId: string | null,
+  ) => tokens.signAccessToken({ userId, companyId: company.companyId, role, employeeId });
   return {
     admin: await sign(company.adminUserId, 'ADMIN', null),
     hr: await sign(company.hrUserId, 'HR_PAYROLL', null),

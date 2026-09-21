@@ -425,7 +425,10 @@ export class EmployeesService {
       select: { id: true, staffNumber: true, firstName: true, otherNames: true, lastName: true },
     });
     return new Map(
-      rows.map((row) => [row.id, { id: row.id, staffNumber: row.staffNumber, fullName: fullNameOf(row) }]),
+      rows.map((row) => [
+        row.id,
+        { id: row.id, staffNumber: row.staffNumber, fullName: fullNameOf(row) },
+      ]),
     );
   }
 
