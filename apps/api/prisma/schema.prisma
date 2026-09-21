@@ -111,6 +111,7 @@ model Company {
   punches              PunchEvent[]
   segments             WorkSegment[]
   attendanceExceptions AttendanceException[]
+  attendanceCheck      AttendanceCheck?
 
   @@map("companies")
 }
@@ -630,7 +631,18 @@ model AttendanceException {
   @@index([siteId, status])
   @@index([secondSiteId])
   @@index([employeeId])
-  /// The heartbeat's overdue check asks "does this punch have an exception?".
-  @@index([punchId])
   @@map("attendance_exceptions")
+}
+
+/// The attendance module's bookmark for time-based checks, one row per
+/// company. Every clock-in before `overdueCheckedUntil` has already been
+/// looked at for a missing clock-out; each heartbeat moves it forward.
+model AttendanceCheck {
+  companyId           String   @id @map("company_id") @db.Uuid
+  overdueCheckedUntil DateTime @map("overdue_checked_until") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@map("attendance_checks")
 }

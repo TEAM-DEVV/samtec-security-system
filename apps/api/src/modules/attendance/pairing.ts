@@ -7,7 +7,7 @@
 
 /** A shift lasts at most this long; an IN older than this with no OUT is missing one. */
 export const MAX_SHIFT_MS = 16 * 3_600_000;
-/** A second tap within this time, in the same direction, is the same act. */
+/** A second tap within this time that counts the same way (IN or OUT) is the same act. */
 export const REPEAT_TAP_MS = 2 * 60_000;
 /** Re-pairing always recomputes this many days back. Older segments are never changed. */
 export const PAIRING_WINDOW_DAYS = 62;
@@ -48,14 +48,6 @@ function comparePunches(a: PairablePunch, b: PairablePunch): number {
   );
 }
 
-function isRepeatTap(previous: PairablePunch, punch: PairablePunch): boolean {
-  const sameAct =
-    punch.direction === previous.direction ||
-    punch.direction === 'UNKNOWN' ||
-    previous.direction === 'UNKNOWN';
-  return sameAct && punch.deviceTime.getTime() - previous.deviceTime.getTime() < REPEAT_TAP_MS;
-}
-
 /**
  * The one pairing rule: an IN followed by an OUT of the same person, at the
  * same site, no more than 16 hours later. Each site is paired on its own, so
@@ -75,17 +67,25 @@ export function pairPunches(punches: readonly PairablePunch[], now: Date): Pairi
   for (const siteId of [...bySite.keys()].sort()) {
     const sitePunches = bySite.get(siteId) ?? [];
     let open: PairablePunch | null = null;
-    let previous: PairablePunch | null = null;
+    // The previous punch here, and what it counted as (IN or OUT).
+    let previous: { at: number; counted: 'IN' | 'OUT' } | null = null;
     for (const punch of [...sitePunches].sort(comparePunches)) {
-      const repeat = previous !== null && isRepeatTap(previous, punch);
-      previous = punch;
-      if (repeat) {
+      const at = punch.deviceTime.getTime();
+      // A repeat tap: less than 2 minutes after the previous punch, and either
+      // UNKNOWN or the same as what that punch counted as. A chain of quick
+      // taps is one act, so the chain carries the first tap's meaning.
+      if (
+        previous !== null &&
+        at - previous.at < REPEAT_TAP_MS &&
+        (punch.direction === 'UNKNOWN' || punch.direction === previous.counted)
+      ) {
+        previous = { at, counted: previous.counted };
         continue;
       }
-      const openIsFresh =
-        open !== null && punch.deviceTime.getTime() - open.deviceTime.getTime() <= MAX_SHIFT_MS;
+      const openIsFresh = open !== null && at - open.deviceTime.getTime() <= MAX_SHIFT_MS;
       const direction =
         punch.direction === 'UNKNOWN' ? (openIsFresh ? 'OUT' : 'IN') : punch.direction;
+      previous = { at, counted: direction };
 
       if (direction === 'IN') {
         if (open) pairing.missingClockOut.push(open);
@@ -168,7 +168,8 @@ export const newSegmentRef = (clockInPunchId: string, clockOutPunchId: string) =
  * - a row a *person* voided stays voided, even if its shift is wanted;
  * - a derived row whose shift is no longer wanted is voided (never deleted);
  * - hand-added (MANUAL) rows are never voided here;
- * - rows that started before the window (`frozen`) are never changed.
+ * - rows that started before the window (`frozen`) are never changed, and a
+ *   shift that began before it is never created.
  * Then every live segment that overlaps another is DISPUTED, the rest CONFIRMED.
  */
 export function planSegments(
@@ -186,6 +187,9 @@ export function planSegments(
   const candidates: Array<{ wanted: WantedSegment; row?: StoredSegment; shift?: Shift }> = [];
   const wantedRowIds = new Set<string>();
   for (const shift of pairing.shifts) {
+    if (shift.clockIn.deviceTime < windowStart) {
+      continue; // A shift that began before the window belongs to the past, which never changes.
+    }
     const row = byPunches.get(`${shift.clockIn.id}:${shift.clockOut.id}`);
     if (row) {
       wantedRowIds.add(row.id);
@@ -224,6 +228,8 @@ export function planSegments(
   }
 
   // Overlaps: ranges include their start and exclude their end, so touching shifts are fine.
+  // Sorted by start, the inner loop stops at the first shift that starts
+  // after this one ends, so this stays fast for a person's 62 days.
   const live = candidates
     .map((candidate) => candidate.wanted)
     .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || a.ref.localeCompare(b.ref));
@@ -273,13 +279,11 @@ export function planSegments(
   return plan;
 }
 
-export type ExceptionType = 'MISSING_CLOCK_OUT' | 'MISSING_CLOCK_IN' | 'OVERLAP';
-
-/** An open or auto-closed exception that re-pairing may close or reopen. */
+/** An exception that re-pairing may close or reopen (it only ever loads OPEN and AUTO_CLOSED ones). */
 export interface StoredException {
   id: string;
-  type: ExceptionType;
-  status: 'OPEN' | 'AUTO_CLOSED';
+  type: string;
+  status: string;
   dedupeKey: string;
   punchId: string | null;
   segmentId: string | null;

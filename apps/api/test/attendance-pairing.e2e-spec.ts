@@ -157,8 +157,22 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
     ]);
   });
 
+  it('stores a punch that arrives more than 62 days late, but never pairs it', async () => {
+    await send(gateA, punch('70004', at(70, 6), 'IN'), punch('70004', at(70, 18), 'OUT'));
+    const old = await segmentsOf(company.supervisorEmployeeId, at(71, 0), at(69, 0));
+    expect(old).toEqual([]);
+    const stored = await prisma.punchEvent.count({
+      where: { employeeId: company.supervisorEmployeeId, deviceTime: { lt: new Date(at(69, 0)) } },
+    });
+    expect(stored).toBe(2);
+    const queued = await prisma.attendanceException.count({
+      where: { employeeId: company.supervisorEmployeeId, occurredAt: { lt: new Date(at(69, 0)) } },
+    });
+    expect(queued).toBe(0);
+  });
+
   it('a heartbeat notices a clock-in that has waited more than 16 hours', async () => {
-    // Stored directly, as if it had arrived before the pairing code existed.
+    // Stored directly, as if it had arrived while it was still a shift in progress.
     const lonely = await prisma.punchEvent.create({
       data: {
         companyId: company.companyId,
@@ -167,8 +181,8 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
         deviceEventId: 'lonely-in',
         deviceUserRef: '70004',
         employeeId: company.supervisorEmployeeId,
-        deviceTime: new Date(at(2, 6)),
-        serverTime: new Date(at(2, 6)),
+        deviceTime: new Date(Date.now() - 20 * 3_600_000),
+        serverTime: new Date(Date.now() - 20 * 3_600_000),
         direction: 'IN',
         method: 'FINGERPRINT',
         payloadHash: '0'.repeat(64),
@@ -179,5 +193,36 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
       where: { punchId: lonely.id, type: 'MISSING_CLOCK_OUT' },
     });
     expect(raised?.status).toBe('OPEN');
+
+    // The company's bookmark moved forward, so the next heartbeat does not look again.
+    const bookmark = await prisma.attendanceCheck.findUniqueOrThrow({
+      where: { companyId: company.companyId },
+    });
+    expect(bookmark.overdueCheckedUntil.getTime()).toBeGreaterThan(Date.now() - 17 * 3_600_000);
   });
+
+  it('a heartbeat notices an UNKNOWN-direction clock-in left open too', async () => {
+    const lonely = await prisma.punchEvent.create({
+      data: {
+        companyId: company.companyId,
+        deviceId: gateB.id,
+        siteId: company.siteB,
+        deviceEventId: 'lonely-unknown',
+        deviceUserRef: '70004',
+        employeeId: company.supervisorEmployeeId,
+        // 3 seconds short of 16 hours: still a shift in progress, and after the bookmark.
+        deviceTime: new Date(Date.now() - 16 * 3_600_000 + 3_000),
+        serverTime: new Date(Date.now() - 16 * 3_600_000 + 3_000),
+        direction: 'UNKNOWN',
+        method: 'FINGERPRINT',
+        payloadHash: '1'.repeat(64),
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 6_000)); // Let it turn 16 hours old.
+    await signedPost(app, 'ingest/heartbeat', {}, gateB).expect(200);
+    const raised = await prisma.attendanceException.findFirst({
+      where: { punchId: lonely.id, type: 'MISSING_CLOCK_OUT' },
+    });
+    expect(raised?.status).toBe('OPEN');
+  }, 20_000);
 });

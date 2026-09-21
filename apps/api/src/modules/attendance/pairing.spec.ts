@@ -110,6 +110,32 @@ describe('pairPunches', () => {
     expect(pairing.missingClockOut).toEqual([]);
   });
 
+  it('treats a chain of quick taps as one act, even when the chain lasts longer than 2 minutes', () => {
+    const first = punch('2026-09-20T06:00:00Z', 'IN');
+    const taps = [first, punch('2026-09-20T06:01:30Z', 'IN'), punch('2026-09-20T06:03:00Z', 'IN')];
+    const out = punch('2026-09-20T18:00:00Z', 'OUT');
+    const pairing = pairPunches([...taps, out], now);
+    expect(pairing.shifts).toEqual([{ clockIn: first, clockOut: out }]);
+    expect(pairing.missingClockOut).toEqual([]);
+  });
+
+  it('never swallows a real clock-out that follows an UNKNOWN clock-in within 2 minutes', () => {
+    const unknownIn = punch('2026-09-20T09:00:00Z', 'UNKNOWN');
+    const out = punch('2026-09-20T09:01:30Z', 'OUT');
+    expect(pairPunches([unknownIn, out], now).shifts).toEqual([
+      { clockIn: unknownIn, clockOut: out },
+    ]);
+  });
+
+  it('treats an OUT right after an UNKNOWN that closed the shift as the same act', () => {
+    const clockIn = punch('2026-09-20T06:00:00Z', 'IN');
+    const unknownOut = punch('2026-09-20T18:00:00Z', 'UNKNOWN');
+    const again = punch('2026-09-20T18:01:00Z', 'OUT');
+    const pairing = pairPunches([clockIn, unknownOut, again], now);
+    expect(pairing.shifts).toEqual([{ clockIn, clockOut: unknownOut }]);
+    expect(pairing.missingClockIn).toEqual([]);
+  });
+
   it('treats a second IN after 2 minutes as a new clock-in, and the first as missing its OUT', () => {
     const first = punch('2026-09-20T06:00:00Z', 'IN');
     const second = punch('2026-09-20T06:03:00Z', 'IN');
@@ -262,6 +288,16 @@ describe('planSegments', () => {
   it('confirms a disputed shift again once its partner is gone', () => {
     const plan = planSegments(pairing, [stored({ status: 'DISPUTED' })], windowStart);
     expect(plan.change).toEqual([{ id: 'seg-1', status: 'CONFIRMED' }]);
+  });
+
+  it('never creates a shift that began before the window', () => {
+    const straddling = pairPunches(
+      [punch('2026-07-22T08:00:00Z', 'IN'), punch('2026-07-22T14:00:00Z', 'OUT')],
+      now,
+    );
+    const plan = planSegments(straddling, [], windowStart);
+    expect(plan.create).toEqual([]);
+    expect(plan.live).toEqual([]);
   });
 
   it('never changes a shift older than the window, but disputes a new one overlapping it', () => {
