@@ -26,6 +26,7 @@ apps/web/
 │   ├── components/
 │   │   ├── layout/              the app shell (sidebar, top bar), the sign-in card and navigation items
 │   │   ├── require-session.tsx  wraps the shell: restores the session after a reload, or sends you to /login
+│   │   ├── require-role.tsx     wraps a page: shows the "not for your role" page to roles the API would refuse
 │   │   └── ui/                  shadcn/ui components (button, card, table…)
 │   ├── lib/
 │   │   ├── api.ts               $api: the typed API client
@@ -34,7 +35,7 @@ apps/web/
 │   │   ├── problem.ts           turns API errors into messages
 │   │   ├── session.ts           the signed-in user and access token (memory only)
 │   │   ├── auth.ts              restore a session after a reload, and sign out
-│   │   └── roles.ts             the label shown for each user role
+│   │   └── roles.ts             role labels, and which roles may open each page
 │   ├── mocks/
 │   │   ├── handlers/            the mock API, one file per area (system, auth, employees, sites)
 │   │   ├── data/                fictional employees, sites and sign-in accounts
@@ -189,12 +190,18 @@ export function SitesPage() {
 
 ### 2. Give it a web address
 
-In `src/app/router.tsx`, add it to `children`. Until the real API serves `/sites` (Phase 1), show the notice in live mode, like the Employees page:
+In `src/app/router.tsx`, add it to `children`, wrapped in `RequireRole` with the roles the API allows for `GET /sites` (`pageRoles.sites` in `src/lib/roles.ts`). Until sign-in works against the real API, show the notice in live mode, like the Employees page:
 
 ```tsx
 {
   path: 'sites',
-  element: env.useMocks ? <SitesPage /> : <ComingInPhasePage title="Sites" phase={1} />,
+  element: env.useMocks ? (
+    <RequireRole roles={pageRoles.sites}>
+      <SitesPage />
+    </RequireRole>
+  ) : (
+    <ComingInPhasePage title="Sites" phase={1} />
+  ),
 },
 ```
 
@@ -244,6 +251,7 @@ The mock handlers check their inputs like the contract says the real API will. F
 | Email | What happens after the password |
 |---|---|
 | `supervisor@samtec.example` | Signed straight in |
+| `guard@samtec.example` | Signed straight in; a guard sees only their own records, so the sidebar hides Employees and Sites |
 | `admin@samtec.example` | Asks for a two-factor code (`POST /auth/2fa/verify`) |
 | `hr@samtec.example` | Must set up two-factor authentication first (`POST /auth/2fa/setup`, then `/enable`) |
 
@@ -281,6 +289,8 @@ Signing in gives the dashboard two things. The **access token** proves who you a
 4. A `401` from a sign-in endpoint (wrong password or code) never triggers a refresh.
 
 After a page reload the memory is empty, so `RequireSession` (`src/components/require-session.tsx`) calls `restoreSession()` in `src/lib/auth.ts`: refresh the token from the cookie, ask `GET /auth/me` who you are, and carry on. If that fails, you land on `/login`. **Sign out** tells the API to revoke the cookie and forgets the session here, even when the API cannot be reached.
+
+**Roles.** `pageRoles` in `src/lib/roles.ts` copies the `@Roles(...)` rules from the API's controllers. The sidebar shows only the links the signed-in role may open (`navItemsFor`), and each role-limited route is wrapped in `RequireRole`, which shows a "not available for your role" page instead. Both read the same `pageRoles`, so there is one place to change. The API checks the role again on every request: the dashboard's check is a courtesy, never the security boundary.
 
 ## Sending data (from Phase 1)
 

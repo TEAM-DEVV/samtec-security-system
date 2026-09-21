@@ -8,12 +8,13 @@ import { signOut } from '@/lib/auth';
 import { env } from '@/lib/env';
 import { roleLabels } from '@/lib/roles';
 import { useSession } from '@/lib/session';
-import { navItems } from './nav-items';
+import { navItemsFor } from './nav-items';
 
 /** The frame around every page: sidebar navigation, a top bar and the page itself. */
 export function AppShell() {
   const session = useSession();
   const [signingOut, setSigningOut] = useState(false);
+  const items = navItemsFor(session?.user.role ?? null);
 
   // Once the session is cleared, `RequireSession` (which wraps the shell)
   // sends the user to the sign-in page; nothing to navigate here.
@@ -43,7 +44,7 @@ export function AppShell() {
         </div>
 
         <nav aria-label="Main" className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col">
-          {navItems.map((item) =>
+          {items.map((item) =>
             item.available ? (
               <NavLink
                 key={item.to}

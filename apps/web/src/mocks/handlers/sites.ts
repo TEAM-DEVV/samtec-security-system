@@ -1,8 +1,10 @@
 import type { GhanaRegion, Site, SiteList, SiteStatus } from '@samtec/contracts';
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
+import { pageRoles, roleAllowed } from '@/lib/roles';
 import { mockSites } from '../data/sites';
 import {
   apiUrl,
+  forbidden,
   isOneOf,
   isUuid,
   notFound,
@@ -12,6 +14,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
+import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
 
 const SITE_STATUSES: readonly SiteStatus[] = ['ACTIVE', 'INACTIVE'];
@@ -37,8 +40,12 @@ const GHANA_REGIONS: readonly GhanaRegion[] = [
 
 export const siteHandlers = [
   http.get<PathParams, DefaultBodyType, OrProblem<SiteList>>(apiUrl('/sites'), ({ request }) => {
-    if (!userForRequest(request)) {
+    const user = userForRequest(request);
+    if (!user) {
       return unauthorized('Sign in to continue.');
+    }
+    if (!roleAllowed(pageRoles.sites, user.role)) {
+      return forbidden();
     }
     const query = new URL(request.url).searchParams;
 
@@ -56,6 +63,8 @@ export const siteHandlers = [
     }
 
     const matches = mockSites
+      // A supervisor sees only their own site.
+      .filter((site) => canSeeSite(user, site.id))
       .filter((site) => status === null || site.status === status)
       .filter((site) => region === null || site.region === region)
       // Sorted by site code, as the contract promises.
@@ -74,14 +83,18 @@ export const siteHandlers = [
   http.get<{ siteId: string }, DefaultBodyType, OrProblem<Site>>(
     apiUrl('/sites/:siteId'),
     ({ request, params }) => {
-      if (!userForRequest(request)) {
+      const user = userForRequest(request);
+      if (!user) {
         return unauthorized('Sign in to continue.');
       }
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
+      // Guards see no sites, supervisors only their own; anything else "does not exist".
       const site = mockSites.find((candidate) => candidate.id === params.siteId);
-      return site ? HttpResponse.json<Site>(site) : notFound('No site exists with this ID.');
+      return site && canSeeSite(user, site.id)
+        ? HttpResponse.json<Site>(site)
+        : notFound('No site exists with this ID.');
     },
   ),
 ];
