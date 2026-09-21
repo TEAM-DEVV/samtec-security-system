@@ -118,6 +118,8 @@ Example: the **Sites** page (Phase 1). The endpoint `GET /sites` is already in t
 
 ### 1. Create the page
 
+This is the smallest version that works. The finished page in `src/pages/sites-page.tsx` adds status and region filters and pagination, following the Employees page.
+
 ```tsx
 // src/pages/sites-page.tsx
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -216,10 +218,13 @@ In `src/components/layout/nav-items.ts`, set `available: true` on the Sites item
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { renderWithProviders } from '@/test/render';
+import { signInForTests } from '@/test/session';
 import { SitesPage } from './sites-page';
 
 describe('SitesPage', () => {
   it('lists sites from the API', async () => {
+    // Every protected endpoint needs a signed-in user, like the real API.
+    await signInForTests('admin@samtec.example');
     renderWithProviders(<SitesPage />);
 
     expect(await screen.findByText('Ridge Towers Office Complex')).toBeInTheDocument();
