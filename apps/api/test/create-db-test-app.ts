@@ -25,7 +25,7 @@ export async function createDbTestApp(databaseUrl: string): Promise<NestExpressA
     .useValue(config)
     .compile();
 
-  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
   configureApp(app, config);
   await app.init();
   return app;

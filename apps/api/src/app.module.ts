@@ -4,6 +4,7 @@ import { ProblemDetailsFilter } from './common/problem-details.filter.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './health/health.module.js';
+import { AttendanceModule } from './modules/attendance/attendance.module.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
 import { UsersModule } from './modules/identity/users.module.js';
 import { WorkforceModule } from './modules/workforce/workforce.module.js';
@@ -22,6 +23,7 @@ import { WorkforceModule } from './modules/workforce/workforce.module.js';
     IdentityModule,
     WorkforceModule,
     UsersModule,
+    AttendanceModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
 })

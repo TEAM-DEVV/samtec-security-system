@@ -40,7 +40,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<NestE
     .useValue({ isReachable: async () => databaseUp, $disconnect: async () => undefined })
     .compile();
 
-  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
   configureApp(app, config);
   await app.init();
   return app;
