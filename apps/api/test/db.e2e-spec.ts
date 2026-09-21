@@ -12,6 +12,7 @@ import {
   resetFixture,
   SITE_1_ID,
   SITE_2_ID,
+  SUPERVISOR_EMPLOYEE_ID,
   TERMINATED_EMPLOYEE_ID,
   TEST_PASSWORD,
 } from './db-fixture.js';
@@ -560,6 +561,158 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .send({ effectiveDate: '2026-09-30', reason: 'OTHER' })
         .expect(400);
       expect(response.body.errors[0].path).toBe('note');
+    });
+  });
+
+  describe('rosters (posts and shift patterns)', () => {
+    let nightShiftId = '';
+    let mainGateId = '';
+
+    it('creates a shift pattern and knows when it crosses midnight', async () => {
+      const night = await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Night Shift', startTime: '18:00', endTime: '06:00' })
+        .expect(201);
+      expect(night.body.crossesMidnight).toBe(true);
+      nightShiftId = night.body.id;
+
+      const day = await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Day Shift', startTime: '06:00', endTime: '18:00' })
+        .expect(201);
+      expect(day.body.crossesMidnight).toBe(false);
+
+      // The same name twice is a clear conflict, and bad times a clear 400.
+      await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Night Shift', startTime: '19:00', endTime: '07:00' })
+        .expect(409);
+      const badTime = await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Odd Shift', startTime: '25:00', endTime: '07:00' })
+        .expect(400);
+      expect(badTime.body.errors[0].path).toBe('startTime');
+
+      // Equal times would be a zero-length shift — refused on create and update.
+      const equalTimes = await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Ghost Shift', startTime: '08:00', endTime: '08:00' })
+        .expect(400);
+      expect(equalTimes.body.errors[0].path).toBe('endTime');
+      await request(app.getHttpServer())
+        .patch(`/api/v1/shift-patterns/${nightShiftId}`)
+        .set(...bearer(tokens.admin))
+        .send({ endTime: '18:00' }) // The night shift starts at 18:00.
+        .expect(400);
+    });
+
+    it('lists shift patterns for a supervisor, but only HR and admins write', async () => {
+      const list = await request(app.getHttpServer())
+        .get('/api/v1/shift-patterns')
+        .set(...bearer(tokens.supervisor))
+        .expect(200);
+      expect(list.body.items.map((item: { name: string }) => item.name)).toEqual([
+        'Day Shift',
+        'Night Shift',
+      ]);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/shift-patterns')
+        .set(...bearer(tokens.supervisor))
+        .send({ name: 'Sneaky Shift', startTime: '08:00', endTime: '16:00' })
+        .expect(403);
+    });
+
+    it('creates posts at a site, refusing duplicates', async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/sites/${SITE_1_ID}/posts`)
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Main Gate', requiredGuards: 2 })
+        .expect(201);
+      expect(created.body.siteId).toBe(SITE_1_ID);
+      expect(created.body.status).toBe('ACTIVE');
+      mainGateId = created.body.id;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/sites/${SITE_1_ID}/posts`)
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Main Gate' })
+        .expect(409);
+      // The same name at ANOTHER site is fine.
+      await request(app.getHttpServer())
+        .post(`/api/v1/sites/${SITE_2_ID}/posts`)
+        .set(...bearer(tokens.admin))
+        .send({ name: 'Main Gate' })
+        .expect(201);
+    });
+
+    it("shows a supervisor only their own site's posts (404 elsewhere)", async () => {
+      const own = await request(app.getHttpServer())
+        .get(`/api/v1/sites/${SITE_1_ID}/posts`)
+        .set(...bearer(tokens.supervisor))
+        .expect(200);
+      expect(own.body.items.map((item: { name: string }) => item.name)).toEqual(['Main Gate']);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/sites/${SITE_2_ID}/posts`)
+        .set(...bearer(tokens.supervisor))
+        .expect(404);
+      await request(app.getHttpServer())
+        .get(`/api/v1/sites/${SITE_1_ID}/posts`)
+        .set(...bearer(tokens.guard))
+        .expect(403);
+    });
+
+    it('assigns an employee to a post and shift, and rejects mismatches', async () => {
+      // A post from another site cannot sneak in.
+      const wrongSite = await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${SUPERVISOR_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ siteId: SITE_2_ID, postId: mainGateId })
+        .expect(400);
+      expect(wrongSite.body.errors[0].path).toBe('postId');
+
+      // A post without a site makes no sense.
+      const noSite = await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${SUPERVISOR_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ postId: mainGateId })
+        .expect(400);
+      expect(noSite.body.errors[0].path).toBe('postId');
+
+      const assigned = await request(app.getHttpServer())
+        .patch(`/api/v1/employees/${SUPERVISOR_EMPLOYEE_ID}`)
+        .set(...bearer(tokens.admin))
+        .send({ siteId: SITE_1_ID, postId: mainGateId, shiftPatternId: nightShiftId })
+        .expect(200);
+      expect(assigned.body.currentSite.id).toBe(SITE_1_ID);
+      expect(assigned.body.currentPost).toEqual({ id: mainGateId, name: 'Main Gate' });
+      expect(assigned.body.currentShiftPattern).toMatchObject({
+        name: 'Night Shift',
+        startTime: '18:00',
+        endTime: '06:00',
+      });
+    });
+
+    it('updates a post and retires it without deleting', async () => {
+      const renamed = await request(app.getHttpServer())
+        .patch(`/api/v1/posts/${mainGateId}`)
+        .set(...bearer(tokens.admin))
+        .send({ requiredGuards: 3, status: 'INACTIVE' })
+        .expect(200);
+      expect(renamed.body.requiredGuards).toBe(3);
+      expect(renamed.body.status).toBe('INACTIVE');
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/posts/${mainGateId}`)
+        .set(...bearer(tokens.supervisor))
+        .send({ status: 'ACTIVE' })
+        .expect(403);
     });
   });
 
