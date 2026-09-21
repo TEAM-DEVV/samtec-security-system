@@ -45,10 +45,22 @@ in Vercel first; the API also answers `/api/v1/health`.
 
 ## Signing in on TEST
 
-The demo accounts are the same as local (`docs/guides/03-frontend-guide.md`):
-`admin@` / `hr@` / `supervisor@samtec.example` with password `demo-password`.
-Admin and HR are asked to set up an authenticator app on first sign-in — that
-is the real two-factor flow, and any authenticator app works.
+This repository is public, so **TEST's office accounts do not use the demo
+password**. Anyone who read this page could otherwise sign in as an
+administrator and create accounts.
+
+- `supervisor@samtec.example` / `demo-password` stays public, for trying the
+  dashboard as a supervisor.
+- `admin@samtec.example` has a private password that Francis holds; ask him.
+  It was reset with `pnpm --filter @samtec/api account:admin`, which is also
+  how a lost admin sign-in on TEST is rescued.
+- `hr@samtec.example` gets a private password next: the admin resets its
+  sign-in from the Users page once that page is on TEST.
+
+On your own computer every demo account keeps `demo-password` (the local seed
+and the mock API), exactly as `docs/guides/03-frontend-guide.md` says. Admin
+and HR set up an authenticator app at their first sign-in. That is the real
+two-factor flow, and any authenticator app works.
 
 ## Rules for TEST
 
