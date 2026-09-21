@@ -2,6 +2,8 @@ import type { EmployeeList, EmployeeStatus } from '@samtec/contracts';
 import { cn } from 'cn';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
+import { Link } from 'react-router';
+import { routes } from '@/app/routes';
 import {
   EMPLOYEE_STATUSES,
   EmployeeStatusBadge,
@@ -211,7 +213,14 @@ function EmployeeRows({ loading, page }: { loading: boolean; page: EmployeeList 
   return page.items.map((employee) => (
     <TableRow key={employee.id}>
       <TableCell className="pl-4 font-mono text-xs">{employee.staffNumber}</TableCell>
-      <TableCell className="font-medium">{employee.fullName}</TableCell>
+      <TableCell className="font-medium">
+        <Link
+          to={routes.employee(employee.id)}
+          className="text-primary underline underline-offset-4 hover:no-underline"
+        >
+          {employee.fullName}
+        </Link>
+      </TableCell>
       <TableCell>{employee.position}</TableCell>
       <TableCell>
         {employee.currentSite ? (

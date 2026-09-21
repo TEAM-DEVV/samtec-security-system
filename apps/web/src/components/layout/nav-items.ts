@@ -9,6 +9,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { routes } from '@/app/routes';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 
 export interface NavItem {
@@ -27,7 +28,7 @@ export const navItems: NavItem[] = [
   { label: 'System status', to: '/', icon: Activity, phase: 0, available: true },
   {
     label: 'Employees',
-    to: '/employees',
+    to: routes.employees,
     icon: Users,
     phase: 1,
     available: true,

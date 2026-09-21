@@ -20,6 +20,15 @@ describe('EmployeesPage', () => {
     expect(screen.getByText('SMT-00001')).toBeInTheDocument();
   });
 
+  it('links each name to the employee record', async () => {
+    renderWithProviders(<EmployeesPage />);
+
+    expect(await screen.findByRole('link', { name: 'Kwame Kofi Mensah' })).toHaveAttribute(
+      'href',
+      '/employees/01927c3e-5a4b-7c8d-9e0f-000000000001',
+    );
+  });
+
   it('moves to the next page and back', async () => {
     const user = userEvent.setup();
     renderWithProviders(<EmployeesPage />);
