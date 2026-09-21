@@ -6,10 +6,14 @@
  * Every person, phone number, Ghana Card number and company here is made up.
  * Never put real personal data in seed files (see SECURITY.md).
  *
+ * It also registers one MOCK clock-in device per site, for the Phase 2 demo
+ * (`pnpm --filter @samtec/api mock:devices`, docs/guides/10-attendance-demo.md).
+ *
  * It only writes to a database on this computer. To fill a hosted demo
  * database on purpose, run it with ALLOW_REMOTE_SEED=yes.
  */
 import { PrismaPg } from '@prisma/adapter-pg';
+import { DEMO_DEVICES, demoDeviceSecret } from '../scripts/demo-devices.js';
 import { loadEnvFile, parseEnv } from '../src/config/env.js';
 import { PrismaClient, type Site } from '../src/generated/prisma/client.js';
 import {
@@ -19,7 +23,9 @@ import {
   TerminationReason,
   UserRole,
 } from '../src/generated/prisma/enums.js';
+import { deviceSecretKey } from '../src/modules/attendance/device-secret.js';
 import { hashPassword } from '../src/modules/identity/password.js';
+import { sealSecret } from '../src/modules/identity/secret-box.js';
 
 const DEMO_COMPANY_ID = '01927c3e-0000-7000-8000-000000000001';
 const EMPLOYEE_COUNT = 50;
@@ -143,7 +149,8 @@ const POSITIONS = [
 ];
 
 loadEnvFile();
-const databaseUrl = parseEnv(process.env).DATABASE_URL;
+const env = parseEnv(process.env);
+const databaseUrl = env.DATABASE_URL;
 refuseRemoteDatabase(databaseUrl);
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 
@@ -257,12 +264,14 @@ async function main(): Promise<void> {
   }
 
   await seedRosters(company.id, sites);
+  await assignShifts(company.id);
+  await seedDevices(company.id, sites);
   await seedUsers(company.id);
 
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
   const userCount = await prisma.user.count({ where: { companyId: company.id } });
   console.log(
-    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees and ${userCount} sign-in accounts (all fictional).`,
+    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${DEMO_DEVICES.length} demo devices and ${userCount} sign-in accounts (all fictional).`,
   );
 }
 
@@ -288,11 +297,67 @@ async function seedRosters(companyId: string, sites: Site[]): Promise<void> {
     { name: 'Day Shift', startMinutes: 6 * 60, endMinutes: 18 * 60 },
     // Crosses midnight: starts one evening and ends the next morning.
     { name: 'Night Shift', startMinutes: 18 * 60, endMinutes: 6 * 60 },
+    // Eight hours across midnight: the 480-minute night shift of the Phase 2 demo.
+    { name: 'Night Watch', startMinutes: 22 * 60, endMinutes: 6 * 60 },
   ]) {
     await prisma.shiftPattern.upsert({
       where: { companyId_name: { companyId, name: pattern.name } },
       update: { startMinutes: pattern.startMinutes, endMinutes: pattern.endMinutes },
       create: { ...pattern, companyId },
+    });
+  }
+}
+
+/**
+ * Gives every current posting that has none yet a post (Main Gate) and a
+ * shift pattern: every fourth guard works Night Watch (22:00–06:00), the rest
+ * Day Shift. The demo devices punch according to these. Postings someone
+ * already changed are left alone.
+ */
+async function assignShifts(companyId: string): Promise<void> {
+  const patterns = await prisma.shiftPattern.findMany({ where: { companyId } });
+  const day = patterns.find((pattern) => pattern.name === 'Day Shift');
+  const nightWatch = patterns.find((pattern) => pattern.name === 'Night Watch');
+  if (!day || !nightWatch) {
+    throw new Error('The Day Shift and Night Watch patterns are missing.');
+  }
+  const postings = await prisma.siteAssignment.findMany({
+    where: { companyId, endsOn: null, shiftPatternId: null },
+    include: { employee: { select: { staffNumber: true } } },
+    orderBy: { employee: { staffNumber: 'asc' } },
+  });
+  for (const [index, posting] of postings.entries()) {
+    const mainGate = await prisma.post.findUnique({
+      where: { siteId_name: { siteId: posting.siteId, name: 'Main Gate' } },
+    });
+    await prisma.siteAssignment.update({
+      where: { id: posting.id },
+      data: {
+        postId: posting.postId ?? mainGate?.id ?? null,
+        shiftPatternId: index % 4 === 3 ? nightWatch.id : day.id,
+      },
+    });
+  }
+}
+
+/**
+ * One MOCK clock-in device per site. Each secret is derived from AUTH_SECRET
+ * (see scripts/demo-devices.ts), so the demo simulator on this computer can
+ * sign with it, while the database only ever holds it encrypted.
+ */
+async function seedDevices(companyId: string, sites: Site[]): Promise<void> {
+  const key = deviceSecretKey(env.AUTH_SECRET);
+  for (const demo of DEMO_DEVICES) {
+    const site = sites.find((candidate) => candidate.code === demo.siteCode);
+    if (!site) {
+      throw new Error(`Site ${demo.siteCode} is missing, so its demo device cannot be registered.`);
+    }
+    const secretEncrypted = sealSecret(demoDeviceSecret(env.AUTH_SECRET, demo.name), key);
+    await prisma.device.upsert({
+      where: { companyId_name: { companyId, name: demo.name } },
+      // Re-sealed on every run, so a changed AUTH_SECRET still leaves working demo devices.
+      update: { secretEncrypted, status: 'ACTIVE' },
+      create: { companyId, siteId: site.id, name: demo.name, kind: 'MOCK', secretEncrypted },
     });
   }
 }

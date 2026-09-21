@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -13,13 +12,14 @@ import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Device } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
-import { deriveKey, openSecret, sealSecret } from '../identity/secret-box.js';
+import { openSecret, sealSecret } from '../identity/secret-box.js';
 import { SitesService } from '../workforce/sites.service.js';
 import type {
   ListDevicesQuery,
   RegisterDeviceBody,
   UpdateDeviceBody,
 } from './attendance.schemas.js';
+import { deviceSecretKey, newDeviceSecret } from './device-secret.js';
 
 /**
  * The device registry (ADMIN only). A device's secret is 32 random bytes,
@@ -36,7 +36,7 @@ export class DevicesService {
     private readonly sites: SitesService,
     config: AppConfig,
   ) {
-    this.secretKey = deriveKey(config.authSecret, 'device-secret');
+    this.secretKey = deviceSecretKey(config.authSecret);
   }
 
   async list(viewer: SignedInUser, query: ListDevicesQuery): Promise<DeviceList> {
@@ -157,11 +157,6 @@ export class DevicesService {
     }
     return device;
   }
-}
-
-/** 32 random bytes, base64url: far too many to guess. */
-function newDeviceSecret(): string {
-  return randomBytes(32).toString('base64url');
 }
 
 /** Maps a database device to the contract. Never includes the secret. */
