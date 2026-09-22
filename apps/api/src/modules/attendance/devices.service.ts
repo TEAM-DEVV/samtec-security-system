@@ -91,15 +91,35 @@ export class DevicesService {
       });
       return { device: toApiDevice(device), secret };
     } catch (error) {
-      throw duplicateNameToConflict(error);
+      throw duplicateToConflict(error);
     }
   }
 
   async update(viewer: SignedInUser, deviceId: string, body: UpdateDeviceBody): Promise<ApiDevice> {
-    await this.findInCompany(viewer, deviceId);
+    const current = await this.findInCompany(viewer, deviceId);
+    // Rules about the device itself (docs/plan/13 §1); the database checks them too.
+    if (body.serialNumber && current.kind !== 'ZKTECO') {
+      throw fieldProblem('serialNumber', 'Only a ZKTeco terminal has a serial number.');
+    }
+    if (body.passkeysEnabled && current.kind !== 'FACE_KIOSK') {
+      throw fieldProblem(
+        'passkeysEnabled',
+        'Only a face kiosk can use its own fingerprint sensor.',
+      );
+    }
     try {
       const device = await this.prisma.$transaction(async (tx) => {
         const updated = await tx.device.update({ where: { id: deviceId }, data: body });
+        // Switching fingerprints off revokes every key still live on the
+        // device, so the change is always visible: its workers clock in
+        // face-only until their fingers are saved again.
+        const revoked =
+          body.passkeysEnabled === false
+            ? await tx.devicePasskey.updateMany({
+                where: { deviceId, revokedAt: null },
+                data: { revokedAt: new Date(), revokedByUserId: viewer.userId },
+              })
+            : undefined;
         await this.audit.record(
           {
             companyId: viewer.companyId,
@@ -107,7 +127,10 @@ export class DevicesService {
             action: 'device.updated',
             entityType: 'device',
             entityId: deviceId,
-            detail: { changedFields: Object.keys(body).join(',') },
+            detail: {
+              changedFields: Object.keys(body).join(','),
+              ...(revoked ? { revokedPasskeys: revoked.count } : {}),
+            },
           },
           tx,
         );
@@ -115,7 +138,7 @@ export class DevicesService {
       });
       return toApiDevice(device);
     } catch (error) {
-      throw duplicateNameToConflict(error);
+      throw duplicateToConflict(error);
     }
   }
 
@@ -171,10 +194,8 @@ export function toApiDevice(device: Device): ApiDevice {
     lastClockDriftSeconds: device.lastClockDriftSeconds,
     failedSignatureCount: device.failedSignatureCount,
     lastFailedSignatureAt: device.lastFailedSignatureAt?.toISOString() ?? null,
-    // The columns for these arrive with the Phase 3 migration (docs/plan/13);
-    // until then no device has a serial number or fingerprint keys.
-    serialNumber: null,
-    passkeysEnabled: false,
+    serialNumber: device.serialNumber,
+    passkeysEnabled: device.passkeysEnabled,
     createdAt: device.createdAt.toISOString(),
     updatedAt: device.updatedAt.toISOString(),
   };
@@ -184,7 +205,10 @@ function fieldProblem(path: string, message: string): BadRequestException {
   return new BadRequestException({ message: [{ path: [path], message }] });
 }
 
-function duplicateNameToConflict(error: unknown): unknown {
+function duplicateToConflict(error: unknown): unknown {
+  if (isUniqueViolation(error, 'serial_number')) {
+    return new ConflictException('Another device already has this serial number.');
+  }
   return isUniqueViolation(error, 'name')
     ? new ConflictException('A device with this name already exists.')
     : error;

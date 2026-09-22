@@ -75,6 +75,14 @@ export const envSchema = z
       .default(DEV_AUTH_SECRET),
     /** Which biometric provider the attendance module uses (docs/plan/10). Phase 3 adds the real ones. */
     BIOMETRIC_PROVIDER: z.enum(['mock']).optional(),
+    /**
+     * Whether devices of kind MOCK (the simulator) may send punches. When it
+     * is not set, simulators are allowed in development and tests and refused
+     * in production (a safe default). The TEST environment runs in
+     * production mode and sets `yes`, because its attendance demo uses the
+     * simulator; a client's production never does.
+     */
+    ALLOW_SIMULATOR_DEVICES: z.enum(['yes', 'no']).optional(),
   })
   .superRefine((env, context) => {
     // A production dashboard is always served over HTTPS.

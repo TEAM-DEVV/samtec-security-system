@@ -117,6 +117,73 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .expect(400);
       expect(response.body.errors[0].path).toBe('siteId');
     });
+
+    const register = async (name: string, kind: 'MOCK' | 'ZKTECO' | 'FACE_KIOSK') => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name, siteId: company.siteA, kind })
+        .expect(201);
+      return { id: response.body.device.id as string, secret: response.body.secret as string };
+    };
+    const patch = (deviceId: string, body: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .patch(`/api/v1/devices/${deviceId}`)
+        .set(...bearer(adminToken))
+        .send(body);
+
+    it('gives a ZKTeco terminal a serial number, unique in the company', async () => {
+      const first = await register('Serial gate one', 'ZKTECO');
+      const second = await register('Serial gate two', 'ZKTECO');
+      const simulator = await register('Serial simulator', 'MOCK');
+
+      const set = await patch(first.id, { serialNumber: 'CKJ-1234567' }).expect(200);
+      expect(set.body.serialNumber).toBe('CKJ-1234567');
+      await patch(second.id, { serialNumber: 'CKJ-1234567' }).expect(409);
+      const wrongKind = await patch(simulator.id, { serialNumber: 'CKJ-7654321' }).expect(400);
+      expect(wrongKind.body.errors[0].path).toBe('serialNumber');
+      const badCharacters = await patch(first.id, { serialNumber: 'CKJ 12/34' }).expect(400);
+      expect(badCharacters.body.errors[0].path).toBe('serialNumber');
+
+      const cleared = await patch(first.id, { serialNumber: null }).expect(200);
+      expect(cleared.body.serialNumber).toBeNull();
+      // Once cleared, the serial is free for the other terminal.
+      await patch(second.id, { serialNumber: 'CKJ-1234567' }).expect(200);
+    });
+
+    it('switches fingerprints on only for a kiosk, and switching them off revokes its keys', async () => {
+      const kiosk = await register('Front desk kiosk', 'FACE_KIOSK');
+      const terminal = await register('Fingerprint terminal', 'ZKTECO');
+
+      const on = await patch(kiosk.id, { passkeysEnabled: true }).expect(200);
+      expect(on.body.passkeysEnabled).toBe(true);
+      const wrongKind = await patch(terminal.id, { passkeysEnabled: true }).expect(400);
+      expect(wrongKind.body.errors[0].path).toBe('passkeysEnabled');
+
+      // A worker's key saved on the kiosk (PR 7 registers them; here, directly).
+      const key = await prisma.devicePasskey.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: company.active.id,
+          deviceId: kiosk.id,
+          credentialId: `test-key-${kiosk.id}`,
+          publicKey: new Uint8Array([1, 2, 3]),
+          backedUp: false,
+          registeredByUserId: company.adminUserId,
+        },
+      });
+
+      const off = await patch(kiosk.id, { passkeysEnabled: false }).expect(200);
+      expect(off.body.passkeysEnabled).toBe(false);
+      const revoked = await prisma.devicePasskey.findUniqueOrThrow({ where: { id: key.id } });
+      expect(revoked.revokedAt).not.toBeNull();
+      expect(revoked.revokedByUserId).toBe(company.adminUserId);
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { entityId: kiosk.id, action: 'device.updated' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(audit.detail).toMatchObject({ changedFields: 'passkeysEnabled', revokedPasskeys: 1 });
+    });
   });
 
   describe('signed ingest', () => {
@@ -304,6 +371,51 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ punches: [punch()] })
         .expect(401);
+    });
+
+    it('never takes punches from a kiosk, and says so like any other failure', async () => {
+      const registered = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Kiosk at the gate', siteId: company.siteA, kind: 'FACE_KIOSK' })
+        .expect(201);
+      const kiosk = { id: registered.body.device.id, secret: registered.body.secret };
+
+      // A correct signature, but a kiosk's punches only ever come from a face match.
+      const refused = await signed('ingest/punches', { punches: [punch()] }, kiosk).expect(401);
+      const wrongSecret = await signed(
+        'ingest/punches',
+        { punches: [punch()] },
+        {
+          id: kiosk.id,
+          secret: 'wrong',
+        },
+      ).expect(401);
+      expect(refused.body.detail).toBe(wrongSecret.body.detail);
+      expect(await prisma.punchEvent.count({ where: { deviceId: kiosk.id } })).toBe(0);
+
+      // It may still say it is alive.
+      await signed('ingest/heartbeat', {}, kiosk).expect(200);
+    });
+
+    it.each([
+      ['in production, where the setting is left out', { NODE_ENV: 'production' as const }],
+      ['wherever the setting says no', { ALLOW_SIMULATOR_DEVICES: 'no' as const }],
+    ])('refuses simulator punches %s', async (where, settings) => {
+      const registered = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: `Simulator ${where}`.slice(0, 60), siteId: company.siteA, kind: 'MOCK' })
+        .expect(201);
+      const simulator = { id: registered.body.device.id, secret: registered.body.secret };
+      const refusing = await createDbTestApp(databaseUrl as string, settings);
+      try {
+        await signedPost(refusing, 'ingest/punches', { punches: [punch()] }, simulator).expect(401);
+        // It may still say it is alive.
+        await signedPost(refusing, 'ingest/heartbeat', {}, simulator).expect(200);
+      } finally {
+        await refusing.close();
+      }
     });
 
     it('counts wrong signatures, but at most once a minute', async () => {

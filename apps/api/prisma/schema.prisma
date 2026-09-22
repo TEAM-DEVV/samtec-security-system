@@ -112,6 +112,11 @@ model Company {
   segments             WorkSegment[]
   attendanceExceptions AttendanceException[]
   attendanceCheck      AttendanceCheck?
+  biometricConsents    BiometricConsent[]
+  biometricCredentials BiometricCredential[]
+  biometricExemptions  BiometricExemption[]
+  devicePasskeys       DevicePasskey[]
+  clockInAttempts      ClockInAttempt[]
 
   @@map("companies")
 }
@@ -350,6 +355,15 @@ model Employee {
   punches              PunchEvent[]
   segments             WorkSegment[]
   attendanceExceptions AttendanceException[]
+  // Phase 3 biometrics. The attendance module owns these tables; these are
+  // only the other side of their links, which Prisma needs.
+  biometricConsents    BiometricConsent[]
+  biometricCredentials BiometricCredential[] @relation("CredentialEmployee")
+  lookalikeCredentials BiometricCredential[] @relation("CredentialLookalike")
+  biometricExemptions  BiometricExemption[]
+  devicePasskeys       DevicePasskey[]
+  clockInAttempts      ClockInAttempt[]      @relation("AttemptEmployee")
+  coSignedAttempts     ClockInAttempt[]      @relation("AttemptCoSignFor")
 
   /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
   @@unique([companyId, ghanaCardNumber])
@@ -417,7 +431,9 @@ model SiteAssignment {
 // table are in docs/plan/12-attendance-design.md.
 // =============================================================================
 
-/// What sends punches. Descriptive only: every kind signs its requests the same way.
+/// What sends punches. Every kind signs its requests the same way, but each
+/// signed route accepts only some kinds (`kindMayUse` in device-signature.ts):
+/// a kiosk key can never post raw punches.
 enum DeviceKind {
   MOCK
   ZKTECO
@@ -436,10 +452,15 @@ enum PunchDirection {
   UNKNOWN
 }
 
-/// PIN_FALLBACK is flagged everywhere: a PIN proves nothing about who typed it.
+/// FACE_PASSKEY (face, then the kiosk's fingerprint sensor) and STAFF_PASSKEY
+/// (staff number, then that sensor) are set only by the server for kiosk
+/// punches. STAFF_PASSKEY and PIN_FALLBACK are flagged everywhere: neither
+/// proves who the worker is.
 enum PunchMethod {
   FINGERPRINT
   FACE
+  FACE_PASSKEY
+  STAFF_PASSKEY
   PIN_FALLBACK
 }
 
@@ -497,14 +518,24 @@ model Device {
   lastFailedSignatureAt DateTime?    @map("last_failed_signature_at") @db.Timestamptz(3)
   rateWindowStartsAt    DateTime?    @map("rate_window_starts_at") @db.Timestamptz(3)
   rateWindowCount       Int          @default(0) @map("rate_window_count")
+  /// A ZKTeco terminal's serial, typed from its label; its gateway accepts only listed serials.
+  serialNumber          String?      @map("serial_number")
+  /// Workers may save a finger on this device's own sensor. Kiosks only (a database CHECK);
+  /// switching it off must revoke every live key in the same transaction (a trigger refuses it otherwise).
+  passkeysEnabled       Boolean      @default(false) @map("passkeys_enabled")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  site    Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  punches PunchEvent[]
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  site        Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  punches     PunchEvent[]
+  consents    BiometricConsent[]
+  credentials BiometricCredential[]
+  passkeys    DevicePasskey[]
+  attempts    ClockInAttempt[]
 
   @@unique([companyId, name])
+  @@unique([companyId, serialNumber])
   @@index([siteId])
   @@map("devices")
 }
@@ -637,12 +668,257 @@ model AttendanceException {
 /// The attendance module's bookmark for time-based checks, one row per
 /// company. Every clock-in before `overdueCheckedUntil` has already been
 /// looked at for a missing clock-out; each heartbeat moves it forward.
+/// `retentionCheckedAt` is when the biometric retention sweep last ran
+/// (docs/plan/13 §1); the first heartbeat 24 hours later runs it again.
 model AttendanceCheck {
-  companyId           String   @id @map("company_id") @db.Uuid
-  overdueCheckedUntil DateTime @map("overdue_checked_until") @db.Timestamptz(3)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  companyId           String    @id @map("company_id") @db.Uuid
+  overdueCheckedUntil DateTime  @map("overdue_checked_until") @db.Timestamptz(3)
+  retentionCheckedAt  DateTime? @map("retention_checked_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   @@map("attendance_checks")
+}
+
+// =============================================================================
+// Biometrics (Phase 3). Owned by the attendance module; the rules behind every
+// table are in docs/plan/13-biometrics-design.md. The database itself guards
+// the important rules (triggers and CHECKs in the migration), so a bug in the
+// application can never unblock a duplicate or rewrite history.
+// =============================================================================
+
+enum BiometricConsentStatus {
+  GIVEN
+  WITHDRAWN
+}
+
+enum BiometricCredentialKind {
+  FACE
+  TERMINAL_FINGER
+}
+
+/// The duplicate check at enrollment. CLEARED: a collision a second ADMIN let through.
+enum DedupeResult {
+  PASSED
+  COLLISION
+  CLEARED
+  NOT_CHECKED
+}
+
+/// PENDING: a face waiting for a collision review. ACTIVE: a face that PASSED
+/// or that a second ADMIN CLEARED (a CHECK), or a terminal finger. BLOCKED (a
+/// proven duplicate, or a finger nobody asked for) is final; REVOKED is wiped.
+/// Only a live face (PENDING or ACTIVE) holds a template.
+enum BiometricCredentialStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  REVOKED
+}
+
+enum CollisionVerdict {
+  DIFFERENT_PEOPLE
+  SAME_PERSON
+}
+
+enum ExemptionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  ENDED
+}
+
+enum ExemptionReason {
+  DECLINED
+  CANNOT_ENROLL
+  CONSENT_WITHDRAWN
+}
+
+enum AttemptPurpose {
+  CLOCK
+  CO_SIGN
+  STAFF_PASSKEY
+}
+
+enum AttemptOutcome {
+  MATCHED
+  AMBIGUOUS
+  NOT_RECOGNISED
+  LOW_LIVENESS
+  FINGERPRINT_REQUESTED
+  NOT_ME
+  FALLBACK_REFUSED
+}
+
+/// A worker's consent to biometrics, or its withdrawal: a new row each time,
+/// never changed (a database trigger). It records the exact text shown.
+model BiometricConsent {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  companyId        String                 @map("company_id") @db.Uuid
+  employeeId       String                 @map("employee_id") @db.Uuid
+  status           BiometricConsentStatus
+  textVersion      String                 @map("text_version")
+  /// SHA-256 of the consent text exactly as shown.
+  textSha256       String                 @map("text_sha256")
+  recordedByUserId String                 @map("recorded_by_user_id") @db.Uuid
+  /// The kiosk it was given on; empty for a withdrawal recorded on the dashboard
+  /// (a withdrawal may also name one of the company's kiosks).
+  deviceId         String?                @map("device_id") @db.Uuid
+  /// Set by the database's own clock on insert, whatever the caller sends.
+  recordedAt       DateTime               @default(now()) @map("recorded_at") @db.Timestamptz(3)
+
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device      Device?               @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  credentials BiometricCredential[]
+
+  @@index([employeeId, recordedAt])
+  @@map("biometric_consents")
+}
+
+/// One enrolled face (its numbers, encrypted, never a photo) or one finger a
+/// terminal reported, with its duplicate check and any review of it. Never
+/// deleted: a wipe empties the template and keeps the row as evidence.
+model BiometricCredential {
+  id                  String                    @id @default(uuid(7)) @db.Uuid
+  companyId           String                    @map("company_id") @db.Uuid
+  employeeId          String                    @map("employee_id") @db.Uuid
+  kind                BiometricCredentialKind
+  deviceId            String                    @map("device_id") @db.Uuid
+  /// AES-256-GCM sealed face template, bound to this row. Empty once wiped, and always for fingers.
+  templateSealed      Bytes?                    @map("template_sealed")
+  keyVersion          Int?                      @map("key_version") @db.SmallInt
+  /// The face model that made the numbers; faces from different models are never compared.
+  faceModel           String?                   @map("face_model")
+  consentId           String?                   @map("consent_id") @db.Uuid
+  enrolledByUserId    String?                   @map("enrolled_by_user_id") @db.Uuid
+  dedupe              DedupeResult
+  /// Who the face looked like at enrollment, and how closely (0 to 1).
+  collisionEmployeeId String?                   @map("collision_employee_id") @db.Uuid
+  collisionSimilarity Float?                    @map("collision_similarity") @db.Real
+  verdict             CollisionVerdict?
+  /// For SAME_PERSON: the record that belongs to the person; the other is blocked.
+  keptEmployeeId      String?                   @map("kept_employee_id") @db.Uuid
+  resolutionNote      String?                   @map("resolution_note")
+  resolvedByUserId    String?                   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt          DateTime?                 @map("resolved_at") @db.Timestamptz(3)
+  status              BiometricCredentialStatus
+  wipedAt             DateTime?                 @map("wiped_at") @db.Timestamptz(3)
+  /// Who revoked or withdrew it; empty when the retention sweep or a block wiped it.
+  wipedByUserId       String?                   @map("wiped_by_user_id") @db.Uuid
+  enrolledAt          DateTime                  @default(now()) @map("enrolled_at") @db.Timestamptz(3)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee  Employee          @relation("CredentialEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  device    Device            @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  consent   BiometricConsent? @relation(fields: [consentId], references: [id], onDelete: Restrict)
+  lookalike Employee?         @relation("CredentialLookalike", fields: [collisionEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([collisionEmployeeId])
+  @@index([companyId, dedupe])
+  @@map("biometric_credentials")
+}
+
+/// A request to let a worker work without biometrics, asked by one ADMIN and
+/// decided by another (a database CHECK). It only moves forward (a trigger).
+model BiometricExemption {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  companyId         String          @map("company_id") @db.Uuid
+  employeeId        String          @map("employee_id") @db.Uuid
+  status            ExemptionStatus @default(REQUESTED)
+  reason            ExemptionReason
+  /// Short and factual; supervisors never see it, and the retention sweep clears it.
+  note              String?
+  requestedByUserId String          @map("requested_by_user_id") @db.Uuid
+  requestedAt       DateTime        @default(now()) @map("requested_at") @db.Timestamptz(3)
+  reviewedByUserId  String?         @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt        DateTime?       @map("reviewed_at") @db.Timestamptz(3)
+  reviewNote        String?         @map("review_note")
+  endedAt           DateTime?       @map("ended_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@map("biometric_exemptions")
+}
+
+/// A worker's fingerprint key on one kiosk (WebAuthn): only the public half.
+/// The finger itself never leaves the device. Never deleted: revoked instead.
+model DevicePasskey {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  deviceId           String    @map("device_id") @db.Uuid
+  /// The WebAuthn credential ID (base64url).
+  credentialId       String    @map("credential_id")
+  publicKey          Bytes     @map("public_key")
+  /// The key's signature counter; it may only go up.
+  signCount          BigInt    @default(0) @map("sign_count")
+  /// The device said it may copy the key to its cloud account (a synced passkey).
+  backedUp           Boolean   @map("backed_up")
+  registeredByUserId String    @map("registered_by_user_id") @db.Uuid
+  registeredAt       DateTime  @default(now()) @map("registered_at") @db.Timestamptz(3)
+  lastUsedAt         DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Who revoked it (an ADMIN switching the device's fingerprints off, for example); empty for the retention sweep.
+  revokedByUserId    String?   @map("revoked_by_user_id") @db.Uuid
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  @@unique([credentialId])
+  @@index([employeeId])
+  @@index([deviceId])
+  @@map("device_passkeys")
+}
+
+/// Every face or fingerprint attempt at a kiosk, matched or not. Append-only
+/// (a trigger); the retention sweep may only clear the network address. Its
+/// ID becomes the punch's `device_event_id`, so a punch finds its attempt
+/// without changing it. Scores stay here, on the server.
+model ClockInAttempt {
+  id                   String         @id @default(uuid(7)) @db.Uuid
+  companyId            String         @map("company_id") @db.Uuid
+  deviceId             String         @map("device_id") @db.Uuid
+  purpose              AttemptPurpose
+  /// IN or OUT only (a database CHECK): the button the worker pressed.
+  direction            PunchDirection
+  outcome              AttemptOutcome
+  /// Who the face (or, for STAFF_PASSKEY, the staff number) matched; the supervisor for CO_SIGN.
+  employeeId           String?        @map("employee_id") @db.Uuid
+  /// For CO_SIGN: the worker the supervisor confirmed.
+  coSignForEmployeeId  String?        @map("co_sign_for_employee_id") @db.Uuid
+  /// The staff number typed, for STAFF_PASSKEY and CO_SIGN, even one that matches nobody.
+  staffNumberTried     String?        @map("staff_number_tried")
+  /// For NOT_ME: the matched attempt it cancelled.
+  cancelsAttemptId     String?        @unique @map("cancels_attempt_id") @db.Uuid
+  bestScore            Float?         @map("best_score") @db.Real
+  runnerUpScore        Float?         @map("runner_up_score") @db.Real
+  realScore            Float?         @map("real_score") @db.Real
+  liveScore            Float?         @map("live_score") @db.Real
+  thresholdVersion     String?        @map("threshold_version")
+  /// The WebAuthn challenge when a fingerprint is asked for.
+  fingerprintChallenge String?        @map("fingerprint_challenge")
+  /// As the hosting platform reports it; cleared by the retention sweep.
+  clientAddress        String?        @map("client_address") @db.Inet
+  attemptedAt          DateTime       @default(now()) @map("attempted_at") @db.Timestamptz(3)
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device      Device          @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employee    Employee?       @relation("AttemptEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  coSignFor   Employee?       @relation("AttemptCoSignFor", fields: [coSignForEmployeeId], references: [id], onDelete: Restrict)
+  cancels     ClockInAttempt? @relation("NotMe", fields: [cancelsAttemptId], references: [id], onDelete: Restrict)
+  cancelledBy ClockInAttempt? @relation("NotMe")
+
+  @@index([deviceId, attemptedAt])
+  @@index([companyId, attemptedAt])
+  @@index([employeeId, attemptedAt])
+  @@map("clock_in_attempts")
 }

@@ -15,13 +15,48 @@ export const PAIRING_WINDOW_DAYS = 62;
 export type Direction = 'IN' | 'OUT' | 'UNKNOWN';
 export type SegmentStatus = 'CONFIRMED' | 'DISPUTED' | 'VOIDED';
 export type SegmentBasis = 'BIOMETRIC' | 'PIN_FALLBACK' | 'MANUAL';
+/** Every way a punch can be made (the database's `PunchMethod`). */
+export type PunchMethod =
+  | 'FINGERPRINT'
+  | 'FACE'
+  | 'FACE_PASSKEY'
+  | 'STAFF_PASSKEY'
+  | 'PIN_FALLBACK';
 
 export interface PairablePunch {
   id: string;
   siteId: string;
   deviceTime: Date;
   direction: Direction;
-  method: 'FINGERPRINT' | 'FACE' | 'PIN_FALLBACK';
+  method: PunchMethod;
+}
+
+/**
+ * What one punch proves about who was there (docs/plan/13 §1). A finger or a
+ * face proves the person, and so does a face confirmed by the kiosk's own
+ * sensor. A PIN, a supervisor's co-sign, or a typed staff number confirmed by
+ * the kiosk's sensor does not: any finger saved on a kiosk unlocks any
+ * worker's key. Written as a switch with no default, so adding a method
+ * without deciding its basis fails to compile.
+ */
+export function basisFor(method: PunchMethod): 'BIOMETRIC' | 'PIN_FALLBACK' {
+  switch (method) {
+    case 'FINGERPRINT':
+    case 'FACE':
+    case 'FACE_PASSKEY':
+      return 'BIOMETRIC';
+    case 'STAFF_PASSKEY':
+    case 'PIN_FALLBACK':
+      return 'PIN_FALLBACK';
+  }
+}
+
+/** A shift is only as strong as its weaker punch. */
+export function shiftBasis(shift: Shift): 'BIOMETRIC' | 'PIN_FALLBACK' {
+  const flagged = [shift.clockIn, shift.clockOut].some(
+    (punch) => basisFor(punch.method) === 'PIN_FALLBACK',
+  );
+  return flagged ? 'PIN_FALLBACK' : 'BIOMETRIC';
 }
 
 export interface Shift {
@@ -261,10 +296,7 @@ export function planSegments(
         clockOutPunchId: shift.clockOut.id,
         startedAt: wanted.startedAt,
         endedAt: wanted.endedAt,
-        basis:
-          shift.clockIn.method === 'PIN_FALLBACK' || shift.clockOut.method === 'PIN_FALLBACK'
-            ? 'PIN_FALLBACK'
-            : 'BIOMETRIC',
+        basis: shiftBasis(shift),
         status: wanted.status,
       });
     } else if (row && row.status !== wanted.status) {
