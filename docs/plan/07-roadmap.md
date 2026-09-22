@@ -99,6 +99,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
+- Creating, resetting or promoting an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules)
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 

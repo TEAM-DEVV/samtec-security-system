@@ -48,7 +48,7 @@ The attendance module owns every new table. Each table has row-level security, U
 - **Punch methods.** `PunchMethod` gains `FACE_PASSKEY` and `STAFF_PASSKEY`. `POST /ingest/punches` accepts a narrower list (`IngestPunchMethod`: `FINGERPRINT`, `FACE`, `PIN_FALLBACK`), so a terminal can never claim a kiosk method.
 - **Devices** gain `serialNumber` (a ZKTeco terminal's serial, for the gateway) and `passkeysEnabled` (only a `FACE_KIOSK` can switch it on). A new exception type, `UNEXPECTED_DEVICE_ENROLLMENT`, is raised when a terminal reports a finger nobody asked for.
 - **Workforce** gains the calls the attendance module uses to set or clear `biometricEnrolledAt`, to move an employee between `PENDING_ENROLLMENT` and `ACTIVE`, and to check the Ghana Card digits (`checkGhanaCardLast4`). That keeps the module boundary: attendance never writes the employees table itself.
-- **The activation rule.** Biometrics only ever move an employee from `PENDING_ENROLLMENT` to `ACTIVE` (a `PASSED` face, a face a second ADMIN cleared, or an approved exemption) and from `ACTIVE` back to `PENDING_ENROLLMENT` (a revoke, which also ends any exemption; a new enrollment; or a record blocked as a duplicate). They never touch a `SUSPENDED` or `TERMINATED` employee. No other endpoint can make an employee `ACTIVE`, so the biometric check is the only door.
+- **The activation rule.** Biometrics only ever move an employee from `PENDING_ENROLLMENT` to `ACTIVE` (a `PASSED` face, a face a second ADMIN cleared, or an approved exemption) and from `ACTIVE` back to `PENDING_ENROLLMENT` (a revoke, which also ends any exemption; a new enrollment; a withdrawal of consent, until a second ADMIN approves the exemption the API files; or a record blocked as a duplicate). They never touch a `SUSPENDED` or `TERMINATED` employee. No other endpoint can make an employee `ACTIVE`, so the biometric check is the only door.
 - **Pairing** decides a segment's basis from its punches' methods with one exhaustive function: `FINGERPRINT`, `FACE` and `FACE_PASSKEY` give `BIOMETRIC`; `STAFF_PASSKEY` and `PIN_FALLBACK` give `PIN_FALLBACK`. The weaker punch of a pair decides.
 
 **Encryption.** A face template is a list of 1,024 numbers, not a photo. It is still personal data, because such numbers can be turned back into a rough face. It is stored with AES-256-GCM, like the device secrets and the authenticator secrets:
@@ -86,7 +86,11 @@ HR creates the worker as `PENDING_ENROLLMENT`. The rest happens on the kiosk. Th
 6. **PASSED:** in the same transaction, `markBiometricsEnrolled` sets `biometricEnrolledAt` and makes a `PENDING_ENROLLMENT` worker `ACTIVE` (a `SUSPENDED` worker stays suspended). A face in use ends any exemption. A worker has **one face at a time**: enrolling again replaces it, and an `ACTIVE` worker goes back to `PENDING_ENROLLMENT` until the new face passes.
 7. **Fingerprint**, where the device has `passkeysEnabled` (section 4).
 
-**COLLISION.** The worker stays pending, and the kiosk shows only "Needs an admin review" (never who they looked like). A **second ADMIN** checks both people's Ghana Cards in person and records a verdict with a note. It must be someone who has **handled neither worker**: nobody who created either employee record, or enrolled, revoked or withdrew a face for either of them. Only such a person can tell a real duplicate from a set-up.
+**COLLISION.** The worker stays pending, and the kiosk shows only "Needs an admin review" (never who they looked like). A **second ADMIN** checks both people's Ghana Cards in person and records a verdict with a note. It may never be the ADMIN who enrolled this face, nor anyone who revoked or withdrew a face of either record.
+
+- **Why wiping counts.** Wiping a face is the step an insider needs in order to reuse it, and it is rare in normal work.
+- **Why the rule stops there.** A wider rule (everyone who created either record, or enrolled the other face) would deadlock a company with two ADMINs in ordinary cases, such as two brothers enrolled by different ADMINs. So those links are allowed, but the ghost rules flag them (R11) for the payroll checker.
+- **If nobody may decide** (an unusual case), the review waits for another ADMIN. Meanwhile R1 has already flagged both records for the payroll checker.
 
 - `DIFFERENT_PEOPLE` (for example brothers): the face becomes `CLEARED`.
 - `SAME_PERSON`: one person with two records. The reviewer says which record belongs to the person whose card they checked (`keepEmployeeId`). The choice matters. Suppose an insider wipes a real guard's face and enrolls a ghost with it. When the real guard enrolls again, the reviewer keeps the real guard's record and blocks the ghost, instead of always blocking the newer face.
@@ -110,13 +114,17 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 
 - One ADMIN asks (`POST /employees/{id}/biometric-exemption`). This is only for a worker still `PENDING_ENROLLMENT` with no face on record (none waiting, in use or blocked) and no open review.
 - The request carries a reason code (`DECLINED`, or `CANNOT_ENROLL` when the kiosk cannot read the face) and a short, factual note. Religion and health details are never written down; the code is enough. Supervisors see only the code.
-- A **different** ADMIN checks the Ghana Card in person and approves or rejects it (`POST /employees/{id}/biometric-exemption/review`). It must be someone who has **handled neither this worker nor this request**: nobody who created the employee record, enrolled, revoked or withdrew a face for them, or asked. Approving checks the rules again, not only when someone asked; rejecting is always possible while a request waits.
+- A **different** ADMIN checks the Ghana Card in person and approves or rejects it (`POST /employees/{id}/biometric-exemption/review`). It may never be the ADMIN who asked, anyone who enrolled a face for this worker, or anyone who revoked or withdrew one. Whoever created the record may decide, but R11 flags it. Approving checks the rules again, not only when someone asked; rejecting is always possible while a request waits.
 - Once approved, the worker is `ACTIVE` without a face and clocks in only by a supervisor's co-sign, so every hour they work is flagged. If the worker later enrolls a face that passes, the exemption ends (`ENDED`).
 
-**Withdrawing consent** (`POST /employees/{id}/biometric-consents/withdraw`) wipes the face at once and switches off the keys. It never changes the employee's status.
+**Withdrawing consent** (`POST /employees/{id}/biometric-consents/withdraw`) wipes the face at once and switches off the keys.
 
-- If the face was in use (`ACTIVE`, so it had passed the duplicate check) and the worker is not terminated, the worker is exempted at once (`CONSENT_WITHDRAWN`) and keeps working with co-signed clock-ins. An exemption already approved is kept.
-- Any other face (waiting for review, or blocked) gives no exemption. An open review stays open, and a blocked face stays blocked. **Withdrawing never activates anyone.**
+- If the face was in use and the worker is `ACTIVE`, the worker goes back to `PENDING_ENROLLMENT`, and the API **files** an exemption request (`CONSENT_WITHDRAWN`, asked by whoever recorded the withdrawal).
+  - A second ADMIN decides it like any other request.
+  - Until then, the supervisor records the hours the worker does through the exception queue, so no pay is lost.
+  - Once approved, the worker is `ACTIVE` again and clocks in by co-sign.
+- **Why not exempt at once?** A wiped face is no longer in the duplicate check. If one ADMIN could withdraw a face and keep that record working, they could enroll the same face again on a second record, and a third, with nobody else ever looking. Requiring a second person for every faceless worker closes that loop.
+- An exemption already approved is kept. Any other face (waiting for review, or blocked) gives no request. An open review stays open, and a blocked face stays blocked. **Withdrawing never activates anyone.**
 - A worker who withdrew may consent again later, unless the record is blocked as a duplicate.
 
 **Seed data** gains a second ADMIN (so collisions and exemptions can be decided), two pending guards and one pending supervisor.
@@ -157,8 +165,8 @@ A stolen kiosk key therefore cannot post raw `FACE` punches. A test proves that 
 
 A co-sign is only for two kinds of worker, and the server checks which (the kiosk cannot know):
 
-- a worker with an **approved exemption**, who goes straight to "Ask your supervisor" with no face scan (scanning the face of someone who refused consent would break that refusal);
-- a worker whose face failed on this device: the same unlock as the fingerprint fallback (section 4), which the co-sign uses up.
+- a worker with an **approved exemption** (a second ADMIN always decided it), who goes straight to "Ask your supervisor" with no face scan (scanning the face of someone who refused consent would break that refusal);
+- a worker with a face in use (`ACTIVE`) whose face failed on this device: the same unlock as the fingerprint fallback (section 4), which the co-sign uses up.
 
 The worker types their staff number. A supervisor then passes identify with purpose `CO_SIGN`, **that staff number** and the direction.
 
@@ -238,10 +246,10 @@ The worker types their staff number. A supervisor then passes identify with purp
 | `GET /attendance/clock-in-attempts` | Access token | ADMIN |
 | `GET /employees/{id}/biometrics` (statuses only) | Access token | ADMIN, HR_PAYROLL; SUPERVISOR for their own sites |
 | `POST /employees/{id}/biometrics/revoke`, `/biometric-exemption` | Access token | ADMIN |
-| `POST /employees/{id}/biometric-exemption/review` | Access token | ADMIN who has not handled the worker (created the record, enrolled, revoked or withdrew a face, or asked) |
+| `POST /employees/{id}/biometric-exemption/review` | Access token | ADMIN who did not ask, and did not enroll, revoke or withdraw a face for the worker |
 | `POST /employees/{id}/biometric-consents/withdraw` | Access token | ADMIN, HR_PAYROLL |
 | `GET /biometric-collisions` | Access token | ADMIN |
-| `POST /biometric-collisions/{credentialId}/resolve` | Access token | ADMIN who has handled neither worker |
+| `POST /biometric-collisions/{credentialId}/resolve` | Access token | ADMIN who did not enroll this face, and did not revoke or withdraw a face of either record |
 | `PATCH /devices/{id}` gains `serialNumber` (ZKTeco only, unique) and `passkeysEnabled` (kiosks only; off revokes the keys) | Access token | ADMIN |
 | `POST /devices/{id}/finger-enrollment-windows`, `POST /ingest/roster`, `/ingest/enrollments` | Access token / terminal signature | Added to the contract with the gateway (pull requests 8 and 9) |
 
@@ -271,7 +279,7 @@ At most two open at a time, merged as soon as each is green.
 | 1 | Contract, mock API, this page and the plan updates | `contracts:check`; the mock API's rules |
 | 2 | Migration, device-kind checks, `IngestPunchMethod`, the basis function | Triggers refuse UPDATE and DELETE; a kiosk on `/ingest/punches` → 401 |
 | 3 | Face matching, template encryption, the face provider | Same values as Human; a template moved to another row fails to decrypt |
-| 4 | Kiosk sign-in (`KIOSK_ORIGINS`, no refresh cookie, kiosk-only token), consent, enrollment, collisions, revoke, withdraw, the two-ADMIN exemption, retention sweep | The same face twice → COLLISION; parallel enrollments caught; resolver ≠ enroller; approver and resolver never someone who handled the worker; a revoke during a review → 409; a blocked record stays blocked through revoke, withdrawal and the sweep; withdrawal never activates; a suspended worker stays suspended; overlapping origin lists stop the API; clean logs |
+| 4 | Kiosk sign-in (`KIOSK_ORIGINS`, no refresh cookie, kiosk-only token), consent, enrollment, collisions, revoke, withdraw, the two-ADMIN exemption, retention sweep | The same face twice → COLLISION; parallel enrollments caught; resolver ≠ enroller; nobody decides on their own action (the enroller, the asker, whoever wiped a face); a withdrawn face enrolled again on a new record leaves the first record unable to work until a second ADMIN approves; a revoke during a review → 409; a blocked record stays blocked through revoke, withdrawal and the sweep; withdrawal never activates; a suspended worker stays suspended; overlapping origin lists stop the API; clean logs |
 | 5 | Identify, confirm, "Not me", co-sign, the live clock-ins board | A resend → `DUPLICATE`; the margin rule; no scores returned; one co-sign makes one punch, on its own device only, and only for an exempt worker or after the unlock; confirm refuses a co-sign; every fallback call uses up its unlock |
 | 6 | `apps/kiosk` (needs the owner's OK for a new Vercel project) | Shared signature vectors; Playwright. **The face demo works.** |
 | 7 | Passkeys | No user verification, keys from another device, and foreign keys all refused. **The full demo works.** |
@@ -281,8 +289,8 @@ At most two open at a time, merged as soon as each is green.
 **Samuel's dashboard screens** (enrollment itself happens on the kiosk):
 
 - a live clock-ins board, refreshed every 5 seconds, with method badges, and `PIN_FALLBACK` and `STAFF_PASSKEY` shown in amber (`GET /attendance/punches`);
-- a Biometrics panel on the employee page: consent, face status, fingerprint keys and exemption, with the actions revoke, withdraw, ask for an exemption, and approve or reject one (nobody who handled the worker may decide it);
-- the duplicate-enrollment queue (open and resolved), where the note is required, nobody who handled either worker may decide, and `SAME_PERSON` asks which record to keep;
+- a Biometrics panel on the employee page: consent, face status, fingerprint keys and exemption, with the actions revoke, withdraw, ask for an exemption, and approve or reject one (the ADMIN who asked, or who enrolled or wiped a face for the worker, cannot decide it);
+- the duplicate-enrollment queue (open and resolved), where the note is required, the enroller and anyone who wiped either face cannot decide, and `SAME_PERSON` asks which record to keep;
 - kiosk attempts per device (ADMIN);
 - the new device fields (`serialNumber`, `passkeysEnabled`) on the Devices page, and switching on a kiosk that is waiting (`INACTIVE`) after its set-up.
 
@@ -301,9 +309,11 @@ The mock API already supports all of them.
 5. **More guards means more false collisions:** the chance is 1 − (1 − FMR)^N. At a 0.1% false-match rate and 500 guards, about 39% of enrollments would need a review, so the pilot sets the threshold.
 6. **Every clock-in decrypts every face.** That is fine up to about 300 guards. A vector index (pgvector) would need unencrypted templates, so it waits until the size demands it.
 7. **Human is barely maintained** (3.3.6, from August 2025, is its latest release). It is pinned behind the `BiometricProvider` interface. Changing the model means enrolling everyone again.
-8. **One ADMIN can create and enroll a fake person with an accomplice's face** (a face nobody else has enrolled). Both steps are audited, Phase 5 flags it, and probing shows in the attempt log. Activating someone *without* a face always takes two ADMINs.
+8. **One ADMIN can create and enroll a fake person with an accomplice's face** (a face nobody else has enrolled). Both steps are audited, Phase 5 flags it, and probing shows in the attempt log. Activating someone *without* a face always takes a second ADMIN account.
 9. **ZKTeco firmware is unverified** until a terminal is bought, and our server cannot compare terminal fingerprints.
 10. **Act 843** needs a legal check, and the client must register with the Data Protection Commission.
 11. **One master secret.** A leaked `AUTH_SECRET` lets someone forge sign-ins and, together with a copy of the database, read the face templates. It lives only in the hosting settings, is never shared between TEST and production, and is backed up offline.
+12. **One person with two ADMIN accounts** (for example one they created, or one whose sign-in they reset) defeats every two-person rule. User changes are audited, rule R11 flags a decision made by an account that a handler created, reset or promoted, and Phase 7 makes creating or resetting an ADMIN account need a second ADMIN.
+13. **Indirect links are flagged, not blocked.** An ADMIN who created a record, or enrolled the other face, may still decide its review, so that small companies never deadlock. Rule R11 shows those decisions to the payroll checker.
 
 Related: [Biometric integration](10-biometric-integration.md) · [Attendance design](12-attendance-design.md) · [Security and review gates](06-security-and-review-gates.md) · [Roadmap](07-roadmap.md)

@@ -1003,7 +1003,7 @@ export interface paths {
         put?: never;
         /**
          * Record a punch confirmed by a site supervisor's face
-         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker who is exempt from biometrics (an `APPROVED` exemption: they go straight to "Ask your supervisor", with no face scan), or whose face failed on this device (the same unlock as `POST /kiosk/fingerprint-options`, which a co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN`, that staff number and the direction, on **this same device**, at most 60 seconds earlier. When that identify asked for the supervisor's finger, `assertion` is required. The worker must be ACTIVE and posted to this site. **A co-sign is used up by its first punch:** the punch's ID comes from the co-sign attempt, so sending it again answers `DUPLICATE` and can never make a second punch. The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker who is exempt from biometrics (an `APPROVED` exemption, which a second ADMIN always decided: they go straight to "Ask your supervisor", with no face scan), or a worker with a face in use (`ACTIVE`) whose face failed on this device (the same unlock as `POST /kiosk/fingerprint-options`, which a co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN`, that staff number and the direction, on **this same device**, at most 60 seconds earlier. When that identify asked for the supervisor's finger, `assertion` is required. The worker must be ACTIVE and posted to this site. **A co-sign is used up by its first punch:** the punch's ID comes from the co-sign attempt, so sending it again answers `DUPLICATE` and can never make a second punch. The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
          */
         post: operations["kioskAssistedPunch"];
         delete?: never;
@@ -1213,7 +1213,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or reject a request to work without biometrics
-         * @description **Roles:** ADMIN, but never someone who has **handled this worker**: created the employee record, enrolled, revoked or withdrew a face for them, or asked for this exemption (`403`). Check the worker's Ghana Card in person first. `APPROVE` checks the rules again: the worker must still be `PENDING_ENROLLMENT` with no open question (`409` otherwise), and it makes the worker `ACTIVE`. `REJECT` is always possible while a request waits, and leaves the worker `PENDING_ENROLLMENT` (they can then be enrolled, or asked for again). A note is required, and the decision is audited.
+         * @description **Roles:** ADMIN, but never the one who asked (for `CONSENT_WITHDRAWN`, whoever recorded the withdrawal), anyone who enrolled a face for this worker, or anyone who revoked or withdrew one (`403`). Check the worker's Ghana Card in person first. `APPROVE` checks the rules again: the worker must still be `PENDING_ENROLLMENT` with no open question (`409` otherwise), and it makes the worker `ACTIVE`. `REJECT` is always possible while a request waits, and leaves the worker `PENDING_ENROLLMENT` (they can then be enrolled, or asked for again). A note is required, and the decision is audited.
          */
         post: operations["reviewBiometricExemption"];
         delete?: never;
@@ -1236,13 +1236,19 @@ export interface paths {
         put?: never;
         /**
          * Record that a worker withdrew their consent
-         * @description **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the fingerprint keys at once, as the law requires. It never changes the employee's status, and never activates anyone.
-         *     - If the face was `ACTIVE` (it had passed the duplicate check) and the
-         *       worker is not terminated, the worker is exempted at once
-         *       (`CONSENT_WITHDRAWN`), so they keep working with co-signed
-         *       clock-ins. An exemption already approved is kept.
-         *     - Any other face (waiting for review, or blocked as a duplicate)
-         *       gives no exemption. An open duplicate-enrollment review **stays
+         * @description **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the fingerprint keys at once, as the law requires. It never activates anyone.
+         *     - If the face was `ACTIVE` and the worker is `ACTIVE`, the worker goes
+         *       back to `PENDING_ENROLLMENT` and the API **files** an exemption
+         *       request for them (`CONSENT_WITHDRAWN`, asked by whoever recorded the
+         *       withdrawal). A second ADMIN decides it like any other request
+         *       (`POST /employees/{employeeId}/biometric-exemption/review`). Once it
+         *       is approved, the worker is `ACTIVE` again and clocks in by co-sign.
+         *       Until then, their supervisor records the hours they work through the
+         *       exception queue, so no pay is lost. A withdrawal alone can never
+         *       keep a faceless record working: a wiped face is no longer in the
+         *       duplicate check, so only a second person may vouch for it.
+         *     - An exemption already approved is kept. Any other face (waiting for
+         *       review, or blocked as a duplicate) gives no request. An open duplicate-enrollment review **stays
          *       open**: a second ADMIN still decides it from the Ghana Cards and
          *       the record of who the face looked like. A face blocked as a
          *       duplicate **stays blocked**.
@@ -1290,11 +1296,13 @@ export interface paths {
         put?: never;
         /**
          * Decide whether two faces are the same person
-         * @description **Roles:** ADMIN, but never someone who has **handled either
-         *     worker**: created either employee record, or enrolled, revoked or
-         *     withdrew a face for either of them (`403`). A reviewer who handled
-         *     neither record is the only one who can tell a real duplicate from a
-         *     set-up. Check both people's Ghana Cards in person first.
+         * @description **Roles:** ADMIN, but never the ADMIN who enrolled this face, nor
+         *     anyone who revoked or withdrew a face of either record (`403`). Wiping
+         *     a face is the step an insider needs in order to reuse it, and it is
+         *     rare in normal work, so this rule seldom leaves nobody to decide.
+         *     Other links (the decider created a record, or enrolled the other
+         *     face) are allowed but flagged by the ghost rules (R11) for the
+         *     payroll checker. Check both people's Ghana Cards in person first.
          *
          *     - `DIFFERENT_PEOPLE`: two people who look alike. The new face is
          *       cleared.
@@ -2504,7 +2512,7 @@ export interface components {
         /**
          * @description - `DECLINED`: the worker said no to biometrics.
          *     - `CANNOT_ENROLL`: the kiosk cannot read the worker's face.
-         *     - `CONSENT_WITHDRAWN`: set by the API when a worker whose face had passed the duplicate check withdraws consent.
+         *     - `CONSENT_WITHDRAWN`: filed by the API when an `ACTIVE` worker withdraws consent; a second ADMIN still decides it.
          * @enum {string}
          */
         ExemptionReason: "DECLINED" | "CANNOT_ENROLL" | "CONSENT_WITHDRAWN";
@@ -2529,7 +2537,7 @@ export interface components {
             reviewedAt: string | null;
             /**
              * Format: uuid
-             * @description `null` while waiting, and for the automatic exemption after a withdrawal of consent (that worker already passed the duplicate check).
+             * @description `null` until a second ADMIN decides. Every `APPROVED` exemption has one.
              */
             reviewedByUserId: string | null;
         };
@@ -4431,7 +4439,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["DeviceNotTrusted"];
-            /** @description The co-sign cannot be used. Every reason gets this same answer, so the kiosk cannot reveal who works where: it is not a matched `CO_SIGN` attempt from this device in the last 60 seconds, the supervisor's finger is missing or wrong, it names the supervisor themselves, the staff number is unknown, not ACTIVE or not posted here, or the worker is neither exempt nor unlocked by failed face attempts. */
+            /** @description The co-sign cannot be used. Every reason gets this same answer, so the kiosk cannot reveal who works where: it is not a matched `CO_SIGN` attempt from this device in the last 60 seconds, the supervisor's finger is missing or wrong, it names the supervisor themselves, the staff number is unknown, not ACTIVE or not posted here, or the worker is neither exempt nor (with a face in use) unlocked by failed face attempts. */
             409: {
                 headers: {
                     [name: string]: unknown;

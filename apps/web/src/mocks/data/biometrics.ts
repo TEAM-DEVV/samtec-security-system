@@ -109,8 +109,8 @@ if (refuser) {
   }
 }
 
-// A working guard who withdrew consent: the face is wiped, and the exemption
-// followed at once, because they had already passed the duplicate check.
+// A working guard who withdrew consent: the face is wiped, and a second ADMIN
+// (the mock admin) approved the exemption the API filed for them.
 const withdrawer = enrolledPeople[5];
 if (withdrawer) {
   const record = mockBiometrics.find((row) => row.employeeId === withdrawer.id);
@@ -128,8 +128,8 @@ if (withdrawer) {
       note: 'Withdrew consent in writing.',
       requestedAt: '2026-09-18T10:00:00Z',
       requestedByUserId: OTHER_ADMIN_ID,
-      reviewedAt: null,
-      reviewedByUserId: null,
+      reviewedAt: '2026-09-18T15:00:00Z',
+      reviewedByUserId: MOCK_ADMIN_ID,
     };
   }
 }
