@@ -368,7 +368,8 @@ export const biometricHandlers = [
   http.post<{ employeeId: string }, BiometricReasonRequest, OrProblem<EmployeeBiometrics>>(
     apiUrl('/employees/:employeeId/biometric-consents/withdraw'),
     async ({ params, request }) => {
-      const { user, refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
+      // Only an ADMIN records it, so the exemption it files needs a different ADMIN.
+      const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
       const body: Body = await request.json();
       const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);

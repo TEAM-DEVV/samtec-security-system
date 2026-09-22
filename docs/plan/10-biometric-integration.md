@@ -51,13 +51,13 @@ The device captures the fingerprint, stores the templates and matches on board. 
 |---|---|---|---|
 | Resistance to spoofing | High (on the device) | Medium (liveness checks) | High |
 | Cost per site | About $70 to $200 per device | Almost nothing (existing tablet) | Reader plus licence per desk |
-| Works offline | Yes (device buffers) | No: the supervisor enters the time later | Partly |
+| Works offline | Yes (device buffers) | No: missed hours become a payroll adjustment | Partly |
 | Our integration effort | Low to medium | Medium | Medium |
 | Wow factor in a demo | Medium | **High** | Low |
 
 ## Offline and trust rules (all paths)
 
-- Terminals keep punches through an outage, and the gateway's outbox sends them later. The server records its own receive time and keeps the device time. The face kiosk needs the API for every clock-in; offline, the supervisor enters the time later.
+- Terminals keep punches through an outage, and the gateway's outbox sends them later. The server records its own receive time and keeps the device time. The face kiosk needs the API for every clock-in; offline, the missed hours become a payroll adjustment (Phase 4, maker–checker).
 - Every punch is unique by `(device_id, device_event_id)`, so re-syncing is always safe.
 - Each device has its own HMAC secret. Punches from unknown devices are rejected and raise an alert.
 - Templates and embeddings are encrypted at rest and never logged. Consent is recorded at enrollment (Act 843).

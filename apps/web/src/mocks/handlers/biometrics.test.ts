@@ -65,9 +65,17 @@ describe('mock biometrics API', () => {
     expect(data?.passkeys.every((key) => key.revokedAt !== null)).toBe(true);
   });
 
-  it('files an exemption request on a withdrawal, which a second ADMIN decides', async () => {
+  it('files an exemption request on a withdrawal, which a different ADMIN must decide', async () => {
+    // Only an ADMIN records a withdrawal.
     await signInForTests('hr@samtec.example');
     const path = { params: { path: { employeeId: enrolled?.id ?? '' } } };
+    const byHr = await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
+      ...path,
+      body: { reason: 'Asked in writing.' },
+    });
+    expect(byHr.response.status).toBe(403);
+
+    await signInForTests('admin@samtec.example');
     const { data } = await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
       ...path,
       body: { reason: 'Asked in writing.' },
@@ -76,34 +84,20 @@ describe('mock biometrics API', () => {
     expect(data?.face.status).toBe('REVOKED');
     // Only a request: a wiped face is out of the duplicate check, so a second person must vouch.
     expect(data?.exemption).toMatchObject({ status: 'REQUESTED', reason: 'CONSENT_WITHDRAWN' });
-
-    await signInForTests('supervisor@samtec.example');
-    const seen = await fetchClient.GET('/employees/{employeeId}/biometrics', path);
-    expect(seen.data?.exemption?.reason).toBe('CONSENT_WITHDRAWN');
-    expect(seen.data?.exemption?.note).toBeNull();
-
-    await signInForTests('admin@samtec.example');
-    const approved = await fetchClient.POST('/employees/{employeeId}/biometric-exemption/review', {
-      ...path,
-      body: { decision: 'APPROVE', note: 'Ghana Card checked in person.' },
-    });
-    expect(approved.data?.exemption?.status).toBe('APPROVED');
-  });
-
-  it('never lets whoever wiped a face decide that worker', async () => {
-    await signInForTests('admin@samtec.example');
-    const path = { params: { path: { employeeId: enrolled?.id ?? '' } } };
-    await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
-      ...path,
-      body: { reason: 'Asked in writing.' },
-    });
     const own = await fetchClient.POST('/employees/{employeeId}/biometric-exemption/review', {
       ...path,
       body: { decision: 'APPROVE', note: 'Approving my own withdrawal.' },
     });
     expect(own.response.status).toBe(403);
 
-    // Wiping the looked-like record's face bars this ADMIN from its collision too.
+    await signInForTests('supervisor@samtec.example');
+    const seen = await fetchClient.GET('/employees/{employeeId}/biometrics', path);
+    expect(seen.data?.exemption?.reason).toBe('CONSENT_WITHDRAWN');
+    expect(seen.data?.exemption?.note).toBeNull();
+  });
+
+  it('never lets whoever wiped a face decide a collision of either record', async () => {
+    await signInForTests('admin@samtec.example');
     await fetchClient.POST('/employees/{employeeId}/biometrics/revoke', {
       params: { path: { employeeId: openCollision?.lookedLike.id ?? '' } },
       body: { reason: 'Re-enrolling this guard.' },
@@ -116,7 +110,7 @@ describe('mock biometrics API', () => {
   });
 
   it('never activates a pending worker by withdrawal, and keeps their review open', async () => {
-    await signInForTests('hr@samtec.example');
+    await signInForTests('admin@samtec.example');
     const { data } = await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
       params: { path: { employeeId: openCollision?.employee.id ?? '' } },
       body: { reason: 'Asked in writing.' },
@@ -124,12 +118,20 @@ describe('mock biometrics API', () => {
     expect(data?.face.status).toBe('REVOKED');
     expect(data?.exemption).toBeNull();
 
-    // Only a second ADMIN closes the question; a wiped face stays wiped.
-    await signInForTests('admin@samtec.example');
+    // The review stays open for a second ADMIN; the one who wiped the face may not decide it.
     const open = await fetchClient.GET('/biometric-collisions');
     expect(open.data?.items.map((item) => item.credentialId)).toContain(
       openCollision?.credentialId,
     );
+    const decided = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
+      params: { path: { credentialId: openCollision?.credentialId ?? '' } },
+      body: { verdict: 'DIFFERENT_PEOPLE', note: 'Both Ghana Cards checked in person.' },
+    });
+    expect(decided.response.status).toBe(403);
+  });
+
+  it('clears a face that is still there when a second ADMIN says different people', async () => {
+    await signInForTests('admin@samtec.example');
     await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
       params: { path: { credentialId: openCollision?.credentialId ?? '' } },
       body: { verdict: 'DIFFERENT_PEOPLE', note: 'Both Ghana Cards checked in person.' },
@@ -137,7 +139,7 @@ describe('mock biometrics API', () => {
     const after = await fetchClient.GET('/employees/{employeeId}/biometrics', {
       params: { path: { employeeId: openCollision?.employee.id ?? '' } },
     });
-    expect(after.data?.face).toMatchObject({ status: 'REVOKED', dedupe: 'CLEARED' });
+    expect(after.data?.face).toMatchObject({ status: 'ACTIVE', dedupe: 'CLEARED' });
   });
 
   it('refuses a revoke while a duplicate review is open', async () => {
@@ -288,7 +290,6 @@ describe('mock biometrics API', () => {
     });
     expect(revoke.response.status).toBe(409);
 
-    await signInForTests('hr@samtec.example');
     const withdrawn = await fetchClient.POST(
       '/employees/{employeeId}/biometric-consents/withdraw',
       {
@@ -298,7 +299,6 @@ describe('mock biometrics API', () => {
     );
     expect(withdrawn.data?.face.status).toBe('BLOCKED');
 
-    await signInForTests('admin@samtec.example');
     const asked = await fetchClient.POST('/employees/{employeeId}/biometric-exemption', {
       ...path,
       body: { reason: 'DECLINED', note: 'Trying to clear the block.' },

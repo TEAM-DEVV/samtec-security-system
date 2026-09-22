@@ -2015,14 +2015,18 @@ paths:
         `kiosk/assisted-punches`). For a worker who is exempt from
         biometrics (an `APPROVED` exemption, which a second ADMIN always
         decided: they go straight to "Ask your supervisor", with no face
-        scan), or a worker with a face in use (`ACTIVE`) whose face failed on
-        this device (the same unlock as `POST /kiosk/fingerprint-options`,
-        which a co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's
+        scan); a worker whose withdrawal of consent is waiting for that
+        decision (still `PENDING_ENROLLMENT`: the punch is stored and paired
+        but raises `INACTIVE_EMPLOYEE`, and is paid only after approval); or
+        a worker with a face in use (`ACTIVE`) whose face failed on this
+        device (the same unlock as `POST /kiosk/fingerprint-options`, which a
+        co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's
         site and not the worker themselves passes `POST /kiosk/identify`
         with `purpose: CO_SIGN`, that staff number and the direction, on
         **this same device**, at most 60 seconds earlier. When that identify
         asked for the supervisor's finger, `assertion` is required. The
-        worker must be ACTIVE and posted to this site. **A co-sign is used up
+        worker must be ACTIVE (or waiting for a withdrawal's decision) and
+        posted to this site. **A co-sign is used up
         by its first punch:** the punch's ID comes from the co-sign attempt,
         so sending it again answers `DUPLICATE` and can never make a second
         punch. The punch is marked
@@ -2057,8 +2061,9 @@ paths:
             `CO_SIGN` attempt from this device in the last 60 seconds, the
             supervisor's finger is missing or wrong, it names the supervisor
             themselves, the staff number is unknown, not ACTIVE or not posted
-            here, or the worker is neither exempt nor (with a face in use)
-            unlocked by failed face attempts.
+            here, or the worker is neither exempt, nor waiting for a
+            withdrawal's decision, nor (with a face in use) unlocked by failed
+            face attempts.
           content:
             application/problem+json:
               schema:
@@ -2529,29 +2534,34 @@ paths:
       tags: [Biometrics]
       operationId: withdrawBiometricConsent
       summary: Record that a worker withdrew their consent
-      description: >-
-        **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the
-        fingerprint keys at once, as the law requires. It never activates
-        anyone.
+      description: |
+        **Roles:** ADMIN. Wipes the face and switches off the fingerprint keys
+        at once, as the law requires. It never activates anyone.
 
         - If the face was `ACTIVE` and the worker is `ACTIVE`, the worker goes
           back to `PENDING_ENROLLMENT` and the API **files** an exemption
-          request for them (`CONSENT_WITHDRAWN`, asked by whoever recorded the
-          withdrawal). A second ADMIN decides it like any other request
-          (`POST /employees/{employeeId}/biometric-exemption/review`). Once it
-          is approved, the worker is `ACTIVE` again and clocks in by co-sign.
-          Until then, their supervisor records the hours they work through the
-          exception queue, so no pay is lost. A withdrawal alone can never
-          keep a faceless record working: a wiped face is no longer in the
-          duplicate check, so only a second person may vouch for it.
+          request for them (`CONSENT_WITHDRAWN`). The ADMIN who recorded the
+          withdrawal is its asker, so a **different** ADMIN decides it
+          (`POST /employees/{employeeId}/biometric-exemption/review`): every
+          exemption takes two ADMIN accounts. Once it is approved, the worker
+          is `ACTIVE` again and clocks in by co-sign.
+        - While the request waits, the worker can still clock in by a
+          supervisor's co-sign. Those punches are stored and paired, but they
+          raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for
+          enrollment, and payroll counts them only once a second ADMIN has
+          approved. So the worker's presence is on record from the first day,
+          and nothing is paid on one person's say-so: a wiped face is no
+          longer in the duplicate check, so only a second person may vouch for
+          it.
         - An exemption already approved is kept. Any other face (waiting for
-          review, or blocked as a duplicate) gives no request. An open duplicate-enrollment review **stays
-          open**: a second ADMIN still decides it from the Ghana Cards and
-          the record of who the face looked like. A face blocked as a
-          duplicate **stays blocked**.
+          review, or blocked as a duplicate) gives no request. An open
+          duplicate-enrollment review **stays open**: a second ADMIN still
+          decides it from the Ghana Cards and the record of who the face
+          looked like. A face blocked as a duplicate **stays blocked**.
 
         Audited; the consent history stays, and the worker may consent again
-        later, unless the record is blocked as a duplicate.
+        later, unless the record is blocked as a duplicate. HR may take the
+        worker's written request, but an ADMIN records it.
       requestBody:
         required: true
         content:
@@ -5127,7 +5137,7 @@ components:
       description: |
         - `DECLINED`: the worker said no to biometrics.
         - `CANNOT_ENROLL`: the kiosk cannot read the worker's face.
-        - `CONSENT_WITHDRAWN`: filed by the API when an `ACTIVE` worker withdraws consent; a second ADMIN still decides it.
+        - `CONSENT_WITHDRAWN`: filed by the API when an ADMIN records an `ACTIVE` worker's withdrawal of consent; a different ADMIN decides it.
       enum: [DECLINED, CANNOT_ENROLL, CONSENT_WITHDRAWN]
 
     ExemptionStatus:

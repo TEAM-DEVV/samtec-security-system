@@ -119,9 +119,9 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 
 **Withdrawing consent** (`POST /employees/{id}/biometric-consents/withdraw`) wipes the face at once and switches off the keys.
 
-- If the face was in use and the worker is `ACTIVE`, the worker goes back to `PENDING_ENROLLMENT`, and the API **files** an exemption request (`CONSENT_WITHDRAWN`, asked by whoever recorded the withdrawal).
-  - A second ADMIN decides it like any other request.
-  - Until then, the supervisor records the hours the worker does through the exception queue, so no pay is lost.
+- Only an ADMIN records a withdrawal (HR may take the worker's written request to one).
+- If the face was in use and the worker is `ACTIVE`, the worker goes back to `PENDING_ENROLLMENT`, and the API **files** an exemption request (`CONSENT_WITHDRAWN`). The ADMIN who recorded the withdrawal is its asker, so a **different** ADMIN decides it: every exemption takes two ADMIN accounts.
+  - While it waits, the worker can still clock in by a supervisor's co-sign. Those punches are stored and paired, but they raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for enrollment ([Attendance design](12-attendance-design.md) section 3), and payroll counts them only once a second ADMIN has approved. The worker's presence is on record from the first day, and they are paid in full once approved.
   - Once approved, the worker is `ACTIVE` again and clocks in by co-sign.
 - **Why not exempt at once?** A wiped face is no longer in the duplicate check. If one ADMIN could withdraw a face and keep that record working, they could enroll the same face again on a second record, and a third, with nobody else ever looking. Requiring a second person for every faceless worker closes that loop.
 - An exemption already approved is kept. Any other face (waiting for review, or blocked) gives no request. An open review stays open, and a blocked face stays blocked. **Withdrawing never activates anyone.**
@@ -163,9 +163,10 @@ A stolen kiosk key therefore cannot post raw `FACE` punches. A test proves that 
 
 **After 3 failed face attempts in a row,** the kiosk offers "Use fingerprint" (section 4) or "Ask your supervisor".
 
-A co-sign is only for two kinds of worker, and the server checks which (the kiosk cannot know):
+A co-sign is only for three kinds of worker, and the server checks which (the kiosk cannot know):
 
 - a worker with an **approved exemption** (a second ADMIN always decided it), who goes straight to "Ask your supervisor" with no face scan (scanning the face of someone who refused consent would break that refusal);
+- a worker whose withdrawal of consent is waiting for a second ADMIN (the punch is stored but raises `INACTIVE_EMPLOYEE`, and is paid only after approval);
 - a worker with a face in use (`ACTIVE`) whose face failed on this device: the same unlock as the fingerprint fallback (section 4), which the co-sign uses up.
 
 The worker types their staff number. A supervisor then passes identify with purpose `CO_SIGN`, **that staff number** and the direction.
@@ -174,7 +175,7 @@ The worker types their staff number. A supervisor then passes identify with purp
 - If the supervisor has a fingerprint key on this kiosk, the co-sign needs the supervisor's finger too.
 - `POST /kiosk/assisted-punches` must come from the **same device**, within 60 seconds. It checks everything:
   - the supervisor is ACTIVE, assigned to this site, and not the worker;
-  - the worker is ACTIVE and posted to this site;
+  - the worker is ACTIVE (or waiting for a withdrawal's decision) and posted to this site;
   - the worker is exempt, or the fallback is unlocked.
 
   Every refusal gets one identical answer.
@@ -185,7 +186,7 @@ The worker types their staff number. A supervisor then passes identify with purp
 
 **Load.** One kiosk handles one person at a time. A clock-in takes about 15 seconds and 2 or 3 requests, so the existing limit of 60 signed requests per minute per device is plenty, even at a shift change.
 
-**Offline,** the kiosk says "Tell your supervisor", and the time is entered later through the Phase 2 exception queue.
+**Offline,** nothing can be recorded, because the kiosk needs the server's time and a match for every clock-in. The kiosk says "Tell your supervisor", and the missed hours become a payroll adjustment in Phase 4, which needs maker–checker approval. They are never typed into attendance by hand: attendance only completes hours around real punches.
 
 ## 4. Fingerprint on the kiosk (passkeys)
 
@@ -247,7 +248,7 @@ The worker types their staff number. A supervisor then passes identify with purp
 | `GET /employees/{id}/biometrics` (statuses only) | Access token | ADMIN, HR_PAYROLL; SUPERVISOR for their own sites |
 | `POST /employees/{id}/biometrics/revoke`, `/biometric-exemption` | Access token | ADMIN |
 | `POST /employees/{id}/biometric-exemption/review` | Access token | ADMIN who did not ask, and did not enroll, revoke or withdraw a face for the worker |
-| `POST /employees/{id}/biometric-consents/withdraw` | Access token | ADMIN, HR_PAYROLL |
+| `POST /employees/{id}/biometric-consents/withdraw` | Access token | ADMIN (its exemption request then needs a different ADMIN) |
 | `GET /biometric-collisions` | Access token | ADMIN |
 | `POST /biometric-collisions/{credentialId}/resolve` | Access token | ADMIN who did not enroll this face, and did not revoke or withdraw a face of either record |
 | `PATCH /devices/{id}` gains `serialNumber` (ZKTeco only, unique) and `passkeysEnabled` (kiosks only; off revokes the keys) | Access token | ADMIN |
