@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Device, DeviceList, DeviceWithSecret } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   idSchema,
   type ListDevicesQuery,
@@ -19,6 +19,7 @@ import { DevicesService } from './devices.service.js';
 export class DevicesController {
   constructor(private readonly devices: DevicesService) {}
 
+  @OnKiosk()
   @Get()
   list(
     @Caller() caller: SignedInUser,
@@ -27,6 +28,8 @@ export class DevicesController {
     return this.devices.list(caller, query);
   }
 
+  // A kiosk sets itself up, and may only register a kiosk (the service checks).
+  @OnKiosk()
   @Post()
   async register(
     @Caller() caller: SignedInUser,
@@ -59,6 +62,7 @@ export class DevicesController {
     return this.devices.update(caller, deviceId, body);
   }
 
+  @OnKiosk()
   @Post(':deviceId/rotate-secret')
   @HttpCode(200)
   async rotateSecret(

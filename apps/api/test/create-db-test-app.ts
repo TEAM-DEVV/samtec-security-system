@@ -23,6 +23,7 @@ export async function createDbTestApp(
     PORT: 3000,
     DATABASE_URL: databaseUrl,
     CORS_ORIGINS: ['http://localhost:5173'],
+    KIOSK_ORIGINS: ['http://localhost:5174'],
     AUTH_SECRET: DB_TEST_AUTH_SECRET,
     ...settings,
   });

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type {
   AuthenticatedSession,
   CurrentUser,
@@ -14,6 +19,7 @@ import { mayUseAccount } from './account-rules.js';
 import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { hashPassword, NO_SUCH_USER_HASH, verifyPassword } from './password.js';
+import { placeOfToken, type SignInPlace, stampPlace } from './sign-in-place.js';
 import { SignInThrottleService } from './sign-in-throttle.service.js';
 import { ACCESS_TOKEN_SECONDS, TokensService } from './tokens.service.js';
 import { generateTotpSecret, otpauthUri, verifyTotpCode } from './totp.js';
@@ -31,10 +37,12 @@ const WRONG_CREDENTIALS = 'Email or password is incorrect.';
 const CHALLENGE_GONE = 'This sign-in has expired. Sign in with your password again.';
 /** The one message for every dead, used or foreign password link. */
 const LINK_GONE = 'This link has expired or was already used. Ask an administrator for a new one.';
+/** A half-done sign-in is finished where it started, never moved across. */
+const WRONG_PLACE = 'Finish signing in where you started.';
 
 /** What `login` can decide. The controller turns each kind into its HTTP shape. */
 export type LoginOutcome =
-  | { kind: 'session'; session: AuthenticatedSession; refreshToken: string }
+  | { kind: 'session'; session: AuthenticatedSession; refreshToken: string | null }
   | { kind: 'challenge'; response: TwoFactorChallenge }
   | { kind: 'setup'; response: TwoFactorSetupRequired };
 
@@ -65,7 +73,7 @@ export class AuthService {
     private readonly accounts: AccountsService,
   ) {}
 
-  async login(rawEmail: string, password: string): Promise<LoginOutcome> {
+  async login(rawEmail: string, password: string, place: SignInPlace): Promise<LoginOutcome> {
     const email = normalizeEmail(rawEmail);
     await this.throttle.assertNotLocked('password', email);
 
@@ -88,7 +96,12 @@ export class AuthService {
       // A locked-out authenticator answers 429 here already, instead of
       // issuing a challenge that could only fail.
       await this.throttle.assertNotLocked('totp', user.id);
-      const challengeToken = await this.issueChallenge(user, 'VERIFY_CODE', CHALLENGE_MINUTES);
+      const challengeToken = await this.issueChallenge(
+        user,
+        'VERIFY_CODE',
+        CHALLENGE_MINUTES,
+        place,
+      );
       return {
         kind: 'challenge',
         response: {
@@ -100,7 +113,14 @@ export class AuthService {
     }
 
     if (user.role === 'ADMIN' || user.role === 'HR_PAYROLL') {
-      const setupToken = await this.issueChallenge(user, 'SET_UP', SETUP_MINUTES);
+      // Two-factor is set up on the dashboard only, so the secret never
+      // appears on a screen everyone at the site can see.
+      if (place === 'KIOSK') {
+        throw new ForbiddenException(
+          'Set up two-factor sign-in on the dashboard before using a kiosk.',
+        );
+      }
+      const setupToken = await this.issueChallenge(user, 'SET_UP', SETUP_MINUTES, place);
       return {
         kind: 'setup',
         response: {
@@ -111,15 +131,16 @@ export class AuthService {
       };
     }
 
-    return { kind: 'session', ...(await this.establishSession(user)) };
+    return { kind: 'session', ...(await this.establishSession(user, place)) };
   }
 
   /** Step two of signing in for accounts that already use an authenticator app. */
   async verifyTwoFactor(
     challengeToken: string,
     code: string,
-  ): Promise<{ session: AuthenticatedSession; refreshToken: string }> {
-    const { challenge, user } = await this.loadChallenge(challengeToken, 'VERIFY_CODE');
+    place: SignInPlace,
+  ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
+    const { challenge, user } = await this.loadChallenge(challengeToken, 'VERIFY_CODE', place);
     await this.throttle.assertNotLocked('totp', user.id);
     const secret = user.twoFactorSecretEncrypted
       ? this.tokens.decryptSecret(user.twoFactorSecretEncrypted)
@@ -140,12 +161,12 @@ export class AuthService {
       where: { id: user.id },
       data: { twoFactorLastUsedStep: BigInt(matchedStep) },
     });
-    return this.establishSession(user);
+    return this.establishSession(user, place);
   }
 
   /** Creates a fresh authenticator secret for the QR code. Enabling comes next. */
-  async startTwoFactorSetup(setupToken: string): Promise<TwoFactorSetup> {
-    const { challenge, user } = await this.loadChallenge(setupToken, 'SET_UP');
+  async startTwoFactorSetup(setupToken: string, place: SignInPlace): Promise<TwoFactorSetup> {
+    const { challenge, user } = await this.loadChallenge(setupToken, 'SET_UP', place);
     const secret = generateTotpSecret();
     // The secret waits on the challenge until the user proves their app works.
     // Calling setup again simply replaces it, as the contract says.
@@ -160,8 +181,9 @@ export class AuthService {
   async enableTwoFactor(
     setupToken: string,
     code: string,
-  ): Promise<{ session: AuthenticatedSession; refreshToken: string }> {
-    const { challenge, user } = await this.loadChallenge(setupToken, 'SET_UP');
+    place: SignInPlace,
+  ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
+    const { challenge, user } = await this.loadChallenge(setupToken, 'SET_UP', place);
     await this.throttle.assertNotLocked('totp', user.id);
     if (!challenge.pendingSecretEncrypted) {
       throw new BadRequestException('Call POST /auth/2fa/setup first to get your QR code.');
@@ -188,7 +210,7 @@ export class AuthService {
       entityType: 'user',
       entityId: user.id,
     });
-    return this.establishSession(enabledUser);
+    return this.establishSession(enabledUser, place);
   }
 
   /**
@@ -386,21 +408,29 @@ export class AuthService {
     throw new UnauthorizedException('Sign in to continue.');
   }
 
+  /**
+   * Starts a session. A kiosk is a shared device, so a kiosk sign-in gets **no
+   * refresh session at all**: nobody stays signed in on it, and its access
+   * token dies within 15 minutes and works only on the kiosk screens.
+   */
   private async establishSession(
     user: User,
-  ): Promise<{ session: AuthenticatedSession; refreshToken: string }> {
-    const { refreshToken } = await this.createSessionRow(user.id);
+    place: SignInPlace,
+  ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
+    const onKiosk = place === 'KIOSK';
+    const refreshToken = onKiosk ? null : (await this.createSessionRow(user.id)).refreshToken;
     await this.audit.record({
       companyId: user.companyId,
       actorUserId: user.id,
       action: 'auth.signed_in',
       entityType: 'user',
       entityId: user.id,
+      detail: { place },
     });
     return {
       session: {
         status: 'AUTHENTICATED',
-        accessToken: await this.tokens.signAccessToken(this.asSignedIn(user)),
+        accessToken: await this.tokens.signAccessToken({ ...this.asSignedIn(user), onKiosk }),
         expiresInSeconds: ACCESS_TOKEN_SECONDS,
         user: toCurrentUser(user),
       },
@@ -427,9 +457,10 @@ export class AuthService {
     user: User,
     purpose: 'VERIFY_CODE' | 'SET_UP',
     minutes: number,
+    place: SignInPlace,
   ): Promise<string> {
     await this.prisma.authChallenge.deleteMany({ where: { userId: user.id, purpose } });
-    const token = this.tokens.newOpaqueToken();
+    const token = stampPlace(place, this.tokens.newOpaqueToken());
     await this.prisma.authChallenge.create({
       data: {
         userId: user.id,
@@ -445,7 +476,13 @@ export class AuthService {
   private async loadChallenge(
     token: string,
     purpose: 'VERIFY_CODE' | 'SET_UP',
+    place: SignInPlace,
   ): Promise<{ challenge: AuthChallenge; user: User }> {
+    // A sign-in started on a kiosk is finished on that kiosk, and one started
+    // on the dashboard on the dashboard. The token says which.
+    if (placeOfToken(token) !== place) {
+      throw new ForbiddenException(WRONG_PLACE);
+    }
     const challenge = await this.prisma.authChallenge.findUnique({
       where: { tokenHash: this.tokens.hashToken(token) },
       include: { user: true },
@@ -519,6 +556,8 @@ export class AuthService {
       companyId: user.companyId,
       role: user.role,
       employeeId: user.employeeId,
+      // Refreshing only ever happens on the dashboard (the kiosk has no cookie).
+      onKiosk: false,
     };
   }
 }

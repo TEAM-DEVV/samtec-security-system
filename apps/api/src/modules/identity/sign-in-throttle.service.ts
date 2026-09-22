@@ -5,12 +5,19 @@ import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { deriveKey } from './secret-box.js';
 
-/** Failures are counted within a rolling window this long. */
-const WINDOW_MINUTES = 15;
-/** This many failures in the window lock the key out… */
+/** This many failures inside the window lock a key out. */
 const MAX_FAILURES = 5;
-/** …for this long. */
-const LOCK_MINUTES = 15;
+
+/**
+ * How long each kind counts and locks for. Sign-in guessing is a burst, so
+ * its windows are short; a Ghana Card check happens once per enrollment, so
+ * five wrong answers mean the worker waits an hour (docs/plan/13 section 2).
+ */
+const WINDOWS: Record<ThrottleKind, { windowMinutes: number; lockMinutes: number }> = {
+  password: { windowMinutes: 15, lockMinutes: 15 },
+  totp: { windowMinutes: 15, lockMinutes: 15 },
+  'ghana-card': { windowMinutes: 60, lockMinutes: 60 },
+};
 
 /**
  * What is being throttled:
@@ -19,8 +26,10 @@ const LOCK_MINUTES = 15;
  * - `totp`: wrong two-factor codes, counted per account. This is what stops
  *   someone who *knows* the password from guessing the 6-digit code: signing
  *   in again gets fresh challenges, but never fresh code attempts.
+ * - `ghana-card`: wrong answers to "the last 4 digits of this worker's card"
+ *   at a kiosk, counted per worker.
  */
-export type ThrottleKind = 'password' | 'totp';
+export type ThrottleKind = 'password' | 'totp' | 'ghana-card';
 
 /**
  * Slows guessing down: five failures for one key inside 15 minutes lock it
@@ -66,6 +75,7 @@ export class SignInThrottleService {
   /** Counts one failure. Returns true when this failure caused a lockout. */
   async recordFailure(kind: ThrottleKind, value: string): Promise<boolean> {
     const keyHash = this.hashKey(kind, value);
+    const { windowMinutes, lockMinutes } = WINDOWS[kind];
     // One statement that inserts or updates, resets an expired window, and
     // sets the lock — atomically, using the database's own clock. `EXCLUDED`
     // is PostgreSQL's name for the row we tried to insert.
@@ -74,22 +84,22 @@ export class SignInThrottleService {
       VALUES (${keyHash}, 1, now(), NULL, now(), now())
       ON CONFLICT (key_hash) DO UPDATE SET
         failed_count = CASE
-          WHEN sign_in_throttles.window_starts_at < now() - ${WINDOW_MINUTES} * interval '1 minute'
+          WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
             THEN 1
           ELSE sign_in_throttles.failed_count + 1
         END,
         window_starts_at = CASE
-          WHEN sign_in_throttles.window_starts_at < now() - ${WINDOW_MINUTES} * interval '1 minute'
+          WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
             THEN now()
           ELSE sign_in_throttles.window_starts_at
         END,
         locked_until = CASE
           WHEN (CASE
-            WHEN sign_in_throttles.window_starts_at < now() - ${WINDOW_MINUTES} * interval '1 minute'
+            WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
               THEN 1
             ELSE sign_in_throttles.failed_count + 1
           END) >= ${MAX_FAILURES}
-            THEN now() + ${LOCK_MINUTES} * interval '1 minute'
+            THEN now() + ${lockMinutes} * interval '1 minute'
           ELSE NULL
         END,
         updated_at = now()

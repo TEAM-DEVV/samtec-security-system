@@ -39,11 +39,13 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       companyId: company.companyId,
       role: 'ADMIN',
       employeeId: null,
+      onKiosk: false,
     });
     supervisorToken = await tokens.signAccessToken({
       userId: company.supervisorUserId,
       companyId: company.companyId,
       role: 'SUPERVISOR',
+      onKiosk: false,
       employeeId: company.supervisorEmployeeId,
     });
   }, 120_000);

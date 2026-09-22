@@ -537,6 +537,47 @@ export class EmployeesService {
     }
   }
 
+  /**
+   * What the biometric flows need to know about a worker (docs/plan/13). The
+   * attendance module asks for this instead of reading the employees table,
+   * and the Ghana Card number itself never leaves this module.
+   */
+  async forBiometrics(
+    viewer: SignedInUser,
+    employeeId: string,
+  ): Promise<{ id: string; staffNumber: string; status: EmployeeStatus }> {
+    const row = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId: viewer.companyId },
+      select: { id: true, staffNumber: true, status: true },
+    });
+    if (!row) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    return row;
+  }
+
+  /**
+   * True when these really are the last 4 digits of this worker's Ghana Card.
+   * The ADMIN reads them off the card the worker is holding, so the right
+   * person is in front of the kiosk; the full number never leaves the office.
+   */
+  async ghanaCardLast4Matches(
+    viewer: SignedInUser,
+    employeeId: string,
+    last4: string,
+  ): Promise<boolean> {
+    const row = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId: viewer.companyId },
+      select: { ghanaCardNumber: true },
+    });
+    if (!row) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    // Ghana Cards are written with dashes; only the digits count.
+    const digits = row.ghanaCardNumber.replace(/\D/g, '');
+    return digits.length >= 4 && digits.slice(-4) === last4;
+  }
+
   /** The sites this supervisor is currently posted to (usually one). */
   private async supervisorSiteIds(viewer: SignedInUser): Promise<string[]> {
     if (!viewer.employeeId) {

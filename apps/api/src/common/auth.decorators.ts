@@ -9,6 +9,12 @@ export interface SignedInUser {
   role: UserRole;
   /** The caller's own employee record, or null for office-only accounts. */
   employeeId: string | null;
+  /**
+   * True when this session was started on a kiosk at a site. A kiosk is a
+   * shared device, so its session may only use the kiosk screens
+   * (docs/plan/13 section 2).
+   */
+  onKiosk: boolean;
 }
 
 export const IS_PUBLIC_KEY = 'samtec:isPublic';
@@ -20,6 +26,15 @@ export const IS_PUBLIC_KEY = 'samtec:isPublic';
  * adds this together with the device signature check.
  */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC_KEY, true);
+
+export const ON_KIOSK_KEY = 'samtec:onKiosk';
+
+/**
+ * Marks a route a kiosk session may use. Everything else answers 403 for a
+ * kiosk token, so a shared device can never reach the rest of the API, even
+ * with an ADMIN signed in on it (docs/plan/13 section 2).
+ */
+export const OnKiosk = (): MethodDecorator & ClassDecorator => SetMetadata(ON_KIOSK_KEY, true);
 
 export const ROLES_KEY = 'samtec:roles';
 

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,6 +21,9 @@ import type {
   UpdateDeviceBody,
 } from './attendance.schemas.js';
 import { deviceSecretKey, newDeviceSecret } from './device-secret.js';
+
+/** A kiosk session sets up kiosks, never a terminal or a simulator. */
+const KIOSK_DEVICES_ONLY = 'A kiosk session can only set up a face kiosk.';
 
 /**
  * The device registry (ADMIN only). A device's secret is 32 random bytes,
@@ -58,6 +62,11 @@ export class DevicesService {
   }
 
   async register(viewer: SignedInUser, body: RegisterDeviceBody): Promise<DeviceWithSecret> {
+    // A kiosk sets itself up and nothing else, so a kiosk session can never
+    // create a terminal or a simulator (docs/plan/13 section 2).
+    if (viewer.onKiosk && body.kind !== 'FACE_KIOSK') {
+      throw new ForbiddenException(KIOSK_DEVICES_ONLY);
+    }
     // Reuses the sites service's rules; a site outside the company is a clear 400.
     await this.sites.get(viewer, body.siteId).catch((error: unknown) => {
       throw error instanceof NotFoundException
@@ -144,7 +153,10 @@ export class DevicesService {
 
   /** A new secret; the old one stops working at once (no overlap). */
   async rotateSecret(viewer: SignedInUser, deviceId: string): Promise<DeviceWithSecret> {
-    await this.findInCompany(viewer, deviceId);
+    const existing = await this.findInCompany(viewer, deviceId);
+    if (viewer.onKiosk && existing.kind !== 'FACE_KIOSK') {
+      throw new ForbiddenException(KIOSK_DEVICES_ONLY);
+    }
     const secret = newDeviceSecret();
     const device = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.device.update({

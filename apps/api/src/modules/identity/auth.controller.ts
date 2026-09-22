@@ -16,7 +16,7 @@ import type {
   TwoFactorSetup,
 } from '@samtec/contracts';
 import type { Request, Response } from 'express';
-import { Caller, Public, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, OnKiosk, Public, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   clearRefreshCookie,
   REFRESH_COOKIE_NAME,
@@ -39,6 +39,7 @@ import {
   verifyTwoFactorSchema,
 } from './auth.schemas.js';
 import { AuthService } from './auth.service.js';
+import { type SignInPlace, signInPlace } from './sign-in-place.js';
 
 /**
  * `/api/v1/auth/*`. Contract: the `Auth` operations in
@@ -58,12 +59,13 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(
+    @Req() request: Request,
     @Body({ schema: loginSchema }) body: LoginBody,
     @Res({ passthrough: true }) response: Response,
   ): Promise<LoginResponse> {
-    const outcome = await this.auth.login(body.email, body.password);
+    const outcome = await this.auth.login(body.email, body.password, this.placeOf(request));
     if (outcome.kind === 'session') {
-      setRefreshCookie(response, outcome.refreshToken, this.config);
+      this.rememberSession(response, outcome.refreshToken);
       return outcome.session;
     }
     return outcome.response;
@@ -73,11 +75,16 @@ export class AuthController {
   @Post('2fa/verify')
   @HttpCode(200)
   async verifyTwoFactor(
+    @Req() request: Request,
     @Body({ schema: verifyTwoFactorSchema }) body: VerifyTwoFactorBody,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthenticatedSession> {
-    const result = await this.auth.verifyTwoFactor(body.challengeToken, body.code);
-    setRefreshCookie(response, result.refreshToken, this.config);
+    const result = await this.auth.verifyTwoFactor(
+      body.challengeToken,
+      body.code,
+      this.placeOf(request),
+    );
+    this.rememberSession(response, result.refreshToken);
     return result.session;
   }
 
@@ -85,20 +92,26 @@ export class AuthController {
   @Post('2fa/setup')
   @HttpCode(200)
   startTwoFactorSetup(
+    @Req() request: Request,
     @Body({ schema: twoFactorSetupSchema }) body: TwoFactorSetupBody,
   ): Promise<TwoFactorSetup> {
-    return this.auth.startTwoFactorSetup(body.setupToken);
+    return this.auth.startTwoFactorSetup(body.setupToken, this.placeOf(request));
   }
 
   @Public()
   @Post('2fa/enable')
   @HttpCode(200)
   async enableTwoFactor(
+    @Req() request: Request,
     @Body({ schema: enableTwoFactorSchema }) body: EnableTwoFactorBody,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthenticatedSession> {
-    const result = await this.auth.enableTwoFactor(body.setupToken, body.code);
-    setRefreshCookie(response, result.refreshToken, this.config);
+    const result = await this.auth.enableTwoFactor(
+      body.setupToken,
+      body.code,
+      this.placeOf(request),
+    );
+    this.rememberSession(response, result.refreshToken);
     return result.session;
   }
 
@@ -127,6 +140,8 @@ export class AuthController {
     clearRefreshCookie(response, this.config);
   }
 
+  // The kiosk shows which ADMIN is signed in on it.
+  @OnKiosk()
   @Get('me')
   me(@Caller() caller: SignedInUser): Promise<CurrentUser> {
     return this.auth.me(caller.userId);
@@ -158,6 +173,30 @@ export class AuthController {
    * `Origin` header must be one of the addresses in `CORS_ORIGINS`. Another
    * website cannot fake that header, and cannot read or change it.
    */
+  /**
+   * Which kind of sign-in this is, from the address the browser says the page
+   * came from (docs/plan/13 section 2). An address in neither list is refused:
+   * sign-in is never open to any website.
+   */
+  private placeOf(request: Request): SignInPlace {
+    const place = signInPlace(
+      request.headers.origin,
+      this.config.corsOrigins,
+      this.config.kioskOrigins,
+    );
+    if (!place) {
+      throw new ForbiddenException('This request must come from the SAMTEC dashboard or a kiosk.');
+    }
+    return place;
+  }
+
+  /** A dashboard sign-in is remembered in a cookie; a kiosk sign-in never is. */
+  private rememberSession(response: Response, refreshToken: string | null): void {
+    if (refreshToken) {
+      setRefreshCookie(response, refreshToken, this.config);
+    }
+  }
+
   private assertTrustedOrigin(request: Request): void {
     const origin = request.headers.origin;
     if (!origin || !this.config.corsOrigins.includes(origin)) {

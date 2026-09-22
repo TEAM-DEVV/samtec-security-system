@@ -21,6 +21,7 @@ const config = new AppConfig({
   PORT: 3000,
   DATABASE_URL: 'postgresql://unused@localhost:5432/unused',
   CORS_ORIGINS: ['http://localhost:5173'],
+  KIOSK_ORIGINS: ['http://localhost:5174'],
   AUTH_SECRET: 'test-only-auth-secret-at-least-32-chars!',
 });
 
@@ -46,10 +47,10 @@ describe('login', () => {
     db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
 
     const unknown = await auth
-      .login('nobody@samtec.example', 'demo-password')
+      .login('nobody@samtec.example', 'demo-password', 'DASHBOARD')
       .catch((e: unknown) => e);
     const wrong = await auth
-      .login('ama@samtec.example', 'not-the-password')
+      .login('ama@samtec.example', 'not-the-password', 'DASHBOARD')
       .catch((e: unknown) => e);
 
     expect(unknown).toBeInstanceOf(UnauthorizedException);
@@ -63,12 +64,12 @@ describe('login', () => {
     const { db, auth } = makeAuth();
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
 
-    const outcome = await auth.login('ama@samtec.example', 'demo-password');
+    const outcome = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
 
     expect(outcome.kind).toBe('session');
     if (outcome.kind !== 'session') throw new Error('unreachable');
     expect(outcome.session.user.email).toBe('ama@samtec.example');
-    expect(outcome.refreshToken.length).toBeGreaterThan(20);
+    expect(outcome.refreshToken?.length ?? 0).toBeGreaterThan(20);
     expect(db.sessions).toHaveLength(1);
     expect(db.auditEntries).toContainEqual({ action: 'auth.signed_in', entityId: user.id });
   });
@@ -77,7 +78,7 @@ describe('login', () => {
     const { db, auth } = makeAuth();
     db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
 
-    const outcome = await auth.login('  Ama@SAMTEC.example ', 'demo-password');
+    const outcome = await auth.login('  Ama@SAMTEC.example ', 'demo-password', 'DASHBOARD');
 
     expect(outcome.kind).toBe('session');
   });
@@ -86,7 +87,9 @@ describe('login', () => {
     const { db, auth } = makeAuth();
     db.addUser({ email: 'gone@samtec.example', passwordHash, role: 'SUPERVISOR', isActive: false });
 
-    const error = await auth.login('gone@samtec.example', 'demo-password').catch((e: unknown) => e);
+    const error = await auth
+      .login('gone@samtec.example', 'demo-password', 'DASHBOARD')
+      .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UnauthorizedException);
     expect((error as UnauthorizedException).message).toBe('Email or password is incorrect.');
@@ -97,9 +100,11 @@ describe('login', () => {
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await auth.login('ama@samtec.example', 'guess').catch(() => undefined);
+      await auth.login('ama@samtec.example', 'guess', 'DASHBOARD').catch(() => undefined);
     }
-    const locked = await auth.login('ama@samtec.example', 'guess').catch((e: unknown) => e);
+    const locked = await auth
+      .login('ama@samtec.example', 'guess', 'DASHBOARD')
+      .catch((e: unknown) => e);
 
     expect(locked).toBeInstanceOf(RateLimitException);
     expect(db.auditEntries).toContainEqual({
@@ -112,9 +117,11 @@ describe('login', () => {
     const { auth } = makeAuth();
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await auth.login('nobody@samtec.example', 'guess').catch(() => undefined);
+      await auth.login('nobody@samtec.example', 'guess', 'DASHBOARD').catch(() => undefined);
     }
-    const locked = await auth.login('nobody@samtec.example', 'guess').catch((e: unknown) => e);
+    const locked = await auth
+      .login('nobody@samtec.example', 'guess', 'DASHBOARD')
+      .catch((e: unknown) => e);
 
     expect(locked).toBeInstanceOf(RateLimitException);
   });
@@ -123,7 +130,7 @@ describe('login', () => {
     const { db, auth } = makeAuth();
     db.addUser({ email: 'admin@samtec.example', passwordHash, role: 'ADMIN' });
 
-    const outcome = await auth.login('admin@samtec.example', 'demo-password');
+    const outcome = await auth.login('admin@samtec.example', 'demo-password', 'DASHBOARD');
 
     expect(outcome.kind).toBe('setup');
     expect(db.sessions).toHaveLength(0); // Not signed in yet.
@@ -134,21 +141,27 @@ describe('two-factor setup and verification', () => {
   async function setUpTwoFactor(role: 'ADMIN' | 'HR_PAYROLL' = 'HR_PAYROLL') {
     const { db, auth, throttle } = makeAuth();
     const user = db.addUser({ email: 'hr@samtec.example', passwordHash, role });
-    const login = await auth.login('hr@samtec.example', 'demo-password');
+    const login = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     if (login.kind !== 'setup') throw new Error('Expected a setup outcome');
     const setupToken = login.response.setupToken;
-    const setup = await auth.startTwoFactorSetup(setupToken);
+    const setup = await auth.startTwoFactorSetup(setupToken, 'DASHBOARD');
     return { db, auth, throttle, user, setupToken, secret: setup.manualEntryKey };
   }
 
   it('turns two-factor on only after a correct code, then requires it at sign-in', async () => {
     const { db, auth, user, setupToken, secret } = await setUpTwoFactor();
 
-    const wrong = await auth.enableTwoFactor(setupToken, '000000').catch((e: unknown) => e);
+    const wrong = await auth
+      .enableTwoFactor(setupToken, '000000', 'DASHBOARD')
+      .catch((e: unknown) => e);
     expect(wrong).toBeInstanceOf(UnauthorizedException);
     expect(db.users[0]?.twoFactorEnabledAt).toBeNull();
 
-    const result = await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()));
+    const result = await auth.enableTwoFactor(
+      setupToken,
+      totpCode(secret, totpStep()),
+      'DASHBOARD',
+    );
     expect(result.session.user.twoFactorEnabled).toBe(true);
     expect(db.users[0]?.twoFactorEnabledAt).not.toBeNull();
     expect(db.auditEntries).toContainEqual({
@@ -156,24 +169,25 @@ describe('two-factor setup and verification', () => {
       entityId: user.id,
     });
 
-    const nextLogin = await auth.login('hr@samtec.example', 'demo-password');
+    const nextLogin = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     expect(nextLogin.kind).toBe('challenge');
   });
 
   it('running setup again replaces the secret: codes from the first QR stop working', async () => {
     const { auth, setupToken, secret: firstSecret } = await setUpTwoFactor();
 
-    const secondSetup = await auth.startTwoFactorSetup(setupToken);
+    const secondSetup = await auth.startTwoFactorSetup(setupToken, 'DASHBOARD');
     expect(secondSetup.manualEntryKey).not.toBe(firstSecret);
 
     const stale = await auth
-      .enableTwoFactor(setupToken, totpCode(firstSecret, totpStep()))
+      .enableTwoFactor(setupToken, totpCode(firstSecret, totpStep()), 'DASHBOARD')
       .catch((e: unknown) => e);
     expect(stale).toBeInstanceOf(UnauthorizedException);
 
     const fresh = await auth.enableTwoFactor(
       setupToken,
       totpCode(secondSetup.manualEntryKey, totpStep()),
+      'DASHBOARD',
     );
     expect(fresh.session.status).toBe('AUTHENTICATED');
   });
@@ -182,12 +196,12 @@ describe('two-factor setup and verification', () => {
     const { auth, setupToken, secret } = await setUpTwoFactor();
     const usedStep = totpStep();
     const usedCode = totpCode(secret, usedStep);
-    await auth.enableTwoFactor(setupToken, usedCode);
+    await auth.enableTwoFactor(setupToken, usedCode, 'DASHBOARD');
 
-    const login = await auth.login('hr@samtec.example', 'demo-password');
+    const login = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     if (login.kind !== 'challenge') throw new Error('Expected a challenge');
     const replay = await auth
-      .verifyTwoFactor(login.response.challengeToken, usedCode)
+      .verifyTwoFactor(login.response.challengeToken, usedCode, 'DASHBOARD')
       .catch((e: unknown) => e);
     expect(replay).toBeInstanceOf(UnauthorizedException);
     expect((replay as UnauthorizedException).message).toContain('already used');
@@ -196,22 +210,25 @@ describe('two-factor setup and verification', () => {
     const session = await auth.verifyTwoFactor(
       login.response.challengeToken,
       totpCode(secret, usedStep + 1),
+      'DASHBOARD',
     );
     expect(session.session.status).toBe('AUTHENTICATED');
   });
 
   it('cancels the challenge after five wrong codes', async () => {
     const { auth, setupToken, secret } = await setUpTwoFactor();
-    await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()));
-    const login = await auth.login('hr@samtec.example', 'demo-password');
+    await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()), 'DASHBOARD');
+    const login = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     if (login.kind !== 'challenge') throw new Error('Expected a challenge');
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await auth.verifyTwoFactor(login.response.challengeToken, '000000').catch(() => undefined);
+      await auth
+        .verifyTwoFactor(login.response.challengeToken, '000000', 'DASHBOARD')
+        .catch(() => undefined);
     }
     // Even the right code is now refused: sign in with the password again.
     const done = await auth
-      .verifyTwoFactor(login.response.challengeToken, totpCode(secret, totpStep() + 1))
+      .verifyTwoFactor(login.response.challengeToken, totpCode(secret, totpStep() + 1), 'DASHBOARD')
       .catch((e: unknown) => e);
 
     expect(done).toBeInstanceOf(UnauthorizedException);
@@ -223,30 +240,38 @@ describe('two-factor setup and verification', () => {
     // over, using each new challenge for 5 more code guesses. The per-account
     // totp throttle counts across challenges, so guessing still locks out.
     const { db, auth, user, setupToken, secret } = await setUpTwoFactor();
-    await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()));
+    await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()), 'DASHBOARD');
 
     // recordSuccess at enable reset the counter; now guess wrongly across
     // several fresh challenges: 3 on the first, 2 on the second.
-    const first = await auth.login('hr@samtec.example', 'demo-password');
+    const first = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     if (first.kind !== 'challenge') throw new Error('Expected a challenge');
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await auth.verifyTwoFactor(first.response.challengeToken, '000000').catch(() => undefined);
+      await auth
+        .verifyTwoFactor(first.response.challengeToken, '000000', 'DASHBOARD')
+        .catch(() => undefined);
     }
-    const second = await auth.login('hr@samtec.example', 'demo-password');
+    const second = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
     if (second.kind !== 'challenge') throw new Error('Expected a challenge');
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await auth.verifyTwoFactor(second.response.challengeToken, '000000').catch(() => undefined);
+      await auth
+        .verifyTwoFactor(second.response.challengeToken, '000000', 'DASHBOARD')
+        .catch(() => undefined);
     }
 
     // Five wrong codes in total: the account's totp throttle is now locked,
     // so even a correct password cannot start another guessing round…
     const blockedLogin = await auth
-      .login('hr@samtec.example', 'demo-password')
+      .login('hr@samtec.example', 'demo-password', 'DASHBOARD')
       .catch((e: unknown) => e);
     expect(blockedLogin).toBeInstanceOf(RateLimitException);
     // …and the still-open challenge is blocked too.
     const blockedVerify = await auth
-      .verifyTwoFactor(second.response.challengeToken, totpCode(secret, totpStep() + 1))
+      .verifyTwoFactor(
+        second.response.challengeToken,
+        totpCode(secret, totpStep() + 1),
+        'DASHBOARD',
+      )
       .catch((e: unknown) => e);
     expect(blockedVerify).toBeInstanceOf(RateLimitException);
     expect(db.auditEntries).toContainEqual({
@@ -260,8 +285,10 @@ describe('refresh token rotation', () => {
   async function signedInSupervisor() {
     const { db, auth } = makeAuth();
     db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
-    const outcome = await auth.login('ama@samtec.example', 'demo-password');
-    if (outcome.kind !== 'session') throw new Error('Expected a session');
+    const outcome = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (outcome.kind !== 'session' || !outcome.refreshToken) {
+      throw new Error('Expected a session with a refresh token');
+    }
     return { db, auth, refreshToken: outcome.refreshToken };
   }
 
@@ -329,12 +356,12 @@ describe('sessions an administrator ended', () => {
     // they create next, and must not record a false theft.
     const { db, auth, accounts } = makeAuth();
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
-    const first = await auth.login('ama@samtec.example', 'demo-password');
-    if (first.kind !== 'session') throw new Error('Expected a session');
+    const first = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (first.kind !== 'session' || !first.refreshToken) throw new Error('Expected a session');
 
     await accounts.endAllAccess(user.id);
-    const second = await auth.login('ama@samtec.example', 'demo-password');
-    if (second.kind !== 'session') throw new Error('Expected a session');
+    const second = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (second.kind !== 'session' || !second.refreshToken) throw new Error('Expected a session');
 
     const stale = await auth.refresh(first.refreshToken).catch((e: unknown) => e);
     expect(stale).toBeInstanceOf(UnauthorizedException);
@@ -348,8 +375,8 @@ describe('sessions an administrator ended', () => {
   it('refuses a switched-off account at refresh, and ends that session too', async () => {
     const { db, auth } = makeAuth();
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
-    const outcome = await auth.login('ama@samtec.example', 'demo-password');
-    if (outcome.kind !== 'session') throw new Error('Expected a session');
+    const outcome = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (outcome.kind !== 'session' || !outcome.refreshToken) throw new Error('Expected a session');
 
     user.isActive = false;
     const refused = await auth.refresh(outcome.refreshToken).catch((e: unknown) => e);
@@ -360,8 +387,8 @@ describe('sessions an administrator ended', () => {
   it('refuses an ADMIN without two-factor at refresh (promotion backstop)', async () => {
     const { db, auth } = makeAuth();
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
-    const outcome = await auth.login('ama@samtec.example', 'demo-password');
-    if (outcome.kind !== 'session') throw new Error('Expected a session');
+    const outcome = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (outcome.kind !== 'session' || !outcome.refreshToken) throw new Error('Expected a session');
 
     // Promoted in the same instant as a refresh: no ADMIN token without a second factor.
     user.role = 'ADMIN';
@@ -377,11 +404,17 @@ describe('choosing a password with a one-time link', () => {
     const { token } = await accounts.issuePasswordSetup(user.id);
 
     // Before choosing a password the account cannot sign in at all.
-    const early = await auth.login('new@samtec.example', 'anything-at-all').catch((e) => e);
+    const early = await auth
+      .login('new@samtec.example', 'anything-at-all', 'DASHBOARD')
+      .catch((e) => e);
     expect(early).toBeInstanceOf(UnauthorizedException);
 
     await auth.setPassword(token, 'correct horse battery staple');
-    const outcome = await auth.login('new@samtec.example', 'correct horse battery staple');
+    const outcome = await auth.login(
+      'new@samtec.example',
+      'correct horse battery staple',
+      'DASHBOARD',
+    );
     expect(outcome.kind).toBe('session');
 
     // The link worked once and is gone.
@@ -431,15 +464,17 @@ describe('changing your own password', () => {
   it('saves the new password, ends every session, and audits no secrets', async () => {
     const { db, auth } = makeAuth();
     const user = db.addUser({ email: 'ama@samtec.example', passwordHash, role: 'SUPERVISOR' });
-    const outcome = await auth.login('ama@samtec.example', 'demo-password');
-    if (outcome.kind !== 'session') throw new Error('Expected a session');
+    const outcome = await auth.login('ama@samtec.example', 'demo-password', 'DASHBOARD');
+    if (outcome.kind !== 'session' || !outcome.refreshToken) throw new Error('Expected a session');
 
     await auth.changePassword(user.id, 'demo-password', 'a brand new long password');
 
     expect(db.sessions.every((session) => session.revokedAt !== null)).toBe(true);
-    const oldPassword = await auth.login('ama@samtec.example', 'demo-password').catch((e) => e);
+    const oldPassword = await auth
+      .login('ama@samtec.example', 'demo-password', 'DASHBOARD')
+      .catch((e) => e);
     expect(oldPassword).toBeInstanceOf(UnauthorizedException);
-    const fresh = await auth.login('ama@samtec.example', 'a brand new long password');
+    const fresh = await auth.login('ama@samtec.example', 'a brand new long password', 'DASHBOARD');
     expect(fresh.kind).toBe('session');
     expect(JSON.stringify(db.auditRows)).not.toContain('brand new');
   });

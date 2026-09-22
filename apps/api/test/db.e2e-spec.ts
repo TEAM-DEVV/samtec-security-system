@@ -29,6 +29,9 @@ import {
  * Without TEST_DATABASE_URL the file is skipped, so `pnpm test` works anywhere.
  */
 const databaseUrl = process.env.TEST_DATABASE_URL;
+
+/** Signing in always says which page it came from; the browser sets this itself. */
+const DASHBOARD_ORIGIN = 'http://localhost:5173';
 const ORIGIN = 'http://localhost:5173';
 
 describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
@@ -56,6 +59,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
   async function passwordSignIn(email: string): Promise<string> {
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
+      .set('Origin', DASHBOARD_ORIGIN)
       .send({ email, password: TEST_PASSWORD })
       .expect(200);
     expect(response.body.status).toBe('AUTHENTICATED');
@@ -66,12 +70,14 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
   async function twoFactorSignIn(): Promise<string> {
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
+      .set('Origin', DASHBOARD_ORIGIN)
       .send({ email: EMAILS.admin, password: TEST_PASSWORD })
       .expect(200);
     expect(login.body.status).toBe('TWO_FACTOR_REQUIRED');
 
     const verified = await request(app.getHttpServer())
       .post('/api/v1/auth/2fa/verify')
+      .set('Origin', DASHBOARD_ORIGIN)
       .send({
         challengeToken: login.body.challengeToken,
         code: totpCode(ADMIN_TOTP_SECRET, totpStep()),
@@ -88,10 +94,12 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
     it('refuses an unknown email with the same message as a wrong password', async () => {
       const unknown = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'nobody@dbtest.example', password: TEST_PASSWORD })
         .expect(401);
       const wrong = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.hr, password: 'wrong-password' })
         .expect(401);
 
@@ -101,6 +109,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
     it('sets the refresh cookie with the attributes the contract promises', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.guard, password: TEST_PASSWORD })
         .expect(200);
 
@@ -114,12 +123,14 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       for (let attempt = 0; attempt < 5; attempt += 1) {
         await request(app.getHttpServer())
           .post('/api/v1/auth/login')
+          .set('Origin', DASHBOARD_ORIGIN)
           .send({ email: 'lock-me@dbtest.example', password: 'guess' })
           .expect(401);
       }
 
       const locked = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'lock-me@dbtest.example', password: 'guess' })
         .expect(429);
 
@@ -131,6 +142,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // 1. Password is right, but this role must set up two-factor first.
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.hr, password: TEST_PASSWORD })
         .expect(200);
       expect(login.body.status).toBe('TWO_FACTOR_SETUP_REQUIRED');
@@ -138,6 +150,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // 2. Get the QR code (as its otpauth link and manual key).
       const setup = await request(app.getHttpServer())
         .post('/api/v1/auth/2fa/setup')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ setupToken: login.body.setupToken })
         .expect(200);
       expect(setup.body.otpauthUri).toMatch(/^otpauth:\/\/totp\/SAMTEC:/);
@@ -146,6 +159,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // 3. A wrong first code does not enable anything.
       await request(app.getHttpServer())
         .post('/api/v1/auth/2fa/enable')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ setupToken: login.body.setupToken, code: '000000' })
         .expect(401);
 
@@ -153,6 +167,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       const usedStep = totpStep();
       const enabled = await request(app.getHttpServer())
         .post('/api/v1/auth/2fa/enable')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ setupToken: login.body.setupToken, code: totpCode(secret, usedStep) })
         .expect(200);
       expect(enabled.body.user.twoFactorEnabled).toBe(true);
@@ -160,6 +175,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // 5. Signing in again now asks for a code…
       const nextLogin = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.hr, password: TEST_PASSWORD })
         .expect(200);
       expect(nextLogin.body.status).toBe('TWO_FACTOR_REQUIRED');
@@ -167,12 +183,14 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // 6. …and the code that was already used is refused (replay protection)…
       await request(app.getHttpServer())
         .post('/api/v1/auth/2fa/verify')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ challengeToken: nextLogin.body.challengeToken, code: totpCode(secret, usedStep) })
         .expect(401);
 
       // 7. …while the next step's code signs them in.
       await request(app.getHttpServer())
         .post('/api/v1/auth/2fa/verify')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({
           challengeToken: nextLogin.body.challengeToken,
           code: totpCode(secret, usedStep + 1),
@@ -200,6 +218,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
     async function signInAndGetCookie(): Promise<string> {
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.supervisor, password: TEST_PASSWORD })
         .expect(200);
       return readSetCookie(response.headers['set-cookie']).split(';')[0] ?? '';
@@ -752,6 +771,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(204);
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email, password: NEW_PASSWORD })
         .expect(200);
       return {
@@ -788,6 +808,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // No password yet, so nothing can sign in to it — not even a guess.
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'kweku.guard@dbtest.example', password: NEW_PASSWORD })
         .expect(401);
 
@@ -804,6 +825,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
 
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'kweku.guard@dbtest.example', password: NEW_PASSWORD })
         .expect(200);
       expect(login.body.status).toBe('AUTHENTICATED');
@@ -958,6 +980,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(401);
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'switch.off@dbtest.example', password: NEW_PASSWORD })
         .expect(401);
 
@@ -973,6 +996,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(401);
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'switch.off@dbtest.example', password: NEW_PASSWORD })
         .expect(200);
     });
@@ -993,6 +1017,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(401);
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'promoted@dbtest.example', password: NEW_PASSWORD })
         .expect(200);
       expect(login.body.status).toBe('TWO_FACTOR_SETUP_REQUIRED');
@@ -1019,6 +1044,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // The old password is dead at once.
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.hr, password: TEST_PASSWORD })
         .expect(401);
 
@@ -1028,6 +1054,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(204);
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: EMAILS.hr, password: 'the new hr password' })
         .expect(200);
       // A new authenticator must be set up: a stolen password is not enough.
@@ -1083,6 +1110,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(401);
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'changer@dbtest.example', password: 'a brand new password' })
         .expect(200);
     });
@@ -1097,6 +1125,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         userId: admin2.id,
         companyId: admin2.companyId,
         role: 'ADMIN',
+        onKiosk: false,
         employeeId: null,
       });
 
@@ -1130,6 +1159,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
     function wrongLogin(email: string) {
       return request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
         .send({ email, password: 'wrong-guess' });
     }
 
