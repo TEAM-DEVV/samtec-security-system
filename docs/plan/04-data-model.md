@@ -86,8 +86,11 @@ The API connects as the owner of the tables, and row-level security does not res
 | A wiped face never comes back; a block is final; a collision decision and an exemption decision are final; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
 | The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
 | A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
-| A face that collided is never matched at clock-in until a second ADMIN clears it; the record that loses a SAME_PERSON decision keeps a blocked face and no face or fingerprint key in use | Database CHECKs, and a trigger that checks both records when the change is saved (Phase 3, built) |
-| A new face, consent, exemption or fingerprint key starts undecided, on the right kind of device; a face needs the worker's own consent, still given; a blocked record gets nothing new except a withdrawal | Database triggers (Phase 3, built) |
+| A face that collided is never matched at clock-in until a second ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afterwards | Database CHECKs and triggers (Phase 3, built) |
+| The record that loses a SAME_PERSON decision keeps a blocked face, and no face, fingerprint key or exemption in use; the record kept is never one already blocked | A trigger that checks both records when the change is saved (Phase 3, built) |
+| A new face, consent, exemption or fingerprint key starts undecided, on the right kind of device, inside the worker's company; a face needs the worker's own consent, still given (the database sets each consent's time); a blocked record gets nothing live, only a withdrawal of consent or a finger kept BLOCKED as evidence | Database triggers (Phase 3, built) |
+| A block, and anything new for the same worker, happen one at a time, so two ADMINs working at the same moment cannot slip past each other | A lock on the worker's employee row, taken by the triggers (Phase 3, built) |
+| Switching a kiosk's fingerprints off revokes every key on it | A trigger checked when the change is saved (Phase 3, built) |
 | A device keeps its company, site and kind for life | Database trigger (Phase 3, built) |
 | An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |

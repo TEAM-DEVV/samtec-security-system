@@ -520,7 +520,8 @@ model Device {
   rateWindowCount       Int          @default(0) @map("rate_window_count")
   /// A ZKTeco terminal's serial, typed from its label; its gateway accepts only listed serials.
   serialNumber          String?      @map("serial_number")
-  /// Workers may save a finger on this device's own sensor. Kiosks only (a database CHECK).
+  /// Workers may save a finger on this device's own sensor. Kiosks only (a database CHECK);
+  /// switching it off revokes every key on the device in the same transaction (a trigger).
   passkeysEnabled       Boolean      @default(false) @map("passkeys_enabled")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -763,6 +764,7 @@ model BiometricConsent {
   recordedByUserId String                 @map("recorded_by_user_id") @db.Uuid
   /// The kiosk it was given on; empty for a withdrawal recorded on the dashboard.
   deviceId         String?                @map("device_id") @db.Uuid
+  /// Set by the database's own clock on insert, whatever the caller sends.
   recordedAt       DateTime               @default(now()) @map("recorded_at") @db.Timestamptz(3)
 
   company     Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
