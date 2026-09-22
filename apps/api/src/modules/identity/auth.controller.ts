@@ -168,12 +168,6 @@ export class AuthController {
   }
 
   /**
-   * Refresh and logout act on a cookie the browser sends automatically, so
-   * they only accept requests that really come from the dashboard: the
-   * `Origin` header must be one of the addresses in `CORS_ORIGINS`. Another
-   * website cannot fake that header, and cannot read or change it.
-   */
-  /**
    * Which kind of sign-in this is, from the address the browser says the page
    * came from (docs/plan/13 section 2). An address in neither list is refused:
    * sign-in is never open to any website.
@@ -197,6 +191,12 @@ export class AuthController {
     }
   }
 
+  /**
+   * Refresh and logout act on a cookie the browser sends automatically, so
+   * they only accept requests that really come from the dashboard: the
+   * `Origin` header must be one of the addresses in `CORS_ORIGINS`. A kiosk
+   * has no cookie to refresh. Another website cannot fake that header.
+   */
   private assertTrustedOrigin(request: Request): void {
     const origin = request.headers.origin;
     if (!origin || !this.config.corsOrigins.includes(origin)) {

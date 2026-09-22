@@ -92,6 +92,12 @@ export class AuthService {
     }
     await this.throttle.recordSuccess('password', email);
 
+    // A kiosk stands at a guard post: only an ADMIN has anything to do on it
+    // (docs/plan/13 section 2), so nobody else may start a session there.
+    if (place === 'KIOSK' && user.role !== 'ADMIN') {
+      throw new ForbiddenException('Only an administrator signs in on a kiosk.');
+    }
+
     if (user.twoFactorEnabledAt) {
       // A locked-out authenticator answers 429 here already, instead of
       // issuing a challenge that could only fail.

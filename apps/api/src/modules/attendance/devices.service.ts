@@ -83,6 +83,10 @@ export class DevicesService {
             name: body.name,
             kind: body.kind,
             secretEncrypted: sealSecret(secret, this.secretKey),
+            // A kiosk sets itself up, but its key does nothing until an ADMIN
+            // switches it on from the dashboard, so a kiosk session alone can
+            // never make a working key (docs/plan/13 section 3).
+            ...(viewer.onKiosk ? { status: 'INACTIVE' as const } : {}),
           },
         });
         await this.audit.record(

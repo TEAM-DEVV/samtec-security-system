@@ -24,10 +24,10 @@ export function configureApp(app: NestExpressApplication, config: AppConfig): vo
   // Secure HTTP headers, e.g. stops browsers from guessing content types and
   // hides which framework the API runs on.
   app.use(helmet());
-  // Only the dashboard's own address may call the API from a browser.
-  // `exposedHeaders` lists the response headers the dashboard may read.
+  // Only the dashboard and the kiosk app may call the API from a browser.
+  // `exposedHeaders` lists the response headers they may read.
   app.enableCors({
-    origin: [...config.corsOrigins],
+    origin: [...config.corsOrigins, ...config.kioskOrigins],
     credentials: true,
     exposedHeaders: ['Location', 'Retry-After', 'X-Request-ID'],
   });

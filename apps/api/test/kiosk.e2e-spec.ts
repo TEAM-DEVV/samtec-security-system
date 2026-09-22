@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { signRequest } from '../src/modules/attendance/device-signature.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
+import { totpCode, totpStep } from '../src/modules/identity/totp.js';
 import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
@@ -30,6 +31,9 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
   let dashboardAdmin = '';
   let supervisorEmail = '';
   let plainAdminEmail = '';
+  /** An ADMIN whose authenticator secret the test knows, so it can sign in for real. */
+  let realAdminEmail = '';
+  const REAL_ADMIN_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
 
@@ -124,6 +128,20 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         role: 'ADMIN',
       },
     });
+    // An ADMIN with two-factor already set up, so a whole kiosk sign-in can be
+    // done the way a real one is: password, then a code from the app.
+    realAdminEmail = `real-${admin.email}`;
+    await prisma.user.create({
+      data: {
+        companyId: company.companyId,
+        email: realAdminEmail,
+        passwordHash: admin.passwordHash,
+        fullName: 'Real Admin',
+        role: 'ADMIN',
+        twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+        twoFactorSecretEncrypted: tokens.encryptSecret(REAL_ADMIN_SECRET),
+      },
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -151,9 +169,60 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       const dashboard = await login(DASHBOARD, supervisorEmail).expect(200);
       expect(String(dashboard.headers['set-cookie'])).toContain('samtec_refresh=');
 
-      const onKiosk = await login(KIOSK, supervisorEmail).expect(200);
-      expect(onKiosk.headers['set-cookie']).toBeUndefined();
-      expect(onKiosk.body.status).toBe('AUTHENTICATED');
+      // The whole kiosk sign-in, the way a real one goes: password, then a
+      // code from the ADMIN's authenticator app.
+      const started = await login(KIOSK, realAdminEmail).expect(200);
+      expect(started.body.status).toBe('TWO_FACTOR_REQUIRED');
+      const finished = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .set('Origin', KIOSK)
+        .send({
+          challengeToken: started.body.challengeToken,
+          code: totpCode(REAL_ADMIN_SECRET, totpStep()),
+        })
+        .expect(200);
+
+      // Nothing is remembered on a shared device...
+      expect(finished.headers['set-cookie']).toBeUndefined();
+      // ...and the token it hands out only opens the kiosk screens.
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(...bearer(finished.body.accessToken))
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/v1/attendance/exceptions')
+        .set(...bearer(finished.body.accessToken))
+        .expect(403);
+    });
+
+    it('lets only an administrator sign in at a kiosk', async () => {
+      const response = await login(KIOSK, supervisorEmail).expect(403);
+      expect(response.body.detail).toMatch(/Only an administrator/);
+
+      // The same supervisor signs in on the dashboard as always.
+      await login(DASHBOARD, supervisorEmail).expect(200);
+    });
+
+    it('lets the kiosk app call the API from its own address', async () => {
+      // Without this, a real browser would refuse before any of the rules
+      // above ever ran.
+      const allowed = await request(app.getHttpServer())
+        .options('/api/v1/auth/login')
+        .set('Origin', KIOSK)
+        .set('Access-Control-Request-Method', 'POST');
+      expect(allowed.headers['access-control-allow-origin']).toBe(KIOSK);
+
+      const dashboard = await request(app.getHttpServer())
+        .options('/api/v1/auth/login')
+        .set('Origin', DASHBOARD)
+        .set('Access-Control-Request-Method', 'POST');
+      expect(dashboard.headers['access-control-allow-origin']).toBe(DASHBOARD);
+
+      const stranger = await request(app.getHttpServer())
+        .options('/api/v1/auth/login')
+        .set('Origin', 'https://not-ours.example')
+        .set('Access-Control-Request-Method', 'POST');
+      expect(stranger.headers['access-control-allow-origin']).toBeUndefined();
     });
 
     it('never sets up two-factor on a shared kiosk screen', async () => {
@@ -237,6 +306,24 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         .set(...bearer(kioskAdmin))
         .send({ name: 'Kiosk set itself up', siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      // It waits, switched off, until an ADMIN switches it on from the
+      // dashboard: a kiosk session alone can never make a working key.
+      expect(made.body.device.status).toBe('INACTIVE');
+      const waiting = { id: made.body.device.id, secret: made.body.secret };
+      const worker = await newStarter();
+      const consent = {
+        employeeId: worker.id,
+        ghanaCardLast4: await cardLast4(worker.id),
+        textVersion: 'bio-v1',
+      };
+      await kioskPost('kiosk/consents', consent, { device: waiting }).expect(401);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${waiting.id}`)
+        .set(...bearer(dashboardAdmin))
+        .send({ status: 'ACTIVE' })
+        .expect(200);
+      await kioskPost('kiosk/consents', consent, { device: waiting }).expect(201);
 
       // It may rotate its own secret, never a terminal's.
       await request(app.getHttpServer())
@@ -271,6 +358,29 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         .expect(401);
 
       await kioskPost('kiosk/consents', body).expect(201);
+    });
+
+    it('refuses a kiosk that belongs to another company', async () => {
+      const elsewhere = await createAttendanceCompany(prisma);
+      const theirAdmin = await app.get(TokensService).signAccessToken({
+        userId: elsewhere.adminUserId,
+        companyId: elsewhere.companyId,
+        role: 'ADMIN',
+        employeeId: null,
+        onKiosk: true,
+      });
+      const worker = await newStarter();
+
+      // Their ADMIN, correctly signed in on a kiosk, but our kiosk.
+      await kioskPost(
+        'kiosk/consents',
+        {
+          employeeId: worker.id,
+          ghanaCardLast4: await cardLast4(worker.id),
+          textVersion: 'bio-v1',
+        },
+        { token: theirAdmin },
+      ).expect(401);
     });
 
     it('records the exact words the worker agreed to, once', async () => {
