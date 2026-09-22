@@ -39,14 +39,21 @@ describe('sealTemplate and openTemplate', () => {
     expect(openTemplate(second, row, key)).toEqual(face);
   });
 
-  it('keeps the numbers out of the stored bytes', () => {
+  it('keeps the numbers out of the stored bytes, and keeps to its layout', () => {
     const sealed = sealTemplate(face, row, key);
     const plain = Buffer.alloc(face.length * 8);
     face.forEach((value, index) => {
       plain.writeDoubleLE(value, index * 8);
     });
 
+    // Not the whole list, and not any stretch of it: beginning, middle or end.
+    expect(sealed.includes(plain)).toBe(false);
     expect(sealed.includes(plain.subarray(0, 64))).toBe(false);
+    expect(sealed.includes(plain.subarray(4000, 4064))).toBe(false);
+    expect(sealed.includes(plain.subarray(plain.length - 64))).toBe(false);
+    // 1 byte to say which format, 12 for the IV, 16 for the tag, then the
+    // numbers at 8 bytes each (docs/plan/13 section 1).
+    expect(sealed).toHaveLength(1 + 12 + 16 + FACE_THRESHOLDS.embeddingLength * 8);
   });
 
   it('refuses to open a template that was moved to another row', () => {
@@ -90,6 +97,10 @@ describe('sealTemplate and openTemplate', () => {
     const broken = [...face];
     broken[7] = Number.POSITIVE_INFINITY;
     expect(() => sealTemplate(broken, row, key)).toThrow(/1,024 real numbers/);
+    // A list of the right length with holes in it is not a face either.
+    expect(() => sealTemplate(new Array(FACE_THRESHOLDS.embeddingLength), row, key)).toThrow(
+      /1,024 real numbers/,
+    );
   });
 
   it('uses a key of its own, from the one master secret', () => {

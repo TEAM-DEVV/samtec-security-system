@@ -90,6 +90,21 @@ describe('FaceProvider', () => {
     expect(decision.result.outcome).toBe('NOT_RECOGNISED');
   });
 
+  it('opens no stored face at all for a sample it was always going to refuse', () => {
+    // A row whose template cannot be opened would show up in `unreadable` the
+    // moment anything tried to open it. Nothing does.
+    const moved: SealedFace = { ...kwame, employeeId: 'ghost', credentialId: 'face-ghost' };
+
+    const clockIn = provider.identify(sample(0, { live: 0.1 }), [moved, ama]);
+    const enrollment = provider.findDuplicate(sample(0, { model: 'another' }), [moved, ama], 'x');
+
+    expect(clockIn.result.outcome).toBe('REFUSED');
+    expect(clockIn.result.outcome === 'REFUSED' && clockIn.result.problem).toBe('LOW_LIVENESS');
+    expect(clockIn.unreadable).toEqual([]);
+    expect(enrollment.result).toBeNull();
+    expect(enrollment.unreadable).toEqual([]);
+  });
+
   it('checks a sample and the frames of a capture before anything is stored', () => {
     expect(provider.check(sample(0))).toBeNull();
     expect(provider.check(sample(0, { live: 0.2 }))).toBe('LOW_LIVENESS');
@@ -125,17 +140,17 @@ describe('FaceProvider', () => {
     });
 
     it('writes nothing at all, on the good paths and the bad ones', () => {
-      // Everything a log could go through, watched at once.
+      // Every way a log could be written, watched at once: the console, Nest's
+      // logger called directly, and Nest's logger created with `new Logger()`.
+      const levels = ['log', 'debug', 'verbose', 'warn', 'error', 'fatal'] as const;
       const watched = [
-        vi.spyOn(console, 'log').mockImplementation(() => undefined),
-        vi.spyOn(console, 'debug').mockImplementation(() => undefined),
-        vi.spyOn(console, 'info').mockImplementation(() => undefined),
-        vi.spyOn(console, 'warn').mockImplementation(() => undefined),
-        vi.spyOn(console, 'error').mockImplementation(() => undefined),
-        vi.spyOn(Logger, 'log').mockImplementation(() => undefined),
-        vi.spyOn(Logger, 'debug').mockImplementation(() => undefined),
-        vi.spyOn(Logger, 'warn').mockImplementation(() => undefined),
-        vi.spyOn(Logger, 'error').mockImplementation(() => undefined),
+        ...(['log', 'debug', 'info', 'warn', 'error', 'trace'] as const).map((level) =>
+          vi.spyOn(console, level).mockImplementation(() => undefined),
+        ),
+        ...levels.map((level) => vi.spyOn(Logger, level).mockImplementation(() => undefined)),
+        ...levels.map((level) =>
+          vi.spyOn(Logger.prototype, level).mockImplementation(() => undefined),
+        ),
       ];
       const moved: SealedFace = { ...kwame, employeeId: 'ghost', credentialId: 'face-ghost' };
 
