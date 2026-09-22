@@ -3,7 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { App } from './app/app';
 import { MockApiStartError } from './app/mock-api-start-error';
 import { env } from './lib/env';
+import { applyTheme, getTheme } from './lib/theme';
 import './index.css';
+
+// index.html already did this before the first paint; doing it again here
+// keeps the page right if that inline script was ever removed.
+applyTheme(getTheme());
 
 /** In mock mode, start the pretend API before the app sends its first request. */
 async function startMockApi(): Promise<void> {

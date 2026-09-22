@@ -1,6 +1,6 @@
 import type { EmployeeList, EmployeeStatus } from '@samtec/contracts';
 import { cn } from 'cn';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Search, Users } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router';
 import { routes } from '@/app/routes';
@@ -10,12 +10,15 @@ import {
   employeeStatusLabels,
   isEmployeeStatus,
 } from '@/components/employee-status-badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { LoadErrorAlert } from '@/components/load-error-alert';
+import { PageHeader } from '@/components/page-header';
+import { PaginationNav } from '@/components/pagination-nav';
+import { SelectField } from '@/components/select-field';
+import { TableEmptyRow, TableLoadingRows } from '@/components/table-states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -25,41 +28,43 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { $api } from '@/lib/api';
+import { useCursorPages } from '@/lib/cursor-pages';
 import { formatDate } from '@/lib/format';
-import { describeApiError } from '@/lib/problem';
+import { usePageTitle } from '@/lib/page-title';
 
 const PAGE_SIZE = 10;
 const COLUMN_COUNT = 7;
 // The contract's limits for the `search` parameter.
 const SEARCH_MIN_LENGTH = 2;
 const SEARCH_MAX_LENGTH = 100;
-const LOADING_ROW_KEYS = ['loading-1', 'loading-2', 'loading-3', 'loading-4', 'loading-5'];
 
 /**
  * Lists employees with a search box, a status filter and cursor pagination.
  *
- * This is the reference page for Phase 1. New list pages should follow the same
- * structure: one query hook, then the loading, error, empty and data states.
+ * This is the reference page for every list: one query hook, the shared
+ * toolkit for pagination, loading, empty and error states, and the page
+ * itself only decides its columns and filters.
  */
 export function EmployeesPage() {
+  usePageTitle('Employees');
   const [searchInput, setSearchInput] = useState('');
   const [searchTooShort, setSearchTooShort] = useState(false);
   const [search, setSearch] = useState<string>();
   const [status, setStatus] = useState<EmployeeStatus>();
-  // The cursor of every page visited so far. The last one is the current page.
-  const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
+  const pages = useCursorPages();
 
   const employees = $api.useQuery(
     'get',
     '/employees',
-    { params: { query: { limit: PAGE_SIZE, cursor: cursors.at(-1), status, search } } },
+    { params: { query: { limit: PAGE_SIZE, cursor: pages.cursor, status, search } } },
     // Keep showing the current page while the next one loads.
     { placeholderData: (previous) => previous },
   );
 
   // True while the table still shows the previous page and the new one is loading.
   const showingOldPage = employees.isPlaceholderData;
-  const nextCursor = employees.data?.nextCursor ?? null;
+  // No Next under an error alert: the kept placeholder data may still hold a bookmark.
+  const nextCursor = employees.error ? null : (employees.data?.nextCursor ?? null);
 
   function applySearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,32 +76,17 @@ export function EmployeesPage() {
     }
     setSearchTooShort(false);
     setSearch(text.length > 0 ? text : undefined);
-    setCursors([undefined]);
+    pages.reset();
   }
 
   function applyStatus(value: string) {
     setStatus(isEmployeeStatus(value) ? value : undefined);
-    setCursors([undefined]);
-  }
-
-  function goToPreviousPage() {
-    setCursors((current) => (current.length > 1 ? current.slice(0, -1) : current));
-  }
-
-  function goToNextPage() {
-    // Ignore clicks while a page is loading, so one click never skips a page.
-    // The button stays enabled, so keyboard users never lose their place.
-    if (nextCursor !== null && !showingOldPage) {
-      setCursors((current) => [...current, nextCursor]);
-    }
+    pages.reset();
   }
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <header className="space-y-1">
-        <h1 className="font-semibold text-2xl tracking-tight">Employees</h1>
-        <p className="text-muted-foreground text-sm">Guards and staff on the company payroll.</p>
-      </header>
+      <PageHeader title="Employees" description="Guards and staff on the company payroll." />
 
       <div className="flex flex-wrap items-start gap-4">
         <form onSubmit={applySearch} className="grid gap-1.5">
@@ -125,26 +115,28 @@ export function EmployeesPage() {
           </p>
         </form>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="employee-status">Status</Label>
-          <select
-            id="employee-status"
-            value={status ?? ''}
-            onChange={(event) => applyStatus(event.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs"
-          >
-            <option value="">All statuses</option>
-            {EMPLOYEE_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {employeeStatusLabels[value]}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectField
+          id="employee-status"
+          label="Status"
+          value={status ?? ''}
+          onChange={applyStatus}
+        >
+          <option value="">All statuses</option>
+          {EMPLOYEE_STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {employeeStatusLabels[value]}
+            </option>
+          ))}
+        </SelectField>
       </div>
 
       {employees.error ? (
-        <LoadError error={employees.error} onRetry={() => void employees.refetch()} />
+        <LoadErrorAlert
+          title="Employees could not be loaded"
+          error={employees.error}
+          retrying={employees.isFetching}
+          onRetry={() => void employees.refetch()}
+        />
       ) : (
         <Card
           aria-busy={showingOldPage}
@@ -152,7 +144,7 @@ export function EmployeesPage() {
         >
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead className="pl-4">Staff no.</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Position</TableHead>
@@ -163,50 +155,41 @@ export function EmployeesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <EmployeeRows loading={employees.isPending} page={employees.data} />
+              <EmployeeRows
+                loading={employees.isPending}
+                page={employees.data}
+                filtered={status !== undefined || search !== undefined}
+              />
             </TableBody>
           </Table>
         </Card>
       )}
 
-      <nav aria-label="Pagination" className="flex items-center justify-end gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={cursors.length === 1}
-          onClick={goToPreviousPage}
-        >
-          <ChevronLeft aria-hidden="true" />
-          Previous
-        </Button>
-        <Button variant="outline" size="sm" disabled={nextCursor === null} onClick={goToNextPage}>
-          Next
-          <ChevronRight aria-hidden="true" />
-        </Button>
-      </nav>
+      <PaginationNav pages={pages} nextCursor={nextCursor} busy={showingOldPage} />
     </div>
   );
 }
 
-function EmployeeRows({ loading, page }: { loading: boolean; page: EmployeeList | undefined }) {
+interface EmployeeRowsProps {
+  loading: boolean;
+  page: EmployeeList | undefined;
+  /** True when a search or filter is set, so the empty message can say so. */
+  filtered: boolean;
+}
+
+function EmployeeRows({ loading, page, filtered }: EmployeeRowsProps) {
   if (loading) {
-    return LOADING_ROW_KEYS.map((key, index) => (
-      <TableRow key={key}>
-        <TableCell colSpan={COLUMN_COUNT} className="px-4">
-          {index === 0 && <span className="sr-only">Loading employees…</span>}
-          <Skeleton aria-hidden="true" className="h-5 w-full" />
-        </TableCell>
-      </TableRow>
-    ));
+    return <TableLoadingRows colSpan={COLUMN_COUNT} label="Loading employees…" />;
   }
 
   if (!page || page.items.length === 0) {
     return (
-      <TableRow>
-        <TableCell colSpan={COLUMN_COUNT} className="py-10 text-center text-muted-foreground">
-          No employees match these filters.
-        </TableCell>
-      </TableRow>
+      <TableEmptyRow
+        colSpan={COLUMN_COUNT}
+        icon={Users}
+        title={filtered ? 'No employees match these filters.' : 'No employees to show yet.'}
+        hint={filtered ? 'Clear the search or the filter to see more.' : undefined}
+      />
     );
   }
 
@@ -242,20 +225,4 @@ function EmployeeRows({ loading, page }: { loading: boolean; page: EmployeeList 
       <TableCell className="pr-4 tabular-nums">{formatDate(employee.hireDate)}</TableCell>
     </TableRow>
   ));
-}
-
-function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const { message, traceId } = describeApiError(error);
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>Employees could not be loaded</AlertTitle>
-      <AlertDescription className="space-y-2">
-        <p>{message}</p>
-        {traceId && <p className="font-mono text-xs">Trace ID: {traceId}</p>}
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
-      </AlertDescription>
-    </Alert>
-  );
 }

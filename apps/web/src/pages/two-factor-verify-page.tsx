@@ -4,6 +4,7 @@ import { routes } from '@/app/routes';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { TwoFactorCodeForm } from '@/components/two-factor-code-form';
 import { $api } from '@/lib/api';
+import { usePageTitle } from '@/lib/page-title';
 import { getPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
 /**
@@ -12,6 +13,7 @@ import { getPendingTwoFactor, startSession, useSession } from '@/lib/session';
  * together with the challenge token from the password step.
  */
 export function TwoFactorVerifyPage() {
+  usePageTitle('Two-factor code');
   const navigate = useNavigate();
   // Read once, when the page opens. Finishing the sign-in clears the pending
   // token, and reading it again on that re-render would wrongly send the

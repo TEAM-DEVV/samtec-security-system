@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
@@ -56,6 +56,21 @@ describe('AppShell', () => {
     expect(screen.queryByRole('link', { name: 'Employees' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sites' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'System status' })).toBeInTheDocument();
+  });
+
+  it('opens the phone menu, and closes it again when a page is chosen', async () => {
+    await signInForTests('supervisor@samtec.example');
+    renderShell();
+    await screen.findByText('Home page');
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    const menu = await screen.findByRole('dialog', { name: 'Menu' });
+    expect(menu).toBeInTheDocument();
+
+    await user.click(within(menu).getByRole('link', { name: 'Overview' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
   });
 
   it('signs out on the API and in the dashboard, then opens the sign-in page', async () => {

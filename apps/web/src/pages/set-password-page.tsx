@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchClient } from '@/lib/api';
 import { restoreSession, signOut } from '@/lib/auth';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
 import { getSession, mayHaveSession, useSession } from '@/lib/session';
 
@@ -46,6 +47,7 @@ function needsSignInCheck(): boolean {
  *   no data cache ever holds the password.
  */
 export function SetPasswordPage() {
+  usePageTitle('Choose your password');
   const location = useLocation();
   const navigate = useNavigate();
   const session = useSession();

@@ -2,6 +2,7 @@ import type { HealthResponse } from '@samtec/contracts';
 import { cn } from 'cn';
 import { CircleCheck, CircleX, RefreshCw } from 'lucide-react';
 import { DetailRow } from '@/components/detail-row';
+import { PageHeader } from '@/components/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
 import { env } from '@/lib/env';
 import { formatDateTime } from '@/lib/format';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError, isProblemDetails } from '@/lib/problem';
 
 /** A 503 answer still carries a health report, so a report can arrive as data or as the error. */
@@ -22,6 +24,7 @@ function isHealthReport(value: unknown): value is HealthResponse {
  * loading data from the API.
  */
 export function SystemStatusPage() {
+  usePageTitle('System status');
   // No automatic retry here: a failed check should show straight away.
   const health = $api.useQuery('get', '/health', {}, { retry: false });
 
@@ -42,19 +45,16 @@ export function SystemStatusPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="font-semibold text-2xl tracking-tight">System status</h1>
-          <p className="text-muted-foreground text-sm">
-            Checks that the dashboard can reach the SAMTEC API, and that the API can reach its
-            database.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={checkAgain}>
-          <RefreshCw aria-hidden="true" className={cn(health.isFetching && 'animate-spin')} />
-          Check again
-        </Button>
-      </header>
+      <PageHeader
+        title="System status"
+        description="Checks that the dashboard can reach the SAMTEC API, and that the API can reach its database."
+        actions={
+          <Button variant="outline" size="sm" onClick={checkAgain}>
+            <RefreshCw aria-hidden="true" className={cn(health.isFetching && 'animate-spin')} />
+            Check again
+          </Button>
+        }
+      />
 
       <p role="status" className="sr-only">
         {health.isFetching ? 'Checking the API…' : ''}

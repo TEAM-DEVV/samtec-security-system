@@ -50,4 +50,8 @@ describe('isWorthRetrying', () => {
   it('does not retry client errors, which would fail again', () => {
     expect(isWorthRetrying(notFound)).toBe(false);
   });
+
+  it('retries a rate limit, which passes once the wait is over', () => {
+    expect(isWorthRetrying({ ...notFound, status: 429, title: 'Too Many Requests' })).toBe(true);
+  });
 });

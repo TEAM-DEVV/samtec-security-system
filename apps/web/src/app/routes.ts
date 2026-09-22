@@ -4,6 +4,7 @@
  */
 export const routes = {
   home: '/',
+  status: '/status',
   login: '/login',
   employees: '/employees',
   sites: '/sites',
