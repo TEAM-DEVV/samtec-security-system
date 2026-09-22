@@ -237,6 +237,52 @@ describe('mock biometrics API', () => {
     expect((await ask()).response.status).toBe(409);
   });
 
+  it('keeps a duplicate blocked for good, whatever happens next', async () => {
+    await signInForTests('admin@samtec.example');
+    const employeeId = openCollision?.employee.id ?? '';
+    await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
+      params: { path: { credentialId: openCollision?.credentialId ?? '' } },
+      body: {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: openCollision?.lookedLike.id ?? '',
+        note: 'One person enrolled twice.',
+      },
+    });
+    const path = { params: { path: { employeeId } } };
+    const revoke = await fetchClient.POST('/employees/{employeeId}/biometrics/revoke', {
+      ...path,
+      body: { reason: 'Trying to clear the block.' },
+    });
+    expect(revoke.response.status).toBe(409);
+
+    await signInForTests('hr@samtec.example');
+    const withdrawn = await fetchClient.POST(
+      '/employees/{employeeId}/biometric-consents/withdraw',
+      {
+        ...path,
+        body: { reason: 'Trying to clear the block.' },
+      },
+    );
+    expect(withdrawn.data?.face.status).toBe('BLOCKED');
+
+    await signInForTests('admin@samtec.example');
+    const asked = await fetchClient.POST('/employees/{employeeId}/biometric-exemption', {
+      ...path,
+      body: { reason: 'DECLINED', note: 'Trying to clear the block.' },
+    });
+    expect(asked.response.status).toBe(409);
+  });
+
+  it('ends an exemption when the worker is revoked, so it needs two ADMINs again', async () => {
+    await signInForTests('admin@samtec.example');
+    const exempt = mockBiometrics.find((row) => row.exemption?.status === 'APPROVED');
+    const { data } = await fetchClient.POST('/employees/{employeeId}/biometrics/revoke', {
+      params: { path: { employeeId: exempt?.employeeId ?? '' } },
+      body: { reason: 'Cleaning up the record.' },
+    });
+    expect(data?.exemption?.status).toBe('ENDED');
+  });
+
   it('shows the live punch board newest first, scoped to a supervisor site', async () => {
     await signInForTests('supervisor@samtec.example');
     const { data } = await fetchClient.GET('/attendance/punches', {

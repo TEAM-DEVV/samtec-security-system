@@ -54,7 +54,7 @@ Everything needed to recalculate a payslip is **copied into the line** when the 
 
 - Stores **templates only**, never images: a face template is 1,024 numbers from the kiosk, encrypted with AES-256-GCM and bound to its own row. The key is derived from `AUTH_SECRET`, which is kept outside the database. A ZKTeco finger stays on the terminal; we store only the proof that it was enrolled.
 - Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (a second ADMIN decided this face may be used) or NOT_CHECKED (a terminal finger).
-- A COLLISION keeps the employee pending until an ADMIN other than the enroller decides. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked for good. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
+- A COLLISION keeps the employee pending until a second ADMIN who has handled neither worker (created either record, or enrolled, revoked or withdrew a face for either) decides. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked for good. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
 - Consents and clock-in attempts are separate append-only tables, and fingerprint keys live in `device_passkeys`. The full design is in [Biometrics design](13-biometrics-design.md).
 
 ### Rehiring (decided for Phase 1)
@@ -82,7 +82,7 @@ The API connects as the owner of the tables, and row-level security does not res
 | One current site assignment per employee | Workforce service (Phase 1), with a partial unique index in a SQL migration if tooling allows |
 | A repeated punch is stored once | Unique `(device_id, device_event_id)` (Phase 2) |
 | Consents and clock-in attempts can only grow; biometric credentials and fingerprint keys are never deleted | Database triggers (Phase 3) |
-| One active face per employee | Partial unique index (Phase 3) |
+| At most one unwiped face per employee; a face blocked as a duplicate stays blocked | Partial unique index and the attendance service (Phase 3) |
 | An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |
 | Payroll runs only move forward: DRAFT → PENDING_APPROVAL → LOCKED → PAID | Payroll service plus a database trigger (Phase 4) |

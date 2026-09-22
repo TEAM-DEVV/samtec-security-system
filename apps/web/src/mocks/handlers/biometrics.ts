@@ -45,16 +45,19 @@ import { userForRequest } from './auth';
  * rules: statuses only (never an image, template or score, except the
  * collision similarity that ADMINs review), ADMIN-only changes, and a second
  * ADMIN for every decision that lets a worker in without a clean face check.
- * The ADMIN who enrolled a face never decides its collision, and the ADMIN
- * who asked for an exemption never approves it.
+ * Nobody who has handled a worker (created the record, enrolled, revoked or
+ * withdrew a face, or asked for the exemption) decides their collision or
+ * exemption.
  *
- * Errors come in the real API's order: sign-in and role (401, 403), then a
- * bad ID or body (400), then not found (404), then the second-person rule
- * (403), then a clash with the current state (409).
+ * Errors come in the real API's order (docs/plan/05-api-contract.md): sign-in
+ * and role (401, 403), a bad ID or body (400), not found (404), a field that
+ * is wrong for this record (400), the second-person rule (403), then a clash
+ * with the current state (409).
  *
  * This mock keeps biometric statuses only: it never changes an employee's
  * status, so a screen should reload the employee from the real API rather
- * than rely on it. It does not know who created an employee record either.
+ * than rely on it. Of the people who handled a worker it only knows who
+ * asked for an exemption and who enrolled a face that collided.
  * Tests call `resetMockBiometrics()` to start fresh.
  */
 function freshCopies() {
@@ -91,6 +94,7 @@ const ATTEMPT_OUTCOMES = [
   'LOW_LIVENESS',
   'FINGERPRINT_REQUESTED',
   'NOT_ME',
+  'FALLBACK_REFUSED',
 ] as const;
 
 type Role = CurrentUser['role'];
@@ -165,10 +169,30 @@ function forViewer(user: CurrentUser, record: EmployeeBiometrics): EmployeeBiome
 /** Wipes the face and switches off every fingerprint key, keeping the history. */
 function wipe(record: EmployeeBiometrics) {
   const now = new Date().toISOString();
-  if (record.face.status !== 'NONE') {
+  // A face blocked as a duplicate is already wiped, and the block is final.
+  if (record.face.status !== 'NONE' && record.face.status !== 'BLOCKED') {
     record.face = { ...record.face, status: 'REVOKED' };
   }
   record.passkeys = record.passkeys.map((key) => ({ ...key, revokedAt: key.revokedAt ?? now }));
+}
+
+/** A waiting or approved exemption no longer applies. */
+function endExemption(record: EmployeeBiometrics) {
+  const exemption = record.exemption;
+  if (exemption?.status === 'REQUESTED' || exemption?.status === 'APPROVED') {
+    record.exemption = { ...exemption, status: 'ENDED' };
+  }
+}
+
+/**
+ * Whether this user enrolled a face for this worker. The real API also counts
+ * creating the record and revoking or withdrawing a face; the mock only knows
+ * who enrolled a face that collided.
+ */
+function enrolledAFaceFor(employeeId: string, user: CurrentUser) {
+  return collisions.some(
+    (collision) => collision.employee.id === employeeId && collision.enrolledByUserId === user.id,
+  );
 }
 
 /** A second ADMIN cleared this face. A face wiped in the meantime stays wiped. */
@@ -181,19 +205,15 @@ function clearFace(record: EmployeeBiometrics | undefined) {
     dedupe: 'CLEARED',
   };
   // A face in use ends any exemption.
-  if (usable && record.exemption && record.exemption.status !== 'REJECTED') {
-    record.exemption = { ...record.exemption, status: 'ENDED' };
-  }
+  if (usable) endExemption(record);
 }
 
-/** One person, two records: the other record is wiped for good and loses its exemption. */
+/** One person, two records: the other record is wiped and blocked for good, and loses its exemption. */
 function blockRecord(record: EmployeeBiometrics | undefined) {
   if (!record) return;
   wipe(record);
   record.face = { ...record.face, status: 'BLOCKED' };
-  if (record.exemption && record.exemption.status !== 'REJECTED') {
-    record.exemption = { ...record.exemption, status: 'ENDED' };
-  }
+  endExemption(record);
 }
 
 export const biometricHandlers = [
@@ -233,11 +253,16 @@ export const biometricHandlers = [
       if (bad) return bad;
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
-      // A revoke can never wipe away a question that a second ADMIN must answer.
-      if (openCollisionOf(found.employee.id)) {
-        return conflict('This worker has an open duplicate-enrollment review. Decide it first.');
+      // A revoke can never wipe away a question that a second ADMIN must
+      // answer, nor undo a block, which is final.
+      if (openCollisionOf(found.employee.id) || found.record.face.status === 'BLOCKED') {
+        return conflict(
+          'This worker has an open duplicate-enrollment review, or is blocked as a duplicate.',
+        );
       }
       wipe(found.record);
+      // An exemption ends too, so working without a face needs two ADMINs again.
+      endExemption(found.record);
       return HttpResponse.json<EmployeeBiometrics>(found.record);
     },
   ),
@@ -293,17 +318,16 @@ export const biometricHandlers = [
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
       const exemption = found.record.exemption;
+      // Never someone who has handled this worker (as far as the mock knows:
+      // whoever asked, and whoever enrolled a face that collided).
+      if (exemption?.requestedByUserId === user.id || enrolledAFaceFor(found.employee.id, user)) {
+        return forbidden();
+      }
       if (exemption?.status !== 'REQUESTED') {
         return conflict('There is no request waiting for a decision.');
       }
-      // Never someone who already handled this worker: the asker, or whoever enrolled a face.
-      const enrolledAFace = collisions.some(
-        (collision) =>
-          collision.employee.id === found.employee.id && collision.enrolledByUserId === user.id,
-      );
-      if (exemption.requestedByUserId === user.id || enrolledAFace) return forbidden();
-      // The rules are checked again now, not only when someone asked.
-      if (!mayBeExempted(found.employee, found.record)) {
+      // Approving checks the rules again; rejecting is always possible.
+      if (body.decision === 'APPROVE' && !mayBeExempted(found.employee, found.record)) {
         return conflict('This worker no longer qualifies for an exemption.');
       }
       found.record.exemption = {
@@ -407,8 +431,11 @@ export const biometricHandlers = [
           'Must be one of the two records in this collision.',
         );
       }
-      // Maker–checker: whoever enrolled the face may never clear it themselves.
-      if (collision.enrolledByUserId === user.id) return forbidden();
+      // Only someone who has handled neither worker may decide.
+      const handled =
+        enrolledAFaceFor(collision.employee.id, user) ||
+        enrolledAFaceFor(collision.lookedLike.id, user);
+      if (handled) return forbidden();
       if (collision.status !== 'OPEN') return conflict('This collision has already been decided.');
 
       collision.status = 'RESOLVED';
