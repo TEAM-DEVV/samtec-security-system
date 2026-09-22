@@ -32,9 +32,10 @@ the API project (`apps/web/vercel.json`).
 Secrets (`AUTH_SECRET`, the database connection) live only in Vercel's
 environment settings — never in the repository, never in chats.
 
-TEST leaves `ALLOW_SIMULATOR_DEVICES` unset, which means "yes", so the
-attendance demo's simulator devices work ([The attendance demo](10-attendance-demo.md)).
-Production sets it to `no`.
+The API project sets `ALLOW_SIMULATOR_DEVICES=yes`, so the attendance
+demo's simulator devices work ([The attendance demo](10-attendance-demo.md)).
+The API runs in production mode on Vercel, where simulators are refused
+unless this is set. A client's production leaves it unset.
 
 ## How deploys happen
 

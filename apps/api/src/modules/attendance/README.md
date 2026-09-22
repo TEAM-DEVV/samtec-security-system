@@ -30,9 +30,9 @@ Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../
 - The signature is checked against the **raw request body** (`rawBody: true` in `main.ts`, `serverless.ts` and the test apps), never a re-encoded one.
 - Every failure to prove a device answers the same `401`, and the logs carry only a reason code and IDs.
 - Counted (CONFIRMED) work segments of one person can never overlap: a database exclusion constraint checks it at commit.
-- Each signed route accepts only some kinds of device (an allow-list, `kindMayUse`): a kiosk never posts raw punches, and simulators are refused where `ALLOW_SIMULATOR_DEVICES=no`. A refused kind gets the same `401` as a wrong signature.
+- Each signed route accepts only some kinds of device (an allow-list, `kindMayUse`): a kiosk never posts raw punches, and simulators are refused in production unless `ALLOW_SIMULATOR_DEVICES=yes`. A refused kind gets the same `401` as a wrong signature.
 - A shift's basis comes from one exhaustive function, `basisFor` in `pairing.ts`: a finger, a face, or a face confirmed by the kiosk's sensor is `BIOMETRIC`; a PIN, a co-sign, or a staff number confirmed by the sensor is `PIN_FALLBACK`, always flagged. The weaker punch decides.
-- The biometric tables guard their own rules (docs/plan/13 `1 and the Phase 3 migration): append-only consents and attempts, nothing ever deleted, a wiped face never back, a block final, and the enroller or asker never deciding.
+- The biometric tables guard their own rules (docs/plan/13 section 1, and the Phase 3 migration): append-only consents and attempts, nothing ever deleted, a wiped face never back, a block final, and the enroller or asker never deciding.
 - Biometric data is stored as encrypted templates, never as images, and is never logged.
 
 Hardware choices and the `BiometricProvider` interface are described in `docs/plan/10-biometric-integration.md`.

@@ -91,7 +91,9 @@ connect and have its drift measured.
 ## On TEST (or any other API)
 
 The demo mode above plays the local database only. Against TEST you play one
-device at a time, the same way a real device would be set up:
+device at a time, the same way a real device would be set up. The TEST API
+must have `ALLOW_SIMULATOR_DEVICES=yes` ([TEST environment](09-test-environment.md));
+without it, a `MOCK` device's punches answer `401` (its heartbeats still work).
 
 1. An administrator registers a device of kind `MOCK` on the Devices page
    (or with `POST /api/v1/devices`). They copy the secret it shows once.

@@ -322,11 +322,16 @@ ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_templa
   AND ("key_version" IS NULL OR "key_version" >= 1));
 
 -- PENDING and ACTIVE are in use; BLOCKED and REVOKED are wiped, with the time.
--- A PENDING face is exactly one that waits for a collision review.
+-- A PENDING face is exactly one that waits for a collision review, and an
+-- ACTIVE face is one that passed the check or that a second ADMIN cleared:
+-- a face that collided can never come into use without a decision.
+-- (Every CHECK here is written so that it is TRUE or FALSE, never NULL:
+-- PostgreSQL lets a row through when a CHECK comes out NULL.)
 ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_status_valid" CHECK (
   ("status" IN ('PENDING', 'ACTIVE')) = ("wiped_at" IS NULL)
   AND ("wiped_by_user_id" IS NULL OR "wiped_at" IS NOT NULL)
-  AND ("status" <> 'PENDING' OR ("dedupe" = 'COLLISION' AND "verdict" IS NULL)));
+  AND ("status" <> 'PENDING' OR ("dedupe" = 'COLLISION' AND "verdict" IS NULL))
+  AND ("kind" <> 'FACE' OR "status" <> 'ACTIVE' OR "dedupe" IN ('PASSED', 'CLEARED')));
 
 -- A collision records who the face looked like and how closely; a face that
 -- passed does not. Nobody looks like themselves.
@@ -343,18 +348,20 @@ ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_decisi
   ("verdict" IS NOT NULL)
     = ("resolved_at" IS NOT NULL AND "resolved_by_user_id" IS NOT NULL AND "resolution_note" IS NOT NULL)
   AND ("verdict" IS NULL OR "collision_employee_id" IS NOT NULL)
-  AND (COALESCE("verdict" = 'SAME_PERSON', false)) = ("kept_employee_id" IS NOT NULL)
-  AND ("kept_employee_id" IS NULL OR "kept_employee_id" IN ("employee_id", "collision_employee_id"))
+  AND COALESCE("verdict" = 'SAME_PERSON', false) = ("kept_employee_id" IS NOT NULL)
+  AND ("kept_employee_id" IS NULL
+    OR COALESCE("kept_employee_id" IN ("employee_id", "collision_employee_id"), false))
   AND ("resolved_by_user_id" IS NULL OR "resolved_by_user_id" IS DISTINCT FROM "enrolled_by_user_id")
   AND ("resolution_note" IS NULL OR length("resolution_note") BETWEEN 3 AND 500)
   -- CLEARED: a second ADMIN let this face through (different people, or this
-  -- is the real record). A decided face that stays a COLLISION lost: it is
-  -- the duplicate, and it is blocked.
+  -- is the real record), so there is always a verdict. A decided face that
+  -- stays a COLLISION lost: it is the duplicate, and it is blocked.
   AND ("dedupe" <> 'CLEARED'
-    OR "verdict" = 'DIFFERENT_PEOPLE'
-    OR ("verdict" = 'SAME_PERSON' AND "kept_employee_id" = "employee_id"))
+    OR COALESCE("verdict" = 'DIFFERENT_PEOPLE'
+      OR ("verdict" = 'SAME_PERSON' AND "kept_employee_id" = "employee_id"), false))
   AND ("dedupe" <> 'COLLISION' OR "verdict" IS NULL
-    OR ("verdict" = 'SAME_PERSON' AND "kept_employee_id" = "collision_employee_id" AND "status" = 'BLOCKED')));
+    OR COALESCE("verdict" = 'SAME_PERSON' AND "kept_employee_id" = "collision_employee_id"
+      AND "status" = 'BLOCKED', false)));
 
 -- At most one face in use (not wiped) per employee.
 CREATE UNIQUE INDEX "biometric_credentials_one_live_face"

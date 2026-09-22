@@ -84,7 +84,7 @@ The API connects as the owner of the tables, and row-level security does not res
 | Consents and clock-in attempts can only grow (the retention sweep may only clear an attempt's network address); faces, exemptions and fingerprint keys are never deleted | Database triggers (Phase 3, built) |
 | At most one face in use per employee; one live fingerprint key per worker per kiosk; one exemption waiting or approved per employee | Partial unique indexes (Phase 3, built) |
 | A wiped face never comes back; a block is final; a collision decision and an exemption decision are final; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
-| The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13 `2) |
+| The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
 | A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
 | An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |

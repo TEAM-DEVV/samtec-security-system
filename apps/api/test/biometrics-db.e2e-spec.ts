@@ -97,6 +97,26 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
 
   const wiped = { templateSealed: null, keyVersion: null, wipedAt: new Date() };
 
+  /** A fresh fictional new starter, for tests that need someone with no face yet. */
+  let extraCount = 0;
+  const newStarter = () => {
+    extraCount += 1;
+    const n = String(extraCount).padStart(4, '0');
+    return prisma.employee.create({
+      data: {
+        companyId: company.companyId,
+        staffNumber: `SMT-71${n.slice(1)}`,
+        firstName: 'Test',
+        lastName: `Starter ${extraCount}`,
+        phone: `+23320888${n}`,
+        ghanaCardNumber: `GHA-9${n.padStart(8, '0')}-${extraCount % 10}`,
+        position: 'Security Guard',
+        status: 'PENDING_ENROLLMENT',
+        hireDate: new Date('2026-01-05T00:00:00Z'),
+      },
+    });
+  };
+
   describe('consents', () => {
     it('are append-only: a withdrawal is a new row', async () => {
       const row = await consent(company.active.id);
@@ -215,6 +235,25 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
   });
 
   describe('collision decisions', () => {
+    it('never let a face that collided come into use without a decision', async () => {
+      const lookalike = await newStarter();
+      await face(lookalike.id);
+      const row = await collision((await newStarter()).id, lookalike.id);
+      // Straight to ACTIVE, or marked CLEARED, with no verdict: both refused.
+      await expect(
+        prisma.biometricCredential.update({ where: { id: row.id }, data: { status: 'ACTIVE' } }),
+      ).rejects.toThrow();
+      await expect(
+        prisma.biometricCredential.update({
+          where: { id: row.id },
+          data: { dedupe: 'CLEARED', status: 'ACTIVE' },
+        }),
+      ).rejects.toThrow();
+      await expect(
+        prisma.biometricCredential.update({ where: { id: row.id }, data: { dedupe: 'CLEARED' } }),
+      ).rejects.toThrow();
+    });
+
     it('are never made by the ADMIN who enrolled the face', async () => {
       const row = await collision(company.active.id, company.supervisorEmployeeId);
       await expect(
@@ -290,6 +329,35 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         prisma.biometricCredential.update({
           where: { id: duplicate.id },
           data: { status: 'REVOKED' },
+        }),
+      ).rejects.toThrow(/can never become/);
+    });
+
+    it('let SAME_PERSON keep the new record, clearing its face and blocking the older one', async () => {
+      // An insider enrolled a ghost with a real guard's face; the real guard enrolls again.
+      const ghost = await newStarter();
+      const ghostFace = await face(ghost.id);
+      const guard = await newStarter();
+      const guardFace = await collision(guard.id, ghost.id);
+
+      await prisma.biometricCredential.update({
+        where: { id: guardFace.id },
+        data: {
+          ...decision('SAME_PERSON'),
+          keptEmployeeId: guard.id,
+          dedupe: 'CLEARED',
+          status: 'ACTIVE',
+        },
+      });
+      // The older record's face is blocked for good (its own row has no verdict).
+      await prisma.biometricCredential.update({
+        where: { id: ghostFace.id },
+        data: { ...wiped, status: 'BLOCKED' },
+      });
+      await expect(
+        prisma.biometricCredential.update({
+          where: { id: ghostFace.id },
+          data: { status: 'ACTIVE' },
         }),
       ).rejects.toThrow(/can never become/);
     });
@@ -469,6 +537,31 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         attempt({ outcome: 'NOT_ME', employeeId: company.active.id, cancelsAttemptId: match.id }),
       ).rejects.toThrow();
       expect(notMe.cancelsAttemptId).toBe(match.id);
+    });
+
+    it('keep a co-sign tied to the staff number typed and the worker it names', async () => {
+      const coSign = {
+        purpose: 'CO_SIGN',
+        outcome: 'MATCHED',
+        employeeId: company.supervisorEmployeeId,
+      };
+      // A co-sign always keeps the typed staff number, even one that matches nobody.
+      await expect(attempt(coSign)).rejects.toThrow();
+      await attempt({ ...coSign, staffNumberTried: 'SMT-99999' });
+      const row = await attempt({
+        ...coSign,
+        staffNumberTried: company.active.staffNumber,
+        coSignForEmployeeId: company.active.id,
+      });
+      expect(row.coSignForEmployeeId).toBe(company.active.id);
+      // Only a co-sign names a worker it confirms.
+      await expect(
+        attempt({
+          outcome: 'MATCHED',
+          employeeId: company.active.id,
+          coSignForEmployeeId: company.active.id,
+        }),
+      ).rejects.toThrow();
     });
   });
 

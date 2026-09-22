@@ -144,7 +144,7 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 **Device kinds are checked.** Each signed route lists the kinds it **allows**, and every other kind gets the same `401`:
 
 - `/kiosk/*` allows only `FACE_KIOSK`;
-- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (`ALLOW_SIMULATOR_DEVICES`: on by default for development and TEST, whose attendance demo uses it; production sets it to `no`);
+- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (`ALLOW_SIMULATOR_DEVICES`: when it is not set, simulators work in development and are refused in production; TEST sets `yes` for its attendance demo);
 - `/ingest/heartbeat` allows every kind.
 
 A stolen kiosk key therefore cannot post raw `FACE` punches. A test proves that a correctly signed request with no token is refused on the ADMIN kiosk routes.
@@ -316,5 +316,6 @@ The mock API already supports all of them.
 11. **One master secret.** A leaked `AUTH_SECRET` lets someone forge sign-ins and, together with a copy of the database, read the face templates. It lives only in the hosting settings, is never shared between TEST and production, and is backed up offline.
 12. **One person with two ADMIN accounts** (for example one they created, or one whose sign-in they reset) defeats every two-person rule. User changes are audited, rule R11 flags a decision made by an account that a handler created, reset or promoted, and Phase 7 makes creating or resetting an ADMIN account need a second ADMIN.
 13. **Indirect links are flagged, not blocked.** An ADMIN who created a record, or enrolled the other face, may still decide its review, so that small companies never deadlock. Rule R11 shows those decisions to the payroll checker.
+14. **One ADMIN can register a device and send punches with its key** (a terminal or, where allowed, a simulator), with any method a terminal may claim. Registration is audited, every punch names its device, rule R9 flags a device whose volume jumps, and the payroll checker sees the device behind each shift. Phase 7 makes registering a device or rotating its secret need a second ADMIN.
 
 Related: [Biometric integration](10-biometric-integration.md) · [Attendance design](12-attendance-design.md) · [Security and review gates](06-security-and-review-gates.md) · [Roadmap](07-roadmap.md)

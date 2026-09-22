@@ -101,13 +101,14 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
 - Creating, resetting or promoting an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules)
+- Registering a device or rotating its secret needs a second ADMIN (a device key can post punches)
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
-- Production settings: `ALLOW_SIMULATOR_DEVICES=no` (no simulator devices), its own `AUTH_SECRET` never shared with TEST
+- Production settings: leave `ALLOW_SIMULATOR_DEVICES` unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
 - **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands

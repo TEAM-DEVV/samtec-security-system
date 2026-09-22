@@ -93,7 +93,7 @@ This section belongs in Samuel's report and in the client presentation.
 |---|---|---|
 | Buddy punching: a friend clocks in for an absent guard | Guard | Biometric-only clock-in; PIN fallback flagged and co-signed by a supervisor |
 | Editing payroll after approval | HR user | Locked runs, maker–checker, audit log, database trigger |
-| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); volume anomaly detection (Phase 5) |
+| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); each signed route accepts only some device kinds, so a kiosk key never posts raw punches (built, Phase 3); volume anomaly detection (Phase 5); registering a device needs a second ADMIN (Phase 7) |
 | Stealing biometric templates | Outsider | Encryption at rest, bound to each row; no images stored; templates never leave the server or reach a log. Face templates can be turned back into a rough face, so they are treated as sensitive data (Phase 3) |
 | Replaying captured punches | Network attacker | Idempotency key and payload hash, plus a signed timestamp that expires after 5 minutes (built, Phase 2) |
 | Holding a photo up to the face kiosk | Guard | Anti-spoofing and liveness scores, checked on the kiosk and again on the server, plus a random head-turn challenge; documented as a version 1 limitation, because a replayed video or a mask can still pass (Phase 3) |
