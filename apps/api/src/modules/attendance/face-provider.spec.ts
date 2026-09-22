@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppConfig } from '../../config/app-config.js';
 import { parseEnv } from '../../config/env.js';
 import { FaceProvider, type SealedFace } from './face-provider.js';
@@ -62,8 +63,12 @@ describe('FaceProvider', () => {
   });
 
   it('finds the closest record at enrollment, and nobody for a new face', () => {
-    expect(provider.findDuplicate(sample(0.2), [kwame, ama]).result?.employeeId).toBe('kwame');
-    expect(provider.findDuplicate(sample(1.2), [kwame, ama]).result).toBeNull();
+    expect(provider.findDuplicate(sample(0.2), [kwame, ama], 'newcomer').result?.employeeId).toBe(
+      'kwame',
+    );
+    expect(provider.findDuplicate(sample(1.2), [kwame, ama], 'newcomer').result).toBeNull();
+    // Kwame enrolling again is not his own duplicate.
+    expect(provider.findDuplicate(sample(0), [kwame, ama], 'kwame').result).toBeNull();
   });
 
   it('skips a template it cannot open, and says which row it was', () => {
@@ -112,5 +117,57 @@ describe('FaceProvider', () => {
     expect(
       provider.identify(sample(0.3), [{ ...row, employeeId: 'someone-else' }]).unreadable,
     ).toEqual(['face-new']);
+  });
+
+  describe('never lets a face reach a log', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('writes nothing at all, on the good paths and the bad ones', () => {
+      // Everything a log could go through, watched at once.
+      const watched = [
+        vi.spyOn(console, 'log').mockImplementation(() => undefined),
+        vi.spyOn(console, 'debug').mockImplementation(() => undefined),
+        vi.spyOn(console, 'info').mockImplementation(() => undefined),
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+        vi.spyOn(console, 'error').mockImplementation(() => undefined),
+        vi.spyOn(Logger, 'log').mockImplementation(() => undefined),
+        vi.spyOn(Logger, 'debug').mockImplementation(() => undefined),
+        vi.spyOn(Logger, 'warn').mockImplementation(() => undefined),
+        vi.spyOn(Logger, 'error').mockImplementation(() => undefined),
+      ];
+      const moved: SealedFace = { ...kwame, employeeId: 'ghost', credentialId: 'face-ghost' };
+
+      provider.identify(sample(0.2), [kwame, ama]);
+      provider.identify(sample(0.2), [moved]);
+      provider.identify(sample(0, { live: 0.1 }), [kwame]);
+      provider.findDuplicate(sample(0.2), [kwame, ama], 'newcomer');
+      provider.seal(face(0.4), {
+        companyId: COMPANY,
+        employeeId: 'quiet',
+        credentialId: 'face-quiet',
+      });
+      expect(() =>
+        provider.seal([0.1, 0.2], { companyId: COMPANY, employeeId: 'a', credentialId: 'b' }),
+      ).toThrow();
+
+      for (const spy of watched) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    });
+
+    it('keeps the numbers out of the one error it can raise', () => {
+      const secret = 12.3456789;
+      const broken = face(secret);
+
+      expect(() =>
+        provider.seal(broken.slice(0, 3), {
+          companyId: COMPANY,
+          employeeId: 'quiet',
+          credentialId: 'face-quiet',
+        }),
+      ).toThrow(/^a face template is exactly 1,024 real numbers$/);
+    });
   });
 });

@@ -22,7 +22,7 @@ Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../
 | `attendance-lock.ts` | The per-company lock every attendance write takes, with its timeouts. |
 | `biometric-provider.ts` | The `BiometricProvider` interface and the mock provider (`BIOMETRIC_PROVIDER`, default `mock`). Fingers only: faces go through `face-provider.ts`. |
 | `face-thresholds.ts` | Every face number in one place, with the name (`ft-1`) stored on each attempt. |
-| `face-match.ts` | Pure rules: Human's similarity formula copied to the server, who a face is (match, not sure, not recognised), the duplicate check, and whether a capture's frames agree. |
+| `face-match.ts` | Pure rules: Human's similarity formula copied to the server, who a face is (match, not sure, not recognised), the duplicate check (which leaves out the worker's own faces), and whether a capture's frames agree. |
 | `face-template.ts` | Sealing a template with AES-256-GCM, bound to its own row, and opening it again. |
 | `face-provider.ts` | The only place that opens a sealed template: hands rows in, gets a decision back. |
 
@@ -39,5 +39,6 @@ Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../
 - The biometric tables guard their own rules (docs/plan/13 section 1, and the Phase 3 migration): append-only consents and attempts, nothing ever deleted, a wiped face never back, a block final, and the enroller or asker never deciding. New rows start undecided on the right kind of device and inside the worker's company, a face needs the worker's own consent, a collided face is never matched until a second ADMIN clears it, and a trigger checked at commit keeps a SAME_PERSON decision whole (the losing record ends blocked, with no key or exemption left). One pair of records is never decided two ways. Every collision decision, every block and every new row for one worker lock that worker's employee row, so they happen one at a time; a service that changes several rows locks the workers first, in id order (docs/plan/13 section 2). A device keeps its company, site and kind for life, and switching its fingerprints off must revoke its keys in the same transaction.
 - Biometric data is stored as encrypted templates, never as images, and is never logged. A template is sealed for its own row (company, worker, credential row and key version), so a template copied onto another row fails to open rather than quietly working. Only `face-provider.ts` opens one, and a row it cannot open is reported by id, never by its numbers.
 - Face scores stay on the server. A kiosk answer says who it is, never how close anyone was, so nobody can use the answers to probe the stored faces.
+- A sample that cannot be used (another model, the wrong shape, a face that did not look real or alive) is refused before a single stored face is opened, and the answer says which of those it was.
 
 Hardware choices and the `BiometricProvider` interface are described in `docs/plan/10-biometric-integration.md`.

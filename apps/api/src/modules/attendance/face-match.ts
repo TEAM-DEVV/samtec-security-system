@@ -43,7 +43,8 @@ export type SampleProblem = 'WRONG_MODEL' | 'WRONG_SHAPE' | 'LOW_LIVENESS';
 export type Identification =
   | { outcome: 'MATCHED'; credentialId: string; employeeId: string; scores: Scores }
   | { outcome: 'AMBIGUOUS' | 'NOT_RECOGNISED'; scores: Scores }
-  | { outcome: 'LOW_LIVENESS'; scores: Scores };
+  /** The sample was never compared with anyone, and the problem says why. */
+  | { outcome: 'REFUSED'; problem: SampleProblem; scores: Scores };
 
 /** The best score, and the best score of any *other* person. */
 export interface Scores {
@@ -60,6 +61,7 @@ export function similarity(a: readonly number[], b: readonly number[]): number {
   }
   let sum = 0;
   for (let i = 0; i < a.length; i += 1) {
+    // Both lists are the same length, so every index is really there.
     const difference = (a[i] as number) - (b[i] as number);
     sum += difference * difference;
   }
@@ -97,8 +99,9 @@ export function sampleProblem(sample: FaceSample): SampleProblem | null {
  * apart by a hair's breadth.
  */
 export function identifyFace(sample: FaceSample, faces: readonly KnownFace[]): Identification {
-  if (sampleProblem(sample) !== null) {
-    return { outcome: 'LOW_LIVENESS', scores: NO_SCORES };
+  const problem = sampleProblem(sample);
+  if (problem !== null) {
+    return { outcome: 'REFUSED', problem, scores: NO_SCORES };
   }
   const best = bestFace(sample.embedding, faces);
   if (!best) {
@@ -128,23 +131,35 @@ export function identifyFace(sample: FaceSample, faces: readonly KnownFace[]): I
   };
 }
 
+/** Who a new face looked like, and how closely. Never the numbers themselves. */
+export interface DuplicateFace {
+  credentialId: string;
+  employeeId: string;
+  score: number;
+}
+
 /**
- * Enrollment: does this face already belong to someone else? Only the closest
- * record is reported, and only if it is close enough to ask a second ADMIN
- * about (docs/plan/13 section 2).
+ * Enrollment: does this face already belong to **someone else**? Only the
+ * closest record is reported, and only if it is close enough to ask a second
+ * ADMIN about (docs/plan/13 section 2).
  */
 export function findDuplicateFace(
   sample: FaceSample,
   faces: readonly KnownFace[],
-): (KnownFace & { score: number }) | null {
+  enrollingEmployeeId: string,
+): DuplicateFace | null {
   if (sampleProblem(sample) !== null) {
     return null;
   }
-  const best = bestFace(sample.embedding, faces);
+  // Nobody is their own duplicate: the worker's own older faces are left out
+  // here, rather than leaving that to every caller (docs/plan/13 section 2).
+  const others = faces.filter((face) => face.employeeId !== enrollingEmployeeId);
+  const best = bestFace(sample.embedding, others);
   if (!best || best.score < FACE_THRESHOLDS.duplicate) {
     return null;
   }
-  return best;
+  // Only the ids and the score leave this function, never the numbers.
+  return { credentialId: best.credentialId, employeeId: best.employeeId, score: best.score };
 }
 
 /**

@@ -11,6 +11,7 @@
 import { Injectable } from '@nestjs/common';
 import { AppConfig } from '../../config/app-config.js';
 import {
+  type DuplicateFace,
   type FaceSample,
   findDuplicateFace,
   framesAgree,
@@ -33,17 +34,12 @@ export interface SealedFace extends TemplateRow {
   templateSealed: Uint8Array;
 }
 
+const NO_SCORES = { best: 0, runnerUp: 0 } as const;
+
 /** A decision, plus the rows that could not be opened (a damaged or moved template). */
 export interface FaceDecision<T> {
   result: T;
   unreadable: string[];
-}
-
-/** Who a new face looked like at enrollment, and how closely. */
-export interface DuplicateFound {
-  credentialId: string;
-  employeeId: string;
-  score: number;
 }
 
 @Injectable()
@@ -84,23 +80,34 @@ export class FaceProvider {
     return framesAgree(frames);
   }
 
-  /** Clock-in: compares the sample with the faces in use and says who it is. */
+  /**
+   * Clock-in: compares the sample with the faces in use and says who it is.
+   * A sample that cannot be used is refused before a single face is opened.
+   */
   identify(sample: FaceSample, faces: readonly SealedFace[]): FaceDecision<Identification> {
+    const problem = sampleProblem(sample);
+    if (problem !== null) {
+      return { result: { outcome: 'REFUSED', problem, scores: NO_SCORES }, unreadable: [] };
+    }
     const opened = this.open(faces);
     return { result: identifyFace(sample, opened.faces), unreadable: opened.unreadable };
   }
 
-  /** Enrollment: the closest other record, when it is close enough to review. */
+  /**
+   * Enrollment: the closest **other** record, when it is close enough for a
+   * second ADMIN to look at. The worker's own older faces never count.
+   */
   findDuplicate(
     sample: FaceSample,
     faces: readonly SealedFace[],
-  ): FaceDecision<DuplicateFound | null> {
+    enrollingEmployeeId: string,
+  ): FaceDecision<DuplicateFace | null> {
+    if (sampleProblem(sample) !== null) {
+      return { result: null, unreadable: [] };
+    }
     const opened = this.open(faces);
-    const found = findDuplicateFace(sample, opened.faces);
     return {
-      result: found
-        ? { credentialId: found.credentialId, employeeId: found.employeeId, score: found.score }
-        : null,
+      result: findDuplicateFace(sample, opened.faces, enrollingEmployeeId),
       unreadable: opened.unreadable,
     };
   }

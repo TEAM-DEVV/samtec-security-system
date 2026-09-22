@@ -39,8 +39,12 @@ export function faceTemplateKey(authSecret: string): Buffer {
 
 /** Encrypts the numbers for one row. Throws only on a programming mistake (a wrong-sized list). */
 export function sealTemplate(embedding: readonly number[], row: TemplateRow, key: Buffer): Buffer {
-  if (embedding.length !== FACE_THRESHOLDS.embeddingLength) {
-    throw new RangeError('a face template has exactly 1,024 numbers');
+  if (
+    embedding.length !== FACE_THRESHOLDS.embeddingLength ||
+    !embedding.every((value) => Number.isFinite(value))
+  ) {
+    // The message never carries the numbers themselves.
+    throw new RangeError('a face template is exactly 1,024 real numbers');
   }
   const numbers = Buffer.alloc(embedding.length * NUMBER_BYTES);
   embedding.forEach((value, index) => {

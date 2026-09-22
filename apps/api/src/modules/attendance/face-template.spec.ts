@@ -86,7 +86,10 @@ describe('sealTemplate and openTemplate', () => {
   });
 
   it('refuses a list that is not a face', () => {
-    expect(() => sealTemplate([0.1, 0.2], row, key)).toThrow(/1,024 numbers/);
+    expect(() => sealTemplate([0.1, 0.2], row, key)).toThrow(/1,024 real numbers/);
+    const broken = [...face];
+    broken[7] = Number.POSITIVE_INFINITY;
+    expect(() => sealTemplate(broken, row, key)).toThrow(/1,024 real numbers/);
   });
 
   it('uses a key of its own, from the one master secret', () => {

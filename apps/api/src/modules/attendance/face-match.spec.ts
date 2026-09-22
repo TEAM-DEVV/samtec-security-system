@@ -142,11 +142,16 @@ describe('identifyFace', () => {
     expect(identifyFace(sampleOf(faceAt(0)), []).outcome).toBe('NOT_RECOGNISED');
   });
 
-  it('refuses the sample before comparing anyone, and then keeps no scores', () => {
-    const result = identifyFace(sampleOf(faceAt(0), { live: 0.1 }), faces);
+  it('refuses the sample before comparing anyone, and says why, with no scores', () => {
+    const poorFace = identifyFace(sampleOf(faceAt(0), { live: 0.1 }), faces);
+    const wrongModel = identifyFace(sampleOf(faceAt(0), { model: 'another-model' }), faces);
 
-    expect(result.outcome).toBe('LOW_LIVENESS');
-    expect(result.scores).toEqual({ best: 0, runnerUp: 0 });
+    expect(poorFace.outcome).toBe('REFUSED');
+    expect(poorFace.outcome === 'REFUSED' && poorFace.problem).toBe('LOW_LIVENESS');
+    expect(poorFace.scores).toEqual({ best: 0, runnerUp: 0 });
+    // A kiosk sending the wrong kind of numbers is a different problem from a
+    // worker whose face did not look alive: the answer keeps them apart.
+    expect(wrongModel.outcome === 'REFUSED' && wrongModel.problem).toBe('WRONG_MODEL');
   });
 
   it("counts only other people as the runner-up, never a second face of the person's own record", () => {
@@ -172,26 +177,51 @@ describe('findDuplicateFace', () => {
   ];
 
   it('reports the closest record when the new face is close enough to review', () => {
-    const found = findDuplicateFace(sampleOf(faceAt(0.2)), faces);
+    const found = findDuplicateFace(sampleOf(faceAt(0.2)), faces, 'newcomer');
 
     expect(found?.employeeId).toBe('guard');
     expect(found?.score).toBeGreaterThanOrEqual(FACE_THRESHOLDS.duplicate);
+    // The answer carries ids and a score, never a template.
+    expect(Object.keys(found ?? {}).sort()).toEqual(['credentialId', 'employeeId', 'score']);
   });
 
   it('reports nobody for a new face, and never for a sample that cannot be used', () => {
-    expect(findDuplicateFace(sampleOf(faceAt(1.2)), faces)).toBeNull();
-    expect(findDuplicateFace(sampleOf(faceAt(0)), [])).toBeNull();
-    expect(findDuplicateFace(sampleOf(faceAt(0), { real: 0.2 }), faces)).toBeNull();
+    expect(findDuplicateFace(sampleOf(faceAt(1.2)), faces, 'newcomer')).toBeNull();
+    expect(findDuplicateFace(sampleOf(faceAt(0)), [], 'newcomer')).toBeNull();
+    expect(findDuplicateFace(sampleOf(faceAt(0), { real: 0.2 }), faces, 'newcomer')).toBeNull();
+  });
+
+  it('never makes a worker their own duplicate, even enrolling the same face again', () => {
+    // The guard's own record is left out; nobody else is close.
+    expect(findDuplicateFace(sampleOf(faceAt(0)), faces, 'guard')).toBeNull();
+    // Someone else enrolling that same face is still caught.
+    expect(findDuplicateFace(sampleOf(faceAt(0)), faces, 'ghost')?.employeeId).toBe('guard');
   });
 
   it('asks about a face it would not let clock in, because the check is looser', () => {
     // 0.29 away scores 0.56: too far to clock in, close enough to ask an ADMIN.
     const middling = sampleOf(faceAt(0.29));
-    const found = findDuplicateFace(middling, faces);
+    const found = findDuplicateFace(middling, faces, 'newcomer');
 
     expect(found?.score).toBeGreaterThanOrEqual(FACE_THRESHOLDS.duplicate);
     expect(found?.score).toBeLessThan(FACE_THRESHOLDS.match);
     expect(identifyFace(middling, faces).outcome).toBe('NOT_RECOGNISED');
+  });
+
+  it('draws both lines where the thresholds say', () => {
+    // These samples sit on the far side of the guard's face, so the other
+    // worker is nowhere near and only the threshold decides. A step of 0.3125
+    // scores 0.5 (the duplicate threshold) and 0.275 scores 0.6 (the clock-in
+    // threshold), so a hair either side lands on either side of the line.
+    // Adding up 1,024 numbers leaves a rounding error of about a millionth of
+    // a millionth, so a sample exactly on a line may fall either way. No
+    // camera can tell faces that finely apart, and both answers are safe.
+    expect(findDuplicateFace(sampleOf(faceAt(-0.312)), faces, 'newcomer')?.employeeId).toBe(
+      'guard',
+    );
+    expect(findDuplicateFace(sampleOf(faceAt(-0.313)), faces, 'newcomer')).toBeNull();
+    expect(identifyFace(sampleOf(faceAt(-0.2749)), faces).outcome).toBe('MATCHED');
+    expect(identifyFace(sampleOf(faceAt(-0.2751)), faces).outcome).toBe('NOT_RECOGNISED');
   });
 });
 
