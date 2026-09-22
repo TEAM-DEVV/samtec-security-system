@@ -2,15 +2,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
 import { signInForTests } from '@/test/session';
 import { mockExceptions, mockSegments } from '../data/attendance';
+import { mockBiometrics } from '../data/biometrics';
 import { mockEmployees } from '../data/employees';
 import { mockSites } from '../data/sites';
 import { resetMockAttendance } from './attendance';
+import { resetMockBiometrics } from './biometrics';
 import { resetMockDevices } from './devices';
 
 // This file resets its own mock stores, so it needs no change to test/setup.ts.
 afterEach(() => {
   resetMockAttendance();
   resetMockDevices();
+  resetMockBiometrics();
 });
 
 const openExceptions = mockExceptions.filter((exception) => exception.status === 'OPEN');
@@ -246,5 +249,55 @@ describe('mock devices API', () => {
     // The plain device read never carries a secret.
     const read = await fetchClient.GET('/devices/{deviceId}', { params: { path: { deviceId } } });
     expect(read.data).not.toHaveProperty('secret');
+  });
+
+  it('gives a ZKTeco terminal a unique serial number, and clears it with null', async () => {
+    await signInForTests('admin@samtec.example');
+    const { data: devices } = await fetchClient.GET('/devices');
+    const siteId = devices?.items[0]?.siteId ?? '';
+    const register = (name: string) =>
+      fetchClient.POST('/devices', { body: { name, siteId, kind: 'ZKTECO' } });
+    const first = (await register('Gate terminal')).data?.device.id ?? '';
+    const second = (await register('Back gate terminal')).data?.device.id ?? '';
+    const setSerial = (deviceId: string, serialNumber: string | null) =>
+      fetchClient.PATCH('/devices/{deviceId}', {
+        params: { path: { deviceId } },
+        body: { serialNumber },
+      });
+
+    expect((await setSerial(first, 'CKJ1234567')).data?.serialNumber).toBe('CKJ1234567');
+    expect((await setSerial(second, 'CKJ1234567')).response.status).toBe(409);
+    expect((await setSerial(first, null)).data?.serialNumber).toBeNull();
+    const badCharacters = await setSerial(first, 'CKJ 12/34');
+    expect(badCharacters.error?.errors?.[0]?.path).toBe('serialNumber');
+
+    // The simulator and the kiosks have no serial number.
+    const simulator = devices?.items.find((device) => device.kind === 'MOCK')?.id ?? '';
+    expect((await setSerial(simulator, 'CKJ7654321')).response.status).toBe(400);
+  });
+
+  it('switches fingerprints on only for a kiosk', async () => {
+    await signInForTests('admin@samtec.example');
+    const { data: devices } = await fetchClient.GET('/devices');
+    const terminal = devices?.items.find((device) => device.kind !== 'FACE_KIOSK');
+    const refused = await fetchClient.PATCH('/devices/{deviceId}', {
+      params: { path: { deviceId: terminal?.id ?? '' } },
+      body: { passkeysEnabled: true },
+    });
+    expect(refused.response.status).toBe(400);
+    expect(refused.error?.errors?.[0]?.path).toBe('passkeysEnabled');
+
+    // Switching a kiosk's fingerprints off revokes every key saved on it.
+    const kiosk = devices?.items.find((device) => device.kind === 'FACE_KIOSK');
+    const off = await fetchClient.PATCH('/devices/{deviceId}', {
+      params: { path: { deviceId: kiosk?.id ?? '' } },
+      body: { passkeysEnabled: false },
+    });
+    expect(off.data?.passkeysEnabled).toBe(false);
+    const withKey = mockBiometrics.find((row) => row.passkeys.length > 0);
+    const { data: biometrics } = await fetchClient.GET('/employees/{employeeId}/biometrics', {
+      params: { path: { employeeId: withKey?.employeeId ?? '' } },
+    });
+    expect(biometrics?.passkeys.every((key) => key.revokedAt !== null)).toBe(true);
   });
 });

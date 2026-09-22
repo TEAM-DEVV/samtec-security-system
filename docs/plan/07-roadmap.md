@@ -20,7 +20,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 **Outside the repository.** These tasks need a person, not a pull request, and they do not block Phase 1:
 
 - [ ] Repository owner: protect `main`, require code owner review, and turn on private vulnerability reporting and Dependabot alerts ([Git and pull requests](../guides/06-git-and-pull-requests.md#protecting-the-main-branch-repository-owner-once))
-- [ ] **Order or borrow a ZKTeco device now.** It is the item with the longest lead time in the project.
+- [ ] **ZKTeco device:** bought when a client pays (owner decision, Phase 3). Until then the gateway is proven against the fake terminal, and a phone is the kiosk.
 
 ## Phase 1 · Identity and workforce (weeks 2 and 3)
 
@@ -58,12 +58,19 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 ## Phase 3 · Real biometrics (weeks 6 and 7)
 
-**Goal: one real device path, plus the face kiosk.**
+**Goal: workers clock in by face and fingerprint on a company device at the site; ZKTeco terminals are ready for production.** Every rule is in [Biometrics design](13-biometrics-design.md).
 
-- ZKTeco adapter: ADMS push endpoint, with `zkteco-js` pull as a fallback; enrollment sync
-- Face kiosk (`apps/kiosk`) with the Human library: enroll, identify, anti-spoofing threshold, flagged PIN fallback
-- Duplicate check at enrollment: a new template compared against all existing ones raises a COLLISION alert
-- **Exit demo:** a real finger or face clock-in appears on the dashboard within seconds
+- [ ] Contract, mock API and design for the kiosk, biometrics and the live clock-ins board
+- [ ] Migration: consents, credentials, fingerprint keys and clock-in attempts (append-only); device kinds checked on every signed route
+- [ ] Face matching on the server with Human's formula, templates encrypted and bound to their row
+- [ ] Enrollment on the kiosk by an ADMIN: Ghana Card digits, consent, 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep
+- [ ] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, and the live clock-ins board
+- [ ] The kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens
+- [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)
+- [ ] ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
+- [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
+- [ ] Dashboard (Samuel): live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, and the new device fields. The mock API already supports them.
+- **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel
 
@@ -93,6 +100,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
+- Creating, resetting or promoting an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules)
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 

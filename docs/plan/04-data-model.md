@@ -25,7 +25,8 @@ TypeScript uses camelCase (`firstName`), and the database uses snake_case (`firs
 Phase 1  identity:   users, sessions, audit_logs
          workforce:  posts, shift_patterns, employment_periods
 Phase 2  attendance: devices, punch_events, work_segments, attendance_exceptions
-Phase 3  attendance: biometric_credentials
+Phase 3  attendance: biometric_consents, biometric_credentials, biometric_exemptions,
+                     device_passkeys, clock_in_attempts
 Phase 4  payroll:    payroll_periods, payroll_runs, payroll_lines, tax_tables, payslips
 Phase 5  detection:  detection_rules, detection_alerts
 ```
@@ -42,7 +43,7 @@ Phase 5  detection:  detection_rules, detection_alerts
 | `employee_id` | Matched from the device's user reference. Empty means unmatched, which creates an exception. |
 | `device_time`, `server_time` | Both are stored. A difference of more than 5 minutes flags the device. |
 | `direction` | IN, OUT or UNKNOWN. Some terminals do not send it, so pairing works it out. |
-| `method` | FINGERPRINT, FACE or PIN_FALLBACK. PIN punches are flagged, never treated as equal. |
+| `method` | FINGERPRINT, FACE, FACE_PASSKEY (face, then the kiosk's fingerprint sensor), STAFF_PASSKEY (staff number, then fingerprint) or PIN_FALLBACK. STAFF_PASSKEY and PIN_FALLBACK punches are flagged, never treated as equal. |
 | `payload_hash` | A fingerprint of the raw device message, so tampering is detectable |
 
 ### payroll_lines: the snapshot
@@ -51,9 +52,10 @@ Everything needed to recalculate a payslip is **copied into the line** when the 
 
 ### biometric_credentials
 
-- Stores **templates only** (the device vendor's format), encrypted with AES-256-GCM. The key is kept outside the database.
-- Records a quality score, who enrolled it, and the duplicate-check result: PENDING, PASSED or COLLISION.
-- A COLLISION blocks the employee's activation and opens a detection alert. This is how the system catches ghost worker trick number one: one person enrolled under two names.
+- Stores **templates only**, never images: a face template is 1,024 numbers from the kiosk, encrypted with AES-256-GCM and bound to its own row. The key is derived from `AUTH_SECRET`, which is kept outside the database. A ZKTeco finger stays on the terminal; we store only the proof that it was enrolled.
+- Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (a second ADMIN decided this face may be used) or NOT_CHECKED (a terminal finger).
+- A COLLISION keeps the employee pending until a second ADMIN decides: never the one who enrolled this face, nor anyone who revoked or withdrew a face of either record. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked for good. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
+- Consents and clock-in attempts are separate append-only tables, and fingerprint keys live in `device_passkeys`. The full design is in [Biometrics design](13-biometrics-design.md).
 
 ### Rehiring (decided for Phase 1)
 
@@ -79,6 +81,8 @@ The API connects as the owner of the tables, and row-level security does not res
 | Only the API can read the tables | Row-level security on every table, and Supabase's Data API switched off (Phase 0) |
 | One current site assignment per employee | Workforce service (Phase 1), with a partial unique index in a SQL migration if tooling allows |
 | A repeated punch is stored once | Unique `(device_id, device_event_id)` (Phase 2) |
+| Consents and clock-in attempts can only grow; biometric credentials and fingerprint keys are never deleted | Database triggers (Phase 3) |
+| At most one unwiped face per employee; a face blocked as a duplicate stays blocked | Partial unique index and the attendance service (Phase 3) |
 | An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |
 | Payroll runs only move forward: DRAFT → PENDING_APPROVAL → LOCKED → PAID | Payroll service plus a database trigger (Phase 4) |
