@@ -247,4 +247,48 @@ describe('mock devices API', () => {
     const read = await fetchClient.GET('/devices/{deviceId}', { params: { path: { deviceId } } });
     expect(read.data).not.toHaveProperty('secret');
   });
+
+  it('sets a serial number, and clears it with null', async () => {
+    await signInForTests('admin@samtec.example');
+    const { data: devices } = await fetchClient.GET('/devices');
+    const deviceId = devices?.items.find((device) => device.kind !== 'FACE_KIOSK')?.id ?? '';
+    const path = { params: { path: { deviceId } } };
+
+    const set = await fetchClient.PATCH('/devices/{deviceId}', {
+      ...path,
+      body: { serialNumber: 'CKJ1234567' },
+    });
+    expect(set.data?.serialNumber).toBe('CKJ1234567');
+    const cleared = await fetchClient.PATCH('/devices/{deviceId}', {
+      ...path,
+      body: { serialNumber: null },
+    });
+    expect(cleared.data?.serialNumber).toBeNull();
+
+    const tooLong = await fetchClient.PATCH('/devices/{deviceId}', {
+      ...path,
+      body: { serialNumber: 'X'.repeat(65) },
+    });
+    expect(tooLong.response.status).toBe(400);
+    expect(tooLong.error?.errors?.[0]?.path).toBe('serialNumber');
+  });
+
+  it('switches fingerprints on only for a kiosk', async () => {
+    await signInForTests('admin@samtec.example');
+    const { data: devices } = await fetchClient.GET('/devices');
+    const terminal = devices?.items.find((device) => device.kind !== 'FACE_KIOSK');
+    const refused = await fetchClient.PATCH('/devices/{deviceId}', {
+      params: { path: { deviceId: terminal?.id ?? '' } },
+      body: { passkeysEnabled: true },
+    });
+    expect(refused.response.status).toBe(400);
+    expect(refused.error?.errors?.[0]?.path).toBe('passkeysEnabled');
+
+    const kiosk = devices?.items.find((device) => device.kind === 'FACE_KIOSK');
+    const off = await fetchClient.PATCH('/devices/{deviceId}', {
+      params: { path: { deviceId: kiosk?.id ?? '' } },
+      body: { passkeysEnabled: false },
+    });
+    expect(off.data?.passkeysEnabled).toBe(false);
+  });
 });

@@ -80,7 +80,7 @@ HR creates the worker as `PENDING_ENROLLMENT`. The rest happens on the kiosk. Th
 **COLLISION.** The worker stays pending, and the kiosk shows only "Needs an admin review" (never who they looked like). An ADMIN **other than the one who enrolled them** checks both people's Ghana Cards in person and records a verdict with a note:
 
 - `DIFFERENT_PEOPLE` (for example brothers): the face becomes `CLEARED`, and the worker is activated.
-- `SAME_PERSON`: the new face is wiped and the worker stays pending, so HR can investigate a possible ghost.
+- `SAME_PERSON`: the new face is wiped (its status becomes `BLOCKED`) and the worker stays pending, so HR can investigate a possible ghost.
 
 Phase 5's rule R1 (duplicate biometrics) reads these rows, so no extra alerts table is needed.
 

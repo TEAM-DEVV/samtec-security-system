@@ -646,8 +646,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename a device or switch it off
-         * @description **Roles:** ADMIN. Send only the fields you want to change. A device is never deleted; `INACTIVE` refuses everything it sends from then on.
+         * Rename a device, switch it off, or change its Phase 3 settings
+         * @description **Roles:** ADMIN. Send only the fields you want to change. A device is never deleted; `INACTIVE` refuses everything it sends from then on. Phase 3 adds `serialNumber` (a ZKTeco terminal's serial, which its gateway uses) and `passkeysEnabled` (switches on the device's own fingerprint sensor; only a `FACE_KIOSK` can have it).
          */
         patch: operations["updateDevice"];
         trace?: never;
@@ -1934,8 +1934,11 @@ export interface components {
             fullName: string;
         };
         /**
-         * @description - `BIOMETRIC` — a fingerprint or face clock-in paired with its clock-out.
-         *     - `PIN_FALLBACK` — at least one of the two punches used a PIN: flagged.
+         * @description - `BIOMETRIC` — both punches were `FINGERPRINT`, `FACE` or
+         *       `FACE_PASSKEY` (face, then the kiosk's fingerprint sensor).
+         *     - `PIN_FALLBACK` — at least one of the two punches was `PIN_FALLBACK`
+         *       (a PIN or a supervisor's co-sign) or `STAFF_PASSKEY` (staff number,
+         *       then fingerprint): flagged, because neither proves who the worker is.
          *     - `MANUAL` — recorded by a person while resolving an exception.
          * @enum {string}
          */

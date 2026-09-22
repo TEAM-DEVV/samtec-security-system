@@ -4,12 +4,10 @@ import { signInForTests } from '@/test/session';
 import { CONSENT_SHA256, CONSENT_TEXT, mockCollisions } from '../data/biometrics';
 import { mockEmployees } from '../data/employees';
 import { resetMockBiometrics } from './biometrics';
-import { resetMockDevices } from './devices';
 
-// This file resets its own mock stores, so it needs no change to test/setup.ts.
+// This file resets its own mock store, so it needs no change to test/setup.ts.
 afterEach(() => {
   resetMockBiometrics();
-  resetMockDevices();
 });
 
 const enrolled = mockEmployees.find((employee) => employee.biometricEnrolledAt !== null);
@@ -124,17 +122,5 @@ describe('mock biometrics API', () => {
     await signInForTests('supervisor@samtec.example');
     const refused = await fetchClient.GET('/attendance/clock-in-attempts');
     expect(refused.response.status).toBe(403);
-  });
-
-  it('switches fingerprints on only for a kiosk', async () => {
-    await signInForTests('admin@samtec.example');
-    const { data: devices } = await fetchClient.GET('/devices');
-    const terminal = devices?.items.find((device) => device.kind !== 'FACE_KIOSK');
-    const refused = await fetchClient.PATCH('/devices/{deviceId}', {
-      params: { path: { deviceId: terminal?.id ?? '' } },
-      body: { passkeysEnabled: true },
-    });
-    expect(refused.response.status).toBe(400);
-    expect(refused.error?.errors?.[0]?.path).toBe('passkeysEnabled');
   });
 });
