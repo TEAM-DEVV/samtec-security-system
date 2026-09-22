@@ -68,6 +68,9 @@ export function SetPasswordPage() {
   const repeatInput = useRef<HTMLInputElement>(null);
   // Where keyboard focus goes when the page changes to another screen.
   const screenStart = useRef<HTMLElement | null>(null);
+  const markScreenStart = (element: HTMLElement | null) => {
+    screenStart.current = element;
+  };
 
   let screen: Screen = 'form';
   if (token === '') screen = 'incomplete';
@@ -191,7 +194,7 @@ export function SetPasswordPage() {
     return (
       <AuthLayout title="This link is incomplete" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p ref={screenStart} tabIndex={-1} className={focusable}>
+          <p ref={markScreenStart} tabIndex={-1} className={focusable}>
             Open the whole link from your administrator's message, or ask them for a new one. The
             link works once, for 72 hours.
           </p>
@@ -207,7 +210,7 @@ export function SetPasswordPage() {
     return (
       <AuthLayout title="Your password is set" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p ref={screenStart} tabIndex={-1} className={focusable}>
+          <p ref={markScreenStart} tabIndex={-1} className={focusable}>
             Sign in with your email and the password you just chose. Administrators and HR then set
             up two-factor authentication with an authenticator app.
           </p>
@@ -234,7 +237,7 @@ export function SetPasswordPage() {
     return (
       <AuthLayout title="Could not check this browser" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p ref={screenStart} tabIndex={-1} className={focusable}>
+          <p ref={markScreenStart} tabIndex={-1} className={focusable}>
             Someone may be signed in here, and SAMTEC did not answer in time. Try again, or sign out
             to continue with this link.
           </p>
@@ -260,7 +263,7 @@ export function SetPasswordPage() {
     return (
       <AuthLayout title="You are signed in" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p ref={screenStart} tabIndex={-1} className={focusable}>
+          <p ref={markScreenStart} tabIndex={-1} className={focusable}>
             You are signed in as <strong>{session.user.fullName}</strong> ({session.user.email}).
             This link chooses the password of the person it was sent to, so sign out first.
           </p>
