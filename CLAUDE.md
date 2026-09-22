@@ -64,6 +64,7 @@ Francis's and Samuel's sessions never message each other; they stay in sync thro
 3. **Expect overlaps in the shared files:** `apps/web/src/mocks/**`, `apps/web/src/test/setup.ts`, `packages/contracts/openapi.yaml` and `docs/plan/07-roadmap.md`. Both sides edit them; the fix is always to keep every change.
 4. **Merge as soon as a pull request is green,** and keep stacks short (two branches at most), so conflicts stay small.
 5. **Say what the other side must do in the pull request description,** not in chat. For example, a backend pull request that changes the contract lists the new endpoints and mock handlers for the dashboard.
+6. **A dashboard feature that needs data the API does not have yet** (including features beyond the plan): add it to `openapi.yaml` and the mock handlers first (rule 1 above), and list it under a heading **"For the API (Francis)"** in the pull request description, so the backend gets built to match. Francis's session looks for that heading in open pull requests at the start of every session.
 
 ## Current phase
 

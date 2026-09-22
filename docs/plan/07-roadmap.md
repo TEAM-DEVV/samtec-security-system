@@ -85,10 +85,12 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - Live attendance board and key figures: headcount present, absence rate, payroll cost trend
 - CSV and PDF reports; guards can view their own payslips
+- **Final visual level-up (Francis) — the last build step of the whole project.** Only once every feature works end to end, biometrics included: one design pass over the whole dashboard for a more executive, cinematic look. After it, only fixes.
 - **Exit demo:** a full dry run of the 15-minute client walkthrough
 
 ## Phase 7 · Hardening (week 14)
 
+- **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
@@ -96,8 +98,10 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
+- **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands
+- **Then production for the paying client:** a production environment separate from TEST (real client data only there), set up to the security plan
 
 ## Weekly check-in (15 minutes, both developers)
 
