@@ -54,6 +54,14 @@ tags:
       Posts (named guard positions at a site, like "Main Gate") and shift
       patterns (working hours, like a night shift from 18:00 to 06:00).
       Built in Phase 1.
+  - name: Devices
+    description: Clock-in terminals and kiosks, and their secrets. Built in Phase 2.
+  - name: Ingest
+    description: >-
+      Where devices send punches. Signed by the device (HMAC), never by a
+      user. Built in Phase 2.
+  - name: Attendance
+    description: Worked shifts and the exception queue. Built in Phase 2.
 
 security:
   - bearerAuth: []
@@ -1237,6 +1245,457 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /devices:
+    get:
+      tags: [Devices]
+      operationId: listDevices
+      summary: List clock-in devices
+      description: >-
+        **Roles:** ADMIN. Every terminal and kiosk of the company, sorted by
+        name, with its health: when it was last seen, how far its clock is
+        off, and how often someone tried to sign requests as it with the wrong
+        secret. The secret itself is never returned.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Devices]
+      operationId: registerDevice
+      summary: Register a clock-in device
+      description: >-
+        **Roles:** ADMIN. A device belongs to one site for life; to move a
+        terminal, register it again. The response carries the device's secret,
+        shown **only this once**: it goes into the device (or its gateway) and
+        signs every request the device sends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceRequest"
+            examples:
+              gate:
+                summary: The main gate terminal at Ridge Towers
+                value:
+                  name: Ridge Towers main gate
+                  siteId: 01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01
+                  kind: ZKTECO
+      responses:
+        "201":
+          description: The device was registered, with its one-time secret.
+          headers:
+            Location:
+              description: URL of the new device.
+              schema:
+                type: string
+                format: uri-reference
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceWithSecret"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /devices/{deviceId}:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      tags: [Devices]
+      operationId: getDevice
+      summary: Get one device
+      description: "**Roles:** ADMIN."
+      responses:
+        "200":
+          description: The device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Devices]
+      operationId: updateDevice
+      summary: Rename a device or switch it off
+      description: >-
+        **Roles:** ADMIN. Send only the fields you want to change. A device is
+        never deleted; `INACTIVE` refuses everything it sends from then on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDeviceRequest"
+      responses:
+        "200":
+          description: The updated device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /devices/{deviceId}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Devices]
+      operationId: rotateDeviceSecret
+      summary: Give a device a new secret
+      description: >-
+        **Roles:** ADMIN. The old secret stops working **at once**; there is no
+        overlap. The device keeps any batch that was not acknowledged and sends
+        it again once it has the new secret, so no punch is lost. The new
+        secret is shown only this once.
+      responses:
+        "200":
+          description: The device and its new one-time secret.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceWithSecret"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /ingest/punches:
+    post:
+      tags: [Ingest]
+      operationId: ingestPunches
+      summary: Send a batch of punches from a device
+      description: |
+        **Signed by a device, not a user.** Every request carries the three
+        `X-Samtec-*` headers described in the `deviceSignature` security
+        scheme. User access tokens are not accepted here.
+
+        - **Idempotent.** A punch is identified by its device and its
+          `deviceEventId`. Sending it again answers `DUPLICATE` and changes
+          nothing. The same `deviceEventId` with different content answers
+          `CONFLICT`: it is not stored, and the attempt is audited.
+        - **Up to 100 punches per batch.** A `deviceEventId` repeated inside
+          one batch is a `400`.
+        - **Rate limit:** 60 signed requests per minute per device (`429`
+          with `Retry-After`).
+
+        **What an ingest client does with each answer:**
+        `200` — every listed item is final (conflicts included): clear the
+        batch. `429` — wait `Retry-After` seconds. `401`, `5xx` or no answer —
+        keep the batch and send it again unchanged; that is always safe.
+        `400` or `413` — a software bug: do not resend the same batch forever.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestPunchesRequest"
+            examples:
+              morning:
+                summary: Two guards clock in at the main gate
+                value:
+                  deviceClockAt: "2026-09-22T06:02:10Z"
+                  punches:
+                    - deviceEventId: "4471"
+                      deviceUserRef: "42"
+                      deviceTime: "2026-09-22T05:58:31Z"
+                      direction: IN
+                      method: FINGERPRINT
+                    - deviceEventId: "4472"
+                      deviceUserRef: "17"
+                      deviceTime: "2026-09-22T06:01:05Z"
+                      direction: IN
+                      method: FACE
+      responses:
+        "200":
+          description: The batch was processed; each punch has its own result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestPunchesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /ingest/heartbeat:
+    post:
+      tags: [Ingest]
+      operationId: sendHeartbeat
+      summary: Tell the API a device is alive
+      description: >-
+        **Signed by a device** (see `ingestPunches`). Marks the device as seen,
+        records how far its clock is off (`deviceClockAt`), and lets the API
+        notice clock-ins that never got a clock-out. Send one every few
+        minutes. The answer carries the server's clock, so the device can
+        correct its own.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+      responses:
+        "200":
+          description: The heartbeat was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /attendance/segments:
+    get:
+      tags: [Attendance]
+      operationId: listWorkSegments
+      summary: List worked shifts
+      description: >-
+        **Roles:** every signed-in role, scoped. ADMIN and HR_PAYROLL see the
+        whole company; a SUPERVISOR sees only their own sites; a GUARD sees
+        only themselves. A site or employee the caller may not see answers
+        `404`. A work segment is one clock-in paired with its clock-out (or a
+        shift added by hand when an exception is resolved); its hours belong to the Ghana date
+        it started, so a 22:00–06:00 night shift counts on the first day.
+        Sorted by start time.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: The first work date, like `2026-09-01`.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: The last work date. At most 31 days after `from`.
+          schema:
+            type: string
+            format: date
+        - name: siteId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: employeeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Only this status. Leave it out for CONFIRMED and DISPUTED together.
+          schema:
+            $ref: "#/components/schemas/SegmentStatus"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of work segments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSegmentList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /attendance/exceptions:
+    get:
+      tags: [Attendance]
+      operationId: listAttendanceExceptions
+      summary: The attendance exception queue
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only exceptions whose every
+        site is theirs: an overlap that reaches a site they do not run is for
+        an ADMIN). Things a person must look at: a clock-in with no clock-out, a clock-out with
+        no clock-in, a user number that matches nobody, a punch from someone
+        who may not clock in, and one person on two shifts at once. Newest
+        first. Each item lists the actions the caller may take on it.
+      parameters:
+        - name: status
+          in: query
+          description: Defaults to OPEN.
+          schema:
+            $ref: "#/components/schemas/AttendanceExceptionStatus"
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/AttendanceExceptionType"
+        - name: siteId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of exceptions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceExceptionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /attendance/exceptions/{exceptionId}:
+    parameters:
+      - $ref: "#/components/parameters/ExceptionId"
+    get:
+      tags: [Attendance]
+      operationId: getAttendanceException
+      summary: Get one exception with its evidence
+      description: "**Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (only when every site it touches is theirs; others answer `404`)."
+      responses:
+        "200":
+          description: The exception.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceException"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /attendance/exceptions/{exceptionId}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/ExceptionId"
+    post:
+      tags: [Attendance]
+      operationId: resolveAttendanceException
+      summary: Resolve an exception
+      description: |
+        **Roles:** ADMIN for any site; SUPERVISOR for their own sites (both
+        sites, for an overlap; otherwise they cannot see it). HR_PAYROLL may read the queue but never
+        resolve it: the people who run payroll must not also create hours.
+        **Nobody resolves an exception about their own attendance** (`403`).
+
+        Every resolution needs a `note` (3–500 characters) and is audited.
+        The allowed actions depend on the type (see `allowedActions`):
+
+        - `DISMISS` — checked, nothing to change.
+        - `ADD_SEGMENT` (missing clock-in or clock-out) — records the shift
+          by hand. The window must contain the real punch's time, be at most
+          16 hours long and end in the past, so hours are only ever
+          completed around real biometric evidence. Hours that would overlap
+          another live (counted or disputed) shift of the same person answer
+          `409`.
+        - `KEEP_SEGMENT` (overlap) — keeps one of the two shifts and voids
+          the other.
+        - `VOID_ALL` (overlap) — voids both shifts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveExceptionRequest"
+            examples:
+              addSegment:
+                summary: A guard forgot to clock out after a night shift
+                value:
+                  action: ADD_SEGMENT
+                  startedAt: "2026-09-21T22:01:00Z"
+                  endedAt: "2026-09-22T06:00:00Z"
+                  note: Relief guard confirms the handover at 06:00.
+      responses:
+        "200":
+          description: The resolved exception.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceException"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Busy"
 
 components:
   securitySchemes:
@@ -1259,6 +1718,33 @@ components:
         started by another website. `SameSite=Strict` needs the dashboard and
         the API on the same site, as described in
         docs/plan/03-system-architecture.md.
+    deviceSignature:
+      type: apiKey
+      in: header
+      name: X-Samtec-Signature
+      description: |
+        Every request from a device is signed with that device's own secret
+        (shown once when the device is registered). Send three headers:
+
+        - `X-Samtec-Device`: the device ID.
+        - `X-Samtec-Timestamp`: the current time in Unix seconds. It must be
+          within 5 minutes of the server's clock.
+        - `X-Samtec-Signature`: lowercase hex HMAC-SHA256, keyed with the
+          secret (its UTF-8 bytes), of this exact text:
+
+              v1\n<timestamp>\n<route>\n<body>
+
+          where `<route>` is `ingest/punches` or `ingest/heartbeat` and
+          `<body>` is the exact JSON text sent as the request body.
+
+        Serialise the body once, sign that string, and send the same string.
+        A wrong signature, an unknown or switched-off device, and a stale
+        timestamp all answer the same `401`.
+
+        **Test vector** to check an implementation: secret `secret`,
+        timestamp `1700000000`, route `ingest/heartbeat`, body `{}` gives
+        `d03b57774ab52beacc6fa6485509d670f55eeff763faa674fa5f7a0372f85ae3`.
+
 
   headers:
     NoStore:
@@ -1270,6 +1756,38 @@ components:
         const: no-store
 
   parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: The device's ID.
+      schema:
+        type: string
+        format: uuid
+    ExceptionId:
+      name: exceptionId
+      in: path
+      required: true
+      description: The exception's ID.
+      schema:
+        type: string
+        format: uuid
+    DeviceHeader:
+      name: X-Samtec-Device
+      in: header
+      required: true
+      description: The signing device's ID (see the `deviceSignature` security scheme).
+      schema:
+        type: string
+        format: uuid
+    TimestampHeader:
+      name: X-Samtec-Timestamp
+      in: header
+      required: true
+      description: The signing time in Unix seconds, within 5 minutes of the server clock.
+      schema:
+        type: string
+        pattern: "^[0-9]{1,12}$"
     Cursor:
       name: cursor
       in: query
@@ -1328,6 +1846,35 @@ components:
         format: uuid
 
   responses:
+    DeviceNotTrusted:
+      description: >-
+        The signature is wrong, the device is unknown or switched off, or the
+        timestamp is more than 5 minutes from the server clock. Always the same
+        answer, so nobody can learn which device IDs exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    PayloadTooLarge:
+      description: The request body is larger than 100 kB. Send smaller batches.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    Busy:
+      description: >-
+        The API is busy with another batch for the same company. Nothing was
+        stored; send the same request again in a few seconds.
+      headers:
+        Retry-After:
+          description: How many seconds to wait before trying again.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
     BadRequest:
       description: The request is invalid. The `errors` list says which fields are wrong.
       content:
@@ -2426,3 +2973,559 @@ components:
           $ref: "#/components/schemas/ShiftTime"
         endTime:
           $ref: "#/components/schemas/ShiftTime"
+
+    DeviceKind:
+      type: string
+      description: |
+        What sends the punches. Descriptive only: every kind signs its
+        requests the same way.
+        - `MOCK` — the simulator, for development and the demo.
+        - `ZKTECO` — a ZKTeco fingerprint or face terminal (through its gateway, Phase 3).
+        - `FACE_KIOSK` — the SAMTEC face kiosk (Phase 3).
+      enum: [MOCK, ZKTECO, FACE_KIOSK]
+
+    DeviceStatus:
+      type: string
+      description: "`INACTIVE` refuses every request the device sends. Devices are never deleted."
+      enum: [ACTIVE, INACTIVE]
+
+    Device:
+      type: object
+      required:
+        - id
+        - name
+        - siteId
+        - kind
+        - status
+        - lastSeenAt
+        - lastClockDriftSeconds
+        - failedSignatureCount
+        - lastFailedSignatureAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: [Ridge Towers main gate]
+        siteId:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/DeviceKind"
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+          description: The last correctly signed request, or `null` if none yet.
+        lastClockDriftSeconds:
+          type: [integer, "null"]
+          description: >-
+            How far the device's clock was from the server's at its last report
+            (positive = the device runs fast). More than 300 seconds either way
+            means its punch times are suspect.
+        failedSignatureCount:
+          type: integer
+          minimum: 0
+          description: >-
+            Minutes in which someone sent requests as this device with a wrong
+            signature (counted at most once a minute). Anything above zero is
+            worth a look.
+        lastFailedSignatureAt:
+          type: [string, "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    DeviceList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    RegisterDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [name, siteId, kind]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+          description: Unique within the company.
+        siteId:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/DeviceKind"
+
+    UpdateDeviceRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+
+    DeviceWithSecret:
+      type: object
+      description: A device plus its secret, shown only in this one response.
+      required: [device, secret]
+      properties:
+        device:
+          $ref: "#/components/schemas/Device"
+        secret:
+          type: string
+          description: >-
+            32 random bytes, base64url-encoded. Put it into the device or its
+            gateway; the API keeps only an encrypted copy and never shows it again.
+          examples: [3q2-7wQkXv9m0y1ZbTn8LpRsUe4GhJcA5dKfWxYz6iB]
+
+    PunchDirection:
+      type: string
+      description: "`UNKNOWN` when the device does not say; pairing then works it out."
+      enum: [IN, OUT, UNKNOWN]
+
+    PunchMethod:
+      type: string
+      description: "`PIN_FALLBACK` is flagged everywhere: a PIN proves nothing about who typed it."
+      enum: [FINGERPRINT, FACE, PIN_FALLBACK]
+
+    IngestPunch:
+      type: object
+      additionalProperties: false
+      required: [deviceEventId, deviceUserRef, deviceTime, direction, method]
+      properties:
+        deviceEventId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[!-~]+$"
+          description: >-
+            The device's own ID for this punch (printable ASCII, no spaces).
+            Together with the device it identifies the punch forever.
+        deviceUserRef:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: >-
+            The user number the device matched: the digits of the staff
+            number (`42` or `00042` for SMT-00042), or the staff number itself.
+        deviceTime:
+          type: string
+          format: date-time
+          description: When the punch happened, by the device's clock, with its UTC offset.
+        direction:
+          $ref: "#/components/schemas/PunchDirection"
+        method:
+          $ref: "#/components/schemas/PunchMethod"
+
+    IngestPunchesRequest:
+      type: object
+      additionalProperties: false
+      required: [punches]
+      properties:
+        deviceClockAt:
+          type: string
+          format: date-time
+          description: The device's clock at the moment it sent the batch, used to measure drift.
+        punches:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/IngestPunch"
+
+    PunchResultStatus:
+      type: string
+      description: |
+        - `ACCEPTED` — stored now.
+        - `DUPLICATE` — already stored earlier, identical. Nothing changed.
+        - `CONFLICT` — this `deviceEventId` was stored earlier with different
+          content. The new version was not stored; the attempt is audited.
+      enum: [ACCEPTED, DUPLICATE, CONFLICT]
+
+    PunchResult:
+      type: object
+      required: [deviceEventId, status, punchId]
+      properties:
+        deviceEventId:
+          type: string
+        status:
+          $ref: "#/components/schemas/PunchResultStatus"
+        punchId:
+          type: string
+          format: uuid
+          description: The stored punch (for `CONFLICT`, the one stored earlier).
+
+    IngestPunchesResponse:
+      type: object
+      required: [serverTime, accepted, duplicates, conflicts, results]
+      properties:
+        serverTime:
+          type: string
+          format: date-time
+        accepted:
+          type: integer
+          minimum: 0
+        duplicates:
+          type: integer
+          minimum: 0
+        conflicts:
+          type: integer
+          minimum: 0
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunchResult"
+
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceClockAt:
+          type: string
+          format: date-time
+
+    HeartbeatResponse:
+      type: object
+      required: [serverTime]
+      properties:
+        serverTime:
+          type: string
+          format: date-time
+
+    EmployeeRef:
+      type: object
+      description: Just enough of an employee to name them.
+      required: [id, staffNumber, fullName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        fullName:
+          type: string
+
+    SegmentBasis:
+      type: string
+      description: |
+        - `BIOMETRIC` — a fingerprint or face clock-in paired with its clock-out.
+        - `PIN_FALLBACK` — at least one of the two punches used a PIN: flagged.
+        - `MANUAL` — recorded by a person while resolving an exception.
+      enum: [BIOMETRIC, PIN_FALLBACK, MANUAL]
+
+    SegmentStatus:
+      type: string
+      description: |
+        - `CONFIRMED` — counts as worked time.
+        - `DISPUTED` — overlaps another shift of the same person; counts only
+          once a person resolves the overlap.
+        - `VOIDED` — no longer counts (replaced by later punches, or voided by a person).
+      enum: [CONFIRMED, DISPUTED, VOIDED]
+
+    WorkSegment:
+      type: object
+      required:
+        - id
+        - employee
+        - siteId
+        - workDate
+        - startedAt
+        - endedAt
+        - workedMinutes
+        - basis
+        - status
+        - clockInPunchId
+        - clockOutPunchId
+      properties:
+        id:
+          type: string
+          format: uuid
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        siteId:
+          type: string
+          format: uuid
+        workDate:
+          type: string
+          format: date
+          description: The Ghana (Africa/Accra) date the shift started on. All its hours belong to it.
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        workedMinutes:
+          type: integer
+          minimum: 0
+          maximum: 960
+        basis:
+          $ref: "#/components/schemas/SegmentBasis"
+        status:
+          $ref: "#/components/schemas/SegmentStatus"
+        clockInPunchId:
+          type: [string, "null"]
+          format: uuid
+          description: "`null` for MANUAL segments."
+        clockOutPunchId:
+          type: [string, "null"]
+          format: uuid
+
+    WorkSegmentList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkSegment"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    AttendanceExceptionType:
+      type: string
+      description: |
+        - `MISSING_CLOCK_OUT` — a clock-in with no clock-out within 16 hours.
+        - `MISSING_CLOCK_IN` — a clock-out with no clock-in in the 16 hours before it.
+        - `UNKNOWN_EMPLOYEE` — a device user number that matches nobody
+          (grouped per device, number and day).
+        - `INACTIVE_EMPLOYEE` — a punch from someone who may not clock in:
+          waiting for enrollment, suspended, or after their termination date
+          (grouped per person and day).
+        - `OVERLAP` — one person on two shifts at the same time (often at two sites).
+      enum: [MISSING_CLOCK_OUT, MISSING_CLOCK_IN, UNKNOWN_EMPLOYEE, INACTIVE_EMPLOYEE, OVERLAP]
+
+    AttendanceExceptionStatus:
+      type: string
+      description: |
+        - `OPEN` — waiting for a person.
+        - `RESOLVED` — a person dealt with it (see `resolution`).
+        - `AUTO_CLOSED` — later punches cleared it (for example a late clock-out arrived).
+      enum: [OPEN, RESOLVED, AUTO_CLOSED]
+
+    ExceptionResolutionAction:
+      type: string
+      enum: [DISMISS, ADD_SEGMENT, KEEP_SEGMENT, VOID_ALL]
+
+    PunchSummary:
+      type: object
+      description: The evidence behind an exception.
+      required: [id, deviceId, deviceName, deviceUserRef, deviceTime, serverTime, direction, method, clockSuspect]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        deviceUserRef:
+          type: string
+        deviceTime:
+          type: string
+          format: date-time
+        serverTime:
+          type: string
+          format: date-time
+          description: When the API received it. Much later than `deviceTime` means the device was offline.
+        direction:
+          $ref: "#/components/schemas/PunchDirection"
+        method:
+          $ref: "#/components/schemas/PunchMethod"
+        clockSuspect:
+          type: boolean
+          description: The device's clock was more than 5 minutes off, or the time is impossible.
+
+    ExceptionResolution:
+      type: object
+      required: [action, note, resolvedAt, resolvedByUserId]
+      properties:
+        action:
+          $ref: "#/components/schemas/ExceptionResolutionAction"
+        note:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolvedByUserId:
+          type: string
+          format: uuid
+
+    AttendanceException:
+      type: object
+      required:
+        - id
+        - type
+        - status
+        - siteId
+        - secondSiteId
+        - employee
+        - workDate
+        - occurredAt
+        - punch
+        - segments
+        - resolution
+        - resolutionSegmentId
+        - allowedActions
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/AttendanceExceptionType"
+        status:
+          $ref: "#/components/schemas/AttendanceExceptionStatus"
+        siteId:
+          type: string
+          format: uuid
+        secondSiteId:
+          type: [string, "null"]
+          format: uuid
+          description: For an OVERLAP at two sites, the other site.
+        employee:
+          description: "`null` for UNKNOWN_EMPLOYEE."
+          oneOf:
+            - $ref: "#/components/schemas/EmployeeRef"
+            - type: "null"
+        workDate:
+          type: string
+          format: date
+        occurredAt:
+          type: string
+          format: date-time
+        punch:
+          description: The punch it is about; `null` for OVERLAP.
+          oneOf:
+            - $ref: "#/components/schemas/PunchSummary"
+            - type: "null"
+        segments:
+          type: array
+          maxItems: 2
+          description: For OVERLAP, the two shifts; otherwise empty.
+          items:
+            $ref: "#/components/schemas/WorkSegment"
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/ExceptionResolution"
+            - type: "null"
+        resolutionSegmentId:
+          type: [string, "null"]
+          format: uuid
+          description: The MANUAL segment an `ADD_SEGMENT` resolution created.
+        allowedActions:
+          type: array
+          description: What the caller may do now. Empty when it is not OPEN or the caller may not resolve it.
+          items:
+            $ref: "#/components/schemas/ExceptionResolutionAction"
+        createdAt:
+          type: string
+          format: date-time
+
+    AttendanceExceptionList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceException"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ResolutionNote:
+      type: string
+      minLength: 3
+      maxLength: 500
+      description: Why. Shown to other reviewers; never copied into the audit log.
+
+    DismissResolution:
+      type: object
+      additionalProperties: false
+      required: [action, note]
+      properties:
+        action:
+          type: string
+          const: DISMISS
+        note:
+          $ref: "#/components/schemas/ResolutionNote"
+
+    AddSegmentResolution:
+      type: object
+      additionalProperties: false
+      required: [action, startedAt, endedAt, note]
+      properties:
+        action:
+          type: string
+          const: ADD_SEGMENT
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        note:
+          $ref: "#/components/schemas/ResolutionNote"
+
+    KeepSegmentResolution:
+      type: object
+      additionalProperties: false
+      required: [action, segmentId, note]
+      properties:
+        action:
+          type: string
+          const: KEEP_SEGMENT
+        segmentId:
+          type: string
+          format: uuid
+          description: The one of the exception's two segments to keep.
+        note:
+          $ref: "#/components/schemas/ResolutionNote"
+
+    VoidAllResolution:
+      type: object
+      additionalProperties: false
+      required: [action, note]
+      properties:
+        action:
+          type: string
+          const: VOID_ALL
+        note:
+          $ref: "#/components/schemas/ResolutionNote"
+
+    ResolveExceptionRequest:
+      oneOf:
+        - $ref: "#/components/schemas/DismissResolution"
+        - $ref: "#/components/schemas/AddSegmentResolution"
+        - $ref: "#/components/schemas/KeepSegmentResolution"
+        - $ref: "#/components/schemas/VoidAllResolution"
+      discriminator:
+        propertyName: action
+        mapping:
+          DISMISS: "#/components/schemas/DismissResolution"
+          ADD_SEGMENT: "#/components/schemas/AddSegmentResolution"
+          KEEP_SEGMENT: "#/components/schemas/KeepSegmentResolution"
+          VOID_ALL: "#/components/schemas/VoidAllResolution"

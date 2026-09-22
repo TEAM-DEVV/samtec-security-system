@@ -47,7 +47,9 @@ function toShiftPatternSummary(
 }
 
 /** First, other and last names joined for display: "Kwame Kofi Mensah". */
-export function fullNameOf(employee: Employee): string {
+export function fullNameOf(
+  employee: Pick<Employee, 'firstName' | 'otherNames' | 'lastName'>,
+): string {
   return [employee.firstName, employee.otherNames, employee.lastName]
     .filter((part) => part !== null && part.length > 0)
     .join(' ');

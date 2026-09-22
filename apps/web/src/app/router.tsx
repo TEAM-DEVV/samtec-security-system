@@ -10,6 +10,7 @@ import { LoginPage } from '@/pages/login-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
+import { SetPasswordPage } from '@/pages/set-password-page';
 import { SitesPage } from '@/pages/sites-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
@@ -33,6 +34,8 @@ export const router = createBrowserRouter([
     element: <TwoFactorSetupPage />,
     errorElement: <RouteErrorPage />,
   },
+  // Public: the one-time link is the proof, so no sign-in is needed.
+  { path: routes.setPassword, element: <SetPasswordPage />, errorElement: <RouteErrorPage /> },
   {
     path: routes.home,
     // Everything inside the shell needs a signed-in user.

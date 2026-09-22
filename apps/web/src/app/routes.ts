@@ -14,4 +14,6 @@ export const routes = {
   twoFactorVerify: '/login/two-factor',
   /** The QR code screen, after a sign-in answered TWO_FACTOR_SETUP_REQUIRED. */
   twoFactorSetup: '/login/two-factor/setup',
+  /** Public: where a one-time password link (`/set-password#token=…`) lands. */
+  setPassword: '/set-password',
 } as const;

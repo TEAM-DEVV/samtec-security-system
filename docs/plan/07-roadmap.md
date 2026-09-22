@@ -40,18 +40,21 @@ This page is the authoritative checklist for every phase. The timing assumes par
 Added to Phase 1 during the build (needed before the pilot, and by Phase 4's maker–checker and Phase 6's guard payslips):
 
 - [x] User management (API): administrators create, change, switch off and reset sign-in accounts; owners choose their own password with a one-time link; the token guard checks the account on every request; terminating an employee switches their account off; an audited script creates the first administrator
-- [ ] Dashboard (Samuel): Users pages for ADMIN, the public set-password page and a change-password form — the mock API already supports them
+- [x] Dashboard: the public set-password page, where a one-time link lands (`/set-password#token=…`)
+- [ ] Dashboard (Samuel): Users pages for ADMIN and a change-password form — the mock API already supports them
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)
 
 **Goal: the whole punch-to-hours pipeline with no hardware.**
 
-- `BiometricProvider` interface and a mock provider that simulates punches, clock drift and repeated sends
-- `POST /ingest/punches` with HMAC signatures and idempotency
-- Pairing of clock-ins and clock-outs into work segments
-- Exception queue (missing clock-out, overlaps, unknown employee) with a resolution screen
-- Night shifts from 22:00 to 06:00 proven with tests
-- **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in
+- [x] Contract and dashboard mocks for devices, ingest, work segments and the exception queue; every rule in [Attendance design](12-attendance-design.md)
+- [x] `BiometricProvider` interface and a mock provider; a device simulator that replays punches with clock drift and repeated sends (`mock:devices`)
+- [x] Device registry (secret shown once, stored encrypted) and `POST /ingest/punches` with HMAC signatures, idempotency and a per-device rate limit
+- [x] Pairing of clock-ins and clock-outs into work segments, re-paired from scratch over 62 days, so arrival order never matters
+- [x] Exception queue API (missing clock-out or clock-in, unknown or inactive employee, overlaps) and resolving it: nobody resolves their own attendance, and HR reads but never creates hours
+- [x] Night shifts from 22:00 to 06:00 proven with tests (480 minutes, counted on the start date)
+- [ ] Dashboard (Samuel): attendance day view, a guard's "My attendance", the exception queue with its resolution screen, and the Devices page (ADMIN). The mock API already supports them.
+- **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in ([The attendance demo](../guides/10-attendance-demo.md))
 
 ## Phase 3 · Real biometrics (weeks 6 and 7)
 
@@ -83,10 +86,12 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - Live attendance board and key figures: headcount present, absence rate, payroll cost trend
 - CSV and PDF reports; guards can view their own payslips
+- **Final visual level-up (Francis) — the last build step of the whole project.** Only once every feature works end to end, biometrics included: one design pass over the whole dashboard for a more executive, cinematic look. After it, only fixes.
 - **Exit demo:** a full dry run of the 15-minute client walkthrough
 
 ## Phase 7 · Hardening (week 14)
 
+- **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
@@ -94,8 +99,10 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
+- **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands
+- **Then production for the paying client:** a production environment separate from TEST (real client data only there), set up to the security plan
 
 ## Weekly check-in (15 minutes, both developers)
 
