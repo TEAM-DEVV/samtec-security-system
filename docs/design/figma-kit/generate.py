@@ -171,7 +171,9 @@ def topbar(w=1440, sx=256, mode="Live API", theme="System"):
 def frame(name, w, h, *parts, bg=BG):
     body = "".join(parts)
     return (f'<svg id="{name}" width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
-            f'xmlns="http://www.w3.org/2000/svg">{R(0, 0, w, h, bg)}{body}</svg>')
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'<title>SAMTEC dashboard design — {name}</title>'
+            f'{R(0, 0, w, h, bg)}{body}</svg>')
 
 def card(x, y, w, h, *parts, dark=False):
     return G("card", R(x, y, w, h, D_CARD if dark else CARD, rx=14,
