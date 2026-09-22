@@ -89,9 +89,16 @@ describe('mock biometrics API', () => {
       body: { decision: 'APPROVE', note: 'Approving my own withdrawal.' },
     });
     expect(own.response.status).toBe(403);
+    // Nor can a revoke quietly end the request: only a second ADMIN may close it.
+    const revoke = await fetchClient.POST('/employees/{employeeId}/biometrics/revoke', {
+      ...path,
+      body: { reason: 'Closing the request myself.' },
+    });
+    expect(revoke.response.status).toBe(409);
 
     await signInForTests('supervisor@samtec.example');
     const seen = await fetchClient.GET('/employees/{employeeId}/biometrics', path);
+    expect(seen.data?.exemption?.status).toBe('REQUESTED');
     expect(seen.data?.exemption?.reason).toBe('CONSENT_WITHDRAWN');
     expect(seen.data?.exemption?.note).toBeNull();
   });

@@ -48,7 +48,7 @@ The attendance module owns every new table. Each table has row-level security, U
 - **Punch methods.** `PunchMethod` gains `FACE_PASSKEY` and `STAFF_PASSKEY`. `POST /ingest/punches` accepts a narrower list (`IngestPunchMethod`: `FINGERPRINT`, `FACE`, `PIN_FALLBACK`), so a terminal can never claim a kiosk method.
 - **Devices** gain `serialNumber` (a ZKTeco terminal's serial, for the gateway) and `passkeysEnabled` (only a `FACE_KIOSK` can switch it on). A new exception type, `UNEXPECTED_DEVICE_ENROLLMENT`, is raised when a terminal reports a finger nobody asked for.
 - **Workforce** gains the calls the attendance module uses to set or clear `biometricEnrolledAt`, to move an employee between `PENDING_ENROLLMENT` and `ACTIVE`, and to check the Ghana Card digits (`checkGhanaCardLast4`). That keeps the module boundary: attendance never writes the employees table itself.
-- **The activation rule.** Biometrics only ever move an employee from `PENDING_ENROLLMENT` to `ACTIVE` (a `PASSED` face, a face a second ADMIN cleared, or an approved exemption) and from `ACTIVE` back to `PENDING_ENROLLMENT` (a revoke, which also ends any exemption; a new enrollment; a withdrawal of consent, until a second ADMIN approves the exemption the API files; or a record blocked as a duplicate). They never touch a `SUSPENDED` or `TERMINATED` employee. No other endpoint can make an employee `ACTIVE`, so the biometric check is the only door.
+- **The activation rule.** Biometrics only ever move an employee from `PENDING_ENROLLMENT` to `ACTIVE` (a `PASSED` face, a face a second ADMIN cleared, or an approved exemption) and from `ACTIVE` back to `PENDING_ENROLLMENT` (a revoke, which also ends an approved exemption; a new enrollment; a withdrawal of consent, until a second ADMIN approves the exemption the API files; or a record blocked as a duplicate). They never touch a `SUSPENDED` or `TERMINATED` employee. No other endpoint can make an employee `ACTIVE`, so the biometric check is the only door.
 - **Pairing** decides a segment's basis from its punches' methods with one exhaustive function: `FINGERPRINT`, `FACE` and `FACE_PASSKEY` give `BIOMETRIC`; `STAFF_PASSKEY` and `PIN_FALLBACK` give `PIN_FALLBACK`. The weaker punch of a pair decides.
 
 **Encryption.** A face template is a list of 1,024 numbers, not a photo. It is still personal data, because such numbers can be turned back into a rough face. It is stored with AES-256-GCM, like the device secrets and the authenticator secrets:
@@ -108,7 +108,7 @@ A cleared face activates the worker only if they are `PENDING_ENROLLMENT`, and o
 
 So an ADMIN can never wipe a collision away and retry captures until a score slips under the threshold. Phase 5's rule R1 (duplicate biometrics) reads these rows, so no extra alerts table is needed.
 
-**One open question at a time.** An open duplicate review or an exemption request waiting stops consent, enrollment and new exemption requests (`409`) until a second ADMIN settles it; each has exactly one way out, and it goes through that second ADMIN. A face blocked as a duplicate stops them for good: only termination follows.
+**One open question at a time.** An open duplicate review or an exemption request waiting stops consent, enrollment, new exemption requests and revokes (`409`) until a second ADMIN settles it; each has exactly one way out, and it goes through that second ADMIN. A face blocked as a duplicate stops them for good: only termination follows.
 
 **Refusing consent.** An exemption takes **two ADMINs**, like the collision review:
 
@@ -176,7 +176,7 @@ The worker types their staff number. A supervisor then passes identify with purp
 - `POST /kiosk/assisted-punches` must come from the **same device**, within 60 seconds. It checks everything:
   - the supervisor is ACTIVE, assigned to this site, and not the worker;
   - the worker is ACTIVE (or waiting for a withdrawal's decision) and posted to this site;
-  - the worker is exempt, or the fallback is unlocked.
+  - the worker is exempt, or is waiting for a withdrawal's decision (`PENDING_ENROLLMENT` with a `CONSENT_WITHDRAWN` request waiting), or has a face in use and the fallback is unlocked. An exempt or waiting worker goes straight to "Ask your supervisor", with no face scan and no unlock.
 
   Every refusal gets one identical answer.
 - It then makes **one** `PIN_FALLBACK` punch, with the reason audited. The punch's ID comes from the co-sign attempt, so a co-sign can never be reused for a second punch, on another kiosk, or for a different worker.
@@ -280,8 +280,8 @@ At most two open at a time, merged as soon as each is green.
 | 1 | Contract, mock API, this page and the plan updates | `contracts:check`; the mock API's rules |
 | 2 | Migration, device-kind checks, `IngestPunchMethod`, the basis function | Triggers refuse UPDATE and DELETE; a kiosk on `/ingest/punches` → 401 |
 | 3 | Face matching, template encryption, the face provider | Same values as Human; a template moved to another row fails to decrypt |
-| 4 | Kiosk sign-in (`KIOSK_ORIGINS`, no refresh cookie, kiosk-only token), consent, enrollment, collisions, revoke, withdraw, the two-ADMIN exemption, retention sweep | The same face twice → COLLISION; parallel enrollments caught; resolver ≠ enroller; nobody decides on their own action (the enroller, the asker, whoever wiped a face); a withdrawn face enrolled again on a new record leaves the first record unable to work until a second ADMIN approves; a revoke during a review → 409; a blocked record stays blocked through revoke, withdrawal and the sweep; withdrawal never activates; a suspended worker stays suspended; overlapping origin lists stop the API; clean logs |
-| 5 | Identify, confirm, "Not me", co-sign, the live clock-ins board | A resend → `DUPLICATE`; the margin rule; no scores returned; one co-sign makes one punch, on its own device only, and only for an exempt worker or after the unlock; confirm refuses a co-sign; every fallback call uses up its unlock |
+| 4 | Kiosk sign-in (`KIOSK_ORIGINS`, no refresh cookie, kiosk-only token), consent, enrollment, collisions, revoke, withdraw, the two-ADMIN exemption, retention sweep | The same face twice → COLLISION; parallel enrollments caught; resolver ≠ enroller; nobody decides on their own action (the enroller, the asker, whoever wiped a face); a withdrawn face enrolled again on a new record leaves the first record `PENDING_ENROLLMENT` and unpaid until a second ADMIN approves; a revoke during a review, or while an exemption request waits → 409; a blocked record stays blocked through revoke, withdrawal and the sweep; withdrawal never activates; a suspended worker stays suspended; overlapping origin lists stop the API; clean logs |
+| 5 | Identify, confirm, "Not me", co-sign, the live clock-ins board | A resend → `DUPLICATE`; the margin rule; no scores returned; one co-sign makes one punch, on its own device only, and only for an exempt worker, a worker waiting for a withdrawal's decision (the punch raises `INACTIVE_EMPLOYEE`), or after the unlock; a pending worker with no withdrawal waiting is refused; confirm refuses a co-sign; every fallback call uses up its unlock |
 | 6 | `apps/kiosk` (needs the owner's OK for a new Vercel project) | Shared signature vectors; Playwright. **The face demo works.** |
 | 7 | Passkeys | No user verification, keys from another device, and foreign keys all refused. **The full demo works.** |
 | 8 | Gateway and fake terminal | Outbox written before `OK`; 500 lines → 5 batches |

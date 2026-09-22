@@ -430,7 +430,7 @@ export interface paths {
         put?: never;
         /**
          * Register a new employee
-         * @description **Roles:** ADMIN, HR_PAYROLL. The API generates the staff number. New employees start as `PENDING_ENROLLMENT` and cannot clock in or be paid until their biometrics are enrolled (Phase 3).
+         * @description **Roles:** ADMIN, HR_PAYROLL. The API generates the staff number. New employees start as `PENDING_ENROLLMENT` and are not paid until their biometrics are enrolled (Phase 3).
          */
         post: operations["createEmployee"];
         delete?: never;
@@ -1167,7 +1167,7 @@ export interface paths {
         put?: never;
         /**
          * Delete an employee's face and fingerprint keys
-         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` if they were `ACTIVE` (a `SUSPENDED` or `TERMINATED` employee is unchanged) and must be enrolled again. It also ends any exemption, so a worker who was `ACTIVE` only through an exemption needs two ADMINs again. Refused while the worker has an open duplicate-enrollment review (a second ADMIN decides it first, so a revoke can never wipe away a question), and for a record blocked as a duplicate (that block is final). Audited with the reason; the history rows stay.
+         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` if they were `ACTIVE` (a `SUSPENDED` or `TERMINATED` employee is unchanged) and must be enrolled again. It also ends an approved exemption, so a worker who was `ACTIVE` only through an exemption needs two ADMINs again. Refused while the worker has an open question: an open duplicate-enrollment review, or an exemption request waiting (a second ADMIN decides either first, so a revoke can never wipe away a question), and for a record blocked as a duplicate (that block is final). Audited with the reason; the history rows stay.
          */
         post: operations["revokeEmployeeBiometrics"];
         delete?: never;
@@ -1628,7 +1628,7 @@ export interface components {
         };
         /**
          * @description Where the employee is in their working life with the company.
-         *     - `PENDING_ENROLLMENT` — registered, but biometrics are not enrolled yet. Cannot clock in or be paid.
+         *     - `PENDING_ENROLLMENT` — registered, but biometrics are not enrolled yet. Any punch is stored but raises `INACTIVE_EMPLOYEE` and is not paid; the one exception is a worker whose withdrawal of consent waits for a second ADMIN, whose hours are paid once it is approved.
          *     - `ACTIVE` — enrolled and verified. Can clock in and appears on payroll.
          *     - `SUSPENDED` — temporarily blocked from clocking in and from payroll.
          *     - `TERMINATED` — has left the company. Kept for history and never deleted.
@@ -2529,7 +2529,7 @@ export interface components {
          * @description - `REQUESTED`: waiting for a second ADMIN.
          *     - `APPROVED`: the worker may work without biometrics.
          *     - `REJECTED`: the second ADMIN said no.
-         *     - `ENDED`: no longer applies: a face passed the duplicate check later, the face was revoked, or the record was blocked as a duplicate.
+         *     - `ENDED`: no longer applies: a face passed the duplicate check later, an approved exemption was revoked, or the record was blocked as a duplicate.
          * @enum {string}
          */
         ExemptionStatus: "REQUESTED" | "APPROVED" | "REJECTED" | "ENDED";
@@ -4448,7 +4448,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["DeviceNotTrusted"];
-            /** @description The co-sign cannot be used. Every reason gets this same answer, so the kiosk cannot reveal who works where: it is not a matched `CO_SIGN` attempt from this device in the last 60 seconds, the supervisor's finger is missing or wrong, it names the supervisor themselves, the staff number is unknown, not ACTIVE or not posted here, or the worker is neither exempt, nor waiting for a withdrawal's decision, nor (with a face in use) unlocked by failed face attempts. */
+            /** @description The co-sign cannot be used. Every reason gets this same answer, so the kiosk cannot reveal who works where: it is not a matched `CO_SIGN` attempt from this device in the last 60 seconds, the supervisor's finger is missing or wrong, it names the supervisor themselves, the staff number is unknown or not posted here, or the worker is neither exempt, nor waiting for a withdrawal's decision, nor ACTIVE with a face in use and unlocked by failed face attempts. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4754,7 +4754,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The worker has an open duplicate-enrollment review (decide it first), or the record is blocked as a duplicate. */
+            /** @description The worker has an open duplicate-enrollment review or an exemption request waiting (decide it first), or the record is blocked as a duplicate. */
             409: {
                 headers: {
                     [name: string]: unknown;

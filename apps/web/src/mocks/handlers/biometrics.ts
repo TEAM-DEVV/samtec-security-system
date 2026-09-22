@@ -275,15 +275,20 @@ export const biometricHandlers = [
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
       // A revoke can never wipe away a question that a second ADMIN must
-      // answer, nor undo a block, which is final.
-      if (openCollisionOf(found.employee.id) || found.record.face.status === 'BLOCKED') {
+      // answer (an open review, or an exemption request waiting), nor undo a
+      // block, which is final.
+      if (
+        openCollisionOf(found.employee.id) ||
+        found.record.exemption?.status === 'REQUESTED' ||
+        found.record.face.status === 'BLOCKED'
+      ) {
         return conflict(
-          'This worker has an open duplicate-enrollment review, or is blocked as a duplicate.',
+          'This worker has an open question for a second ADMIN, or is blocked as a duplicate.',
         );
       }
       wipe(found.record);
       rememberWiper(found.employee.id, user);
-      // An exemption ends too, so working without a face needs two ADMINs again.
+      // An approved exemption ends too, so working without a face needs two ADMINs again.
       endExemption(found.record);
       return HttpResponse.json<EmployeeBiometrics>(found.record);
     },
