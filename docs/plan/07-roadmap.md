@@ -62,7 +62,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - [x] Contract, mock API and design for the kiosk, biometrics and the live clock-ins board
 - [x] Migration: consents, credentials, exemptions, fingerprint keys and clock-in attempts, with the rules the database enforces itself; device kinds checked on every signed route; the basis rule for the kiosk methods; `PATCH /devices` sets a serial number and switches fingerprints
-- [ ] Face matching on the server with Human's formula, templates encrypted and bound to their row
+- [x] Face matching on the server with Human's formula, templates encrypted and bound to their row
 - [ ] Enrollment on the kiosk by an ADMIN: Ghana Card digits, consent, 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep
 - [ ] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, and the live clock-ins board
 - [ ] The kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens
