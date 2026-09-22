@@ -4,15 +4,15 @@ import { Link, useParams } from 'react-router';
 import { routes } from '@/app/routes';
 import { DetailRow } from '@/components/detail-row';
 import { EmployeeStatusBadge } from '@/components/employee-status-badge';
+import { LoadErrorAlert } from '@/components/load-error-alert';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
 import { formatDate, formatDateTime, initials } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
-import { describeApiError, isProblemDetails, isWorthRetrying } from '@/lib/problem';
+import { isProblemDetails } from '@/lib/problem';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { useSession } from '@/lib/session';
 
@@ -208,20 +208,12 @@ function LoadError({ error, retrying, onRetry }: LoadErrorProps) {
       </Alert>
     );
   }
-  const { message, traceId } = describeApiError(error);
   return (
-    <Alert variant="destructive">
-      <AlertTitle>The employee could not be loaded</AlertTitle>
-      <AlertDescription className="space-y-2">
-        <p>{message}</p>
-        {traceId && <p className="font-mono text-xs">Trace ID: {traceId}</p>}
-        {/* A 400 (bad ID in the address) would only fail the same way again. */}
-        {isWorthRetrying(error) && (
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            {retrying ? 'Trying again…' : 'Try again'}
-          </Button>
-        )}
-      </AlertDescription>
-    </Alert>
+    <LoadErrorAlert
+      title="The employee could not be loaded"
+      error={error}
+      retrying={retrying}
+      onRetry={onRetry}
+    />
   );
 }
