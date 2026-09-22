@@ -636,14 +636,15 @@ CREATE TRIGGER devices_keep_their_identity
   BEFORE UPDATE ON "devices"
   FOR EACH ROW EXECUTE FUNCTION public.devices_keep_their_identity();
 
--- Switching a kiosk's fingerprints off revokes every key on it, in the same
--- transaction (checked when the transaction is saved).
+-- A kiosk's fingerprints are switched off only in the same transaction that
+-- revokes every key on it (checked when the transaction is saved). The
+-- database never revokes them itself.
 CREATE FUNCTION public.devices_fingerprints_off_revokes_keys() RETURNS trigger
 LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN
   IF NOT NEW.passkeys_enabled AND EXISTS (
     SELECT 1 FROM public.device_passkeys WHERE device_id = NEW.id AND revoked_at IS NULL) THEN
-    RAISE EXCEPTION 'devices: switching fingerprints off revokes every key on the kiosk';
+    RAISE EXCEPTION 'devices: switch a kiosk''s fingerprints off only in the same transaction that revokes every key on it';
   END IF;
   RETURN NULL;
 END;
@@ -670,8 +671,10 @@ $$;
 -- new key can never slip in while another ADMIN is blocking the same record,
 -- and a block is never saved while a new key is being added. After waiting,
 -- the next check reads the newest saved rows; that holds at READ COMMITTED,
--- the level every biometric transaction uses (docs/plan/13 section 2). It
--- also checks that the row and the worker belong to the same company.
+-- the level every biometric transaction uses (docs/plan/13 section 2).
+-- This function also checks that the row and the worker belong to the same
+-- company; the decision lock below needs only the order, because both
+-- records were checked when their faces were enrolled.
 -- An UPDATE locks its own row before its triggers run, so a service that
 -- changes several rows (a decision and its block, a withdrawal) locks the
 -- workers involved first, in id order, to avoid deadlocks.

@@ -601,24 +601,31 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
     });
 
     it('let a later copy of a blocked record be blocked too', async () => {
-      // One real guard, two ghosts with the same face: the first ghost is
-      // already blocked, and the second ghost's face names it. Keeping the
-      // blocked record blocks the second ghost; the first stays blocked.
+      // One real guard and two ghosts with the same face. Both ghost reviews
+      // are open when the guard enrolls (a new face is only ever compared with
+      // faces in use). His review blocks the first ghost, and the second
+      // review then keeps that blocked record, blocking the second ghost too.
       const ghost = await newStarter();
       const ghostFace = await face(ghost.id);
+      const secondGhost = await newStarter();
+      const secondGhostFace = await collision(secondGhost.id, ghost.id);
       const guard = await newStarter();
       const guardFace = await collision(guard.id, ghost.id);
       await prisma.$transaction([keepNewRecord(guardFace.id, guard.id), blockFace(ghostFace.id)]);
-      const secondGhost = await newStarter();
-      const secondGhostFace = await collision(secondGhost.id, ghost.id);
       await prisma.biometricCredential.update({
         where: { id: secondGhostFace.id },
         data: { ...decision('SAME_PERSON'), keptEmployeeId: ghost.id, ...wiped, status: 'BLOCKED' },
       });
-      const faces = await prisma.biometricCredential.findMany({
-        where: { id: { in: [ghostFace.id, secondGhostFace.id] } },
+      const second = await prisma.biometricCredential.findUniqueOrThrow({
+        where: { id: secondGhostFace.id },
       });
-      expect(faces.map((row) => row.status)).toEqual(['BLOCKED', 'BLOCKED']);
+      expect(second.status).toBe('BLOCKED');
+      expect(second.keptEmployeeId).toBe(ghost.id);
+      const older = await prisma.biometricCredential.findUniqueOrThrow({
+        where: { id: ghostFace.id },
+      });
+      expect(older.status).toBe('BLOCKED');
+      expect(older.verdict).toBeNull();
     });
   });
 
@@ -666,11 +673,17 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       );
       try {
         await waitingOn(waitTable);
-      } finally {
-        // Always end the open transaction, so a failure never leaves its locks behind.
+      } catch (error) {
+        // Always end the open transaction, so a failure never leaves its locks
+        // behind, and say what the other statement did instead of waiting.
         release();
-        await open;
+        await open.catch(() => undefined);
+        const other = await late;
+        const did = other.ok ? 'went straight through' : `failed: ${String(other.error)}`;
+        throw new Error(`${(error as Error).message}; the other statement ${did}`);
       }
+      release();
+      await open;
       return late;
     };
 
@@ -725,6 +738,31 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         );
         expect(late.ok).toBe(false);
         expect(String(!late.ok && late.error)).toMatch(/must block the other record/);
+      },
+      RACE_TIMEOUT,
+    );
+
+    it(
+      'make a "different people" decision wait for both records too',
+      async () => {
+        // Every decision takes the lock, not only one that blocks a record, so
+        // two ADMINs can never decide one pair two ways without seeing each other.
+        const lookalike = await newStarter();
+        await face(lookalike.id);
+        const worker = await newStarter();
+        const workerFace = await collision(worker.id, lookalike.id);
+
+        const late = await whileOpen(
+          (tx) =>
+            tx.biometricCredential.update({
+              where: { id: workerFace.id },
+              data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED', status: 'ACTIVE' },
+            }),
+          () => key(lookalike.id, 'key-race-lookalike'),
+          'device_passkeys',
+        );
+        // The key waited for the decision, and is saved once that is in.
+        expect(late.ok).toBe(true);
       },
       RACE_TIMEOUT,
     );
@@ -989,7 +1027,9 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       const switchOff = () =>
         prisma.device.update({ where: { id: kiosk }, data: { passkeysEnabled: false } });
       // Switching off while a key is still live is refused when it is saved...
-      await expect(switchOff()).rejects.toThrow(/revokes every key on the kiosk/);
+      await expect(switchOff()).rejects.toThrow(
+        /only in the same transaction that revokes every key/,
+      );
       // ...and allowed with the revoke in the same transaction.
       await prisma.$transaction([
         switchOff(),

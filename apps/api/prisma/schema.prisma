@@ -762,7 +762,8 @@ model BiometricConsent {
   /// SHA-256 of the consent text exactly as shown.
   textSha256       String                 @map("text_sha256")
   recordedByUserId String                 @map("recorded_by_user_id") @db.Uuid
-  /// The kiosk it was given on; empty for a withdrawal recorded on the dashboard.
+  /// The kiosk it was given on; empty for a withdrawal recorded on the dashboard
+  /// (a withdrawal may also name one of the company's kiosks).
   deviceId         String?                @map("device_id") @db.Uuid
   /// Set by the database's own clock on insert, whatever the caller sends.
   recordedAt       DateTime               @default(now()) @map("recorded_at") @db.Timestamptz(3)
