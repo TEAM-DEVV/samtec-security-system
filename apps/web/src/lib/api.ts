@@ -45,6 +45,7 @@ const PATHS_THAT_NEVER_REFRESH = [
   '/auth/2fa/enable',
   '/auth/refresh',
   '/auth/logout',
+  '/auth/set-password',
 ];
 
 function neverRefreshes(url: string): boolean {

@@ -39,7 +39,8 @@ This page is the authoritative checklist for every phase. The timing assumes par
 Added to Phase 1 during the build (needed before the pilot, and by Phase 4's maker–checker and Phase 6's guard payslips):
 
 - [x] User management (API): administrators create, change, switch off and reset sign-in accounts; owners choose their own password with a one-time link; the token guard checks the account on every request; terminating an employee switches their account off; an audited script creates the first administrator
-- [ ] Dashboard (Samuel): Users pages for ADMIN, the public set-password page and a change-password form — the mock API already supports them
+- [x] Dashboard: the public set-password page, where a one-time link lands (`/set-password#token=…`)
+- [ ] Dashboard (Samuel): Users pages for ADMIN and a change-password form — the mock API already supports them
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)
 
