@@ -521,7 +521,7 @@ model Device {
   /// A ZKTeco terminal's serial, typed from its label; its gateway accepts only listed serials.
   serialNumber          String?      @map("serial_number")
   /// Workers may save a finger on this device's own sensor. Kiosks only (a database CHECK);
-  /// switching it off revokes every key on the device in the same transaction (a trigger).
+  /// switching it off must revoke every live key in the same transaction (a trigger refuses it otherwise).
   passkeysEnabled       Boolean      @default(false) @map("passkeys_enabled")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)

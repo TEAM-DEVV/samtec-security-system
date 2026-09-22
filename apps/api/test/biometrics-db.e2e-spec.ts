@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
@@ -236,10 +237,17 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(given(kioskId, 'not-a-hash')).rejects.toThrow(/biometric_consents_values_valid/);
       await expect(given(terminalId)).rejects.toThrow(/consent is given on a face kiosk/);
       await expect(given(otherKioskId)).rejects.toThrow(/face kiosk of the same company/);
-      // A withdrawal may be recorded on the dashboard, with no device.
-      await prisma.biometricConsent.create({
-        data: { ...base, status: 'WITHDRAWN', textSha256: SHA256, deviceId: null },
-      });
+      // A withdrawal may be recorded on the dashboard (no device), or on one
+      // of the company's kiosks, but never on a terminal or another company's kiosk.
+      const withdrawn = (deviceId: string | null) =>
+        prisma.biometricConsent.create({
+          data: { ...base, status: 'WITHDRAWN', textSha256: SHA256, deviceId },
+        });
+      await withdrawn(null);
+      await withdrawn(kioskId);
+      const elsewhere = /a withdrawal is recorded on the dashboard or on a face kiosk/;
+      await expect(withdrawn(terminalId)).rejects.toThrow(elsewhere);
+      await expect(withdrawn(otherKioskId)).rejects.toThrow(elsewhere);
     });
 
     it("stay inside the worker's company, and the database sets the time", async () => {
@@ -303,8 +311,12 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
 
     it('keep a template only while the face is in use, with the key that sealed it', async () => {
       // An ACTIVE face with no template, or a template with no key, is refused.
-      await expect(face(company.supervisorEmployeeId, { templateSealed: null })).rejects.toThrow();
-      await expect(face(company.supervisorEmployeeId, { keyVersion: null })).rejects.toThrow();
+      await expect(
+        face(company.supervisorEmployeeId, { templateSealed: null, keyVersion: null }),
+      ).rejects.toThrow(/biometric_credentials_shape/);
+      await expect(face(company.supervisorEmployeeId, { keyVersion: null })).rejects.toThrow(
+        /biometric_credentials_template_key/,
+      );
     });
 
     it('never change the facts of an enrollment', async () => {
@@ -323,7 +335,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       ).rejects.toThrow(/facts of an enrollment/);
     });
 
-    it('may only be sealed again with a newer key (key rotation), never swapped', async () => {
+    it('change a template only when it is sealed again with a newer key (key rotation)', async () => {
       const row = await prisma.biometricCredential.findFirstOrThrow({
         where: { employeeId: company.supervisorEmployeeId, wipedAt: null },
       });
@@ -403,9 +415,14 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(
         prisma.biometricCredential.update({
           where: { id: row.id },
-          data: { ...decision('DIFFERENT_PEOPLE'), resolutionNote: null, dedupe: 'CLEARED' },
+          data: {
+            ...decision('DIFFERENT_PEOPLE'),
+            resolutionNote: null,
+            dedupe: 'CLEARED',
+            status: 'ACTIVE',
+          },
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/biometric_credentials_decision_valid/);
       await prisma.biometricCredential.update({
         where: { id: row.id },
         data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED', status: 'ACTIVE' },
@@ -515,6 +532,9 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(
         prisma.$transaction([decide(), blockFace(ghostFace.id), revokeKey()]),
       ).rejects.toThrow(mustBlock);
+      await expect(
+        prisma.$transaction([decide(), blockFace(ghostFace.id), endRequest()]),
+      ).rejects.toThrow(mustBlock);
       // A face merely revoked (not BLOCKED) would let the record enroll again.
       await expect(
         prisma.$transaction([
@@ -546,42 +566,66 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       );
     });
 
-    it('never decide the same pair both ways', async () => {
-      // Two new faces that each look like the other.
+    it('never decide one pair of records two ways', async () => {
+      // Two new faces that each look like the other: the first decision blocks
+      // the second face, whose own review then closes with it.
       const first = await newStarter();
       const second = await newStarter();
       const firstFace = await collision(first.id, second.id);
       const secondFace = await collision(second.id, first.id);
       await prisma.$transaction([keepNewRecord(firstFace.id, first.id), blockFace(secondFace.id)]);
-
-      // The blocked face's own review can no longer be decided, either way...
       await expect(
         prisma.biometricCredential.update({
           where: { id: secondFace.id },
           data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED' },
         }),
       ).rejects.toThrow(/a blocked face is never decided/);
-      // ...and a record blocked as a duplicate is never the one another decision keeps.
+
+      // The other order: "different people" first, then "the same person".
       const third = await newStarter();
-      const thirdFace = await collision(third.id, second.id);
+      const fourth = await newStarter();
+      const thirdFace = await collision(third.id, fourth.id);
+      const fourthFace = await collision(fourth.id, third.id);
+      await prisma.biometricCredential.update({
+        where: { id: fourthFace.id },
+        data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED', status: 'ACTIVE' },
+      });
       await expect(
-        prisma.biometricCredential.update({
-          where: { id: thirdFace.id },
-          data: {
-            ...decision('SAME_PERSON'),
-            keptEmployeeId: second.id,
-            ...wiped,
-            status: 'BLOCKED',
-          },
-        }),
-      ).rejects.toThrow(/never the one kept/);
+        prisma.$transaction([keepNewRecord(thirdFace.id, third.id), blockFace(fourthFace.id)]),
+      ).rejects.toThrow(/never decided two ways/);
+      // A decision that agrees is fine.
+      await prisma.biometricCredential.update({
+        where: { id: thirdFace.id },
+        data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED', status: 'ACTIVE' },
+      });
+    });
+
+    it('let a later copy of a blocked record be blocked too', async () => {
+      // One real guard, two ghosts with the same face: the first ghost is
+      // already blocked, and the second ghost's face names it. Keeping the
+      // blocked record blocks the second ghost; the first stays blocked.
+      const ghost = await newStarter();
+      const ghostFace = await face(ghost.id);
+      const guard = await newStarter();
+      const guardFace = await collision(guard.id, ghost.id);
+      await prisma.$transaction([keepNewRecord(guardFace.id, guard.id), blockFace(ghostFace.id)]);
+      const secondGhost = await newStarter();
+      const secondGhostFace = await collision(secondGhost.id, ghost.id);
+      await prisma.biometricCredential.update({
+        where: { id: secondGhostFace.id },
+        data: { ...decision('SAME_PERSON'), keptEmployeeId: ghost.id, ...wiped, status: 'BLOCKED' },
+      });
+      const faces = await prisma.biometricCredential.findMany({
+        where: { id: { in: [ghostFace.id, secondGhostFace.id] } },
+      });
+      expect(faces.map((row) => row.status)).toEqual(['BLOCKED', 'BLOCKED']);
     });
   });
 
   describe('one worker at a time', () => {
-    /** Waits until another connection is stuck waiting for a lock on `table`. */
+    /** Waits (up to 3 seconds) until another connection is stuck waiting for a lock on `table`. */
     const waitingOn = async (table: string) => {
-      for (let tries = 0; tries < 100; tries += 1) {
+      for (let tries = 0; tries < 60; tries += 1) {
         const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
           SELECT count(*) AS waiting FROM pg_stat_activity
           WHERE datname = current_database() AND wait_event_type = 'Lock'
@@ -612,62 +656,78 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
           started();
           await released;
         },
-        { timeout: 30_000 },
+        { timeout: 15_000 },
       );
-      await isStarted;
+      // `open` settles first only when `first` failed; the race then throws its error.
+      await Promise.race([isStarted, open]);
       const late = second().then(
         (value) => ({ ok: true as const, value }),
         (error: unknown) => ({ ok: false as const, error }),
       );
-      await waitingOn(waitTable);
-      release();
-      await open;
+      try {
+        await waitingOn(waitTable);
+      } finally {
+        // Always end the open transaction, so a failure never leaves its locks behind.
+        release();
+        await open;
+      }
       return late;
     };
 
-    it('refuse a new key that waited for a block of the same record', async () => {
-      const ghost = await newStarter();
-      const ghostFace = await face(ghost.id);
-      const guard = await newStarter();
-      const guardFace = await collision(guard.id, ghost.id);
+    const RACE_TIMEOUT = 15_000;
 
-      const late = await whileOpen(
-        async (tx) => {
-          await keepNewRecord(guardFace.id, guard.id, tx);
-          await blockFace(ghostFace.id, tx);
-        },
-        () => key(ghost.id, 'key-race-late'),
-        'device_passkeys',
-      );
-      expect(late.ok).toBe(false);
-      expect(String(!late.ok && late.error)).toMatch(/device_passkeys: a record blocked/);
-    });
+    it(
+      'refuse a new key that waited for a block of the same record',
+      async () => {
+        const ghost = await newStarter();
+        const ghostFace = await face(ghost.id);
+        const guard = await newStarter();
+        const guardFace = await collision(guard.id, ghost.id);
 
-    it('refuse a block that waited for a new key of the same record', async () => {
-      const ghost = await newStarter();
-      const ghostFace = await face(ghost.id);
-      const guard = await newStarter();
-      const guardFace = await collision(guard.id, ghost.id);
+        const late = await whileOpen(
+          async (tx) => {
+            await keepNewRecord(guardFace.id, guard.id, tx);
+            await blockFace(ghostFace.id, tx);
+          },
+          () => key(ghost.id, 'key-race-late'),
+          'device_passkeys',
+        );
+        expect(late.ok).toBe(false);
+        expect(String(!late.ok && late.error)).toMatch(/device_passkeys: a record blocked/);
+      },
+      RACE_TIMEOUT,
+    );
 
-      const late = await whileOpen(
-        (tx) =>
-          tx.devicePasskey.create({
-            data: {
-              companyId: company.companyId,
-              employeeId: ghost.id,
-              deviceId: kioskId,
-              credentialId: `key-race-first-${company.companyId}`,
-              publicKey: new Uint8Array([1]),
-              backedUp: false,
-              registeredByUserId: ENROLLER,
-            },
-          }),
-        () => prisma.$transaction([keepNewRecord(guardFace.id, guard.id), blockFace(ghostFace.id)]),
-        'biometric_credentials',
-      );
-      expect(late.ok).toBe(false);
-      expect(String(!late.ok && late.error)).toMatch(/must block the other record/);
-    });
+    it(
+      'refuse a block that waited for a new key of the same record',
+      async () => {
+        const ghost = await newStarter();
+        const ghostFace = await face(ghost.id);
+        const guard = await newStarter();
+        const guardFace = await collision(guard.id, ghost.id);
+
+        const late = await whileOpen(
+          (tx) =>
+            tx.devicePasskey.create({
+              data: {
+                companyId: company.companyId,
+                employeeId: ghost.id,
+                deviceId: kioskId,
+                credentialId: `key-race-first-${company.companyId}`,
+                publicKey: new Uint8Array([1]),
+                backedUp: false,
+                registeredByUserId: ENROLLER,
+              },
+            }),
+          () =>
+            prisma.$transaction([keepNewRecord(guardFace.id, guard.id), blockFace(ghostFace.id)]),
+          'biometric_credentials',
+        );
+        expect(late.ok).toBe(false);
+        expect(String(!late.ok && late.error)).toMatch(/must block the other record/);
+      },
+      RACE_TIMEOUT,
+    );
   });
 
   describe('new rows', () => {
@@ -738,10 +798,29 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         });
       await withdrawal(first.id);
       await expect(face(first.id, { consentId: firstConsent.id })).rejects.toThrow(notStanding);
-      // A consent and a withdrawal saved in the same moment count as withdrawn.
+      // A consent and a withdrawal saved in the same millisecond count as
+      // withdrawn. One statement writes both, repeated until the database
+      // gives them the same time (almost always the first try).
       const third = await newStarter();
-      const [sameMoment] = await prisma.$transaction([consent(third.id), withdrawal(third.id)]);
-      await expect(faceWithConsent(third.id, sameMoment.id)).rejects.toThrow(notStanding);
+      let tied: string | undefined;
+      for (let tries = 0; tries < 20 && !tied; tries += 1) {
+        const rows = await prisma.$queryRaw<{ id: string; status: string; recorded_at: Date }[]>`
+          INSERT INTO biometric_consents
+            (id, company_id, employee_id, status, text_version, text_sha256, recorded_by_user_id, device_id)
+          VALUES
+            (${randomUUID()}::uuid, ${company.companyId}::uuid, ${third.id}::uuid, 'GIVEN',
+             'bio-v1', ${SHA256}, ${ENROLLER}::uuid, ${kioskId}::uuid),
+            (${randomUUID()}::uuid, ${company.companyId}::uuid, ${third.id}::uuid, 'WITHDRAWN',
+             'bio-v1', ${SHA256}, ${ENROLLER}::uuid, NULL)
+          RETURNING id, status::text AS status, recorded_at`;
+        const given = rows.find((row) => row.status === 'GIVEN');
+        const withdrawn = rows.find((row) => row.status === 'WITHDRAWN');
+        if (given && withdrawn && given.recorded_at.getTime() === withdrawn.recorded_at.getTime()) {
+          tied = given.id;
+        }
+      }
+      expect(tied).toBeDefined();
+      await expect(faceWithConsent(third.id, tied as string)).rejects.toThrow(notStanding);
     });
 
     it('give nothing live to a record blocked as a duplicate', async () => {
@@ -904,7 +983,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(key(worker, 'key-other-company', otherKioskId)).rejects.toThrow(refused);
     });
 
-    it("are all revoked when the kiosk's fingerprints are switched off", async () => {
+    it("refuse switching a kiosk's fingerprints off until every key on it is revoked", async () => {
       const kiosk = (await device('Switch-off kiosk', 'FACE_KIOSK', true)).id;
       const live = await key((await newStarter()).id, 'key-switch-off', kiosk);
       const switchOff = () =>

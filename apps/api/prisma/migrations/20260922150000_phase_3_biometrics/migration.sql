@@ -385,9 +385,9 @@ BEGIN
     RAISE EXCEPTION 'biometric_credentials: the facts of an enrollment never change';
   END IF;
 
-  -- A wiped template never comes back. A live one may only be sealed again
-  -- with a newer key (key rotation), never swapped for other numbers: the
-  -- template and its key version change together, and the version only rises.
+  -- A wiped template never comes back. A live one changes only when it is
+  -- sealed again with a newer key (key rotation): the template and its key
+  -- version change together, and the version only rises.
   IF OLD.template_sealed IS NULL AND NEW.template_sealed IS NOT NULL THEN
     RAISE EXCEPTION 'biometric_credentials: a wiped template can never come back';
   END IF;
@@ -481,14 +481,6 @@ BEGIN
   IF OLD.reviewed_at IS NULL AND NEW.reviewed_at IS NOT NULL
      AND NOT (OLD.status = 'REQUESTED' AND NEW.status IN ('APPROVED', 'REJECTED')) THEN
     RAISE EXCEPTION 'biometric_exemptions: a decision is made only on a waiting request';
-  END IF;
-  -- A record blocked as a duplicate is never exempted (the rules across rows,
-  -- below, explain the lock).
-  IF NEW.status = 'APPROVED' AND OLD.status = 'REQUESTED' THEN
-    PERFORM public.biometric_lock_worker(NEW.employee_id, NEW.company_id, TG_TABLE_NAME);
-    IF public.biometric_record_is_blocked(NEW.employee_id) THEN
-      RAISE EXCEPTION 'biometric_exemptions: a record blocked as a duplicate can only be terminated';
-    END IF;
   END IF;
   -- A decision is final, and so is an end.
   IF OLD.reviewed_at IS NOT NULL AND (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at
@@ -673,12 +665,16 @@ LANGUAGE sql STABLE SET search_path = '' AS $$
 $$;
 
 -- Every change that gives a worker something (a consent, a face, a finger, an
--- exemption, a fingerprint key), and every block, first locks the worker's
--- employee row. So they happen one at a time for each worker: a new key can
--- never slip in while another ADMIN is blocking the same record, and a block
--- is never saved while a new key is being added. (After waiting, the next
--- check reads the newest saved rows.) It also checks that the row and the
--- worker belong to the same company.
+-- exemption, a fingerprint key), and every collision decision or block, locks
+-- the worker's employee row. So they happen one at a time for each worker: a
+-- new key can never slip in while another ADMIN is blocking the same record,
+-- and a block is never saved while a new key is being added. After waiting,
+-- the next check reads the newest saved rows; that holds at READ COMMITTED,
+-- the level every biometric transaction uses (docs/plan/13 section 2). It
+-- also checks that the row and the worker belong to the same company.
+-- An UPDATE locks its own row before its triggers run, so a service that
+-- changes several rows (a decision and its block, a withdrawal) locks the
+-- workers involved first, in id order, to avoid deadlocks.
 CREATE FUNCTION public.biometric_lock_worker(worker uuid, company uuid, source text) RETURNS void
 LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN
@@ -690,7 +686,8 @@ END;
 $$;
 
 -- Consents: a consent is given on one of the company's kiosks, and never to a
--- blocked record. The database, not the caller, sets the time it is recorded,
+-- blocked record; a withdrawal is recorded on the dashboard (no device) or on
+-- one of the company's kiosks. The database, not the caller, sets the time it is recorded,
 -- so the order of a consent and its withdrawal can be trusted.
 CREATE FUNCTION public.biometric_consents_before_insert() RETURNS trigger
 LANGUAGE plpgsql SET search_path = '' AS $$
@@ -705,6 +702,10 @@ BEGIN
                    WHERE id = NEW.device_id AND kind = 'FACE_KIOSK' AND company_id = NEW.company_id) THEN
       RAISE EXCEPTION 'biometric_consents: consent is given on a face kiosk of the same company';
     END IF;
+  ELSIF NEW.device_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.devices
+    WHERE id = NEW.device_id AND kind = 'FACE_KIOSK' AND company_id = NEW.company_id) THEN
+    RAISE EXCEPTION 'biometric_consents: a withdrawal is recorded on the dashboard or on a face kiosk of the same company';
   END IF;
   RETURN NEW;
 END;
@@ -816,13 +817,13 @@ CREATE TRIGGER device_passkeys_before_insert
   BEFORE INSERT ON "device_passkeys"
   FOR EACH ROW EXECUTE FUNCTION public.device_passkeys_before_insert();
 
--- A duplicate decision or a block takes the same worker lock as above, for
--- both records, in a fixed order (so two ADMINs deciding the same pair wait
--- for each other instead of deadlocking).
-CREATE FUNCTION public.biometric_credentials_lock_before_block() RETURNS trigger
+-- A collision decision (either verdict) or a block takes the same worker lock
+-- as above, for both records, in id order. So two decisions about the same
+-- people, or a decision and a new key, never commit without seeing each other.
+CREATE FUNCTION public.biometric_credentials_lock_workers() RETURNS trigger
 LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN
-  IF (NEW.verdict = 'SAME_PERSON' AND OLD.verdict IS NULL)
+  IF (NEW.verdict IS NOT NULL AND OLD.verdict IS NULL)
      OR (NEW.kind = 'FACE' AND NEW.status = 'BLOCKED' AND OLD.status <> 'BLOCKED') THEN
     PERFORM 1 FROM public.employees
       WHERE id IN (NEW.employee_id, NEW.collision_employee_id)
@@ -833,18 +834,21 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER biometric_credentials_lock_before_block
+CREATE TRIGGER biometric_credentials_lock_workers
   BEFORE UPDATE ON "biometric_credentials"
-  FOR EACH ROW EXECUTE FUNCTION public.biometric_credentials_lock_before_block();
+  FOR EACH ROW EXECUTE FUNCTION public.biometric_credentials_lock_workers();
 
 -- A SAME_PERSON decision and the block it causes, checked together when the
--- transaction commits (DEFERRABLE INITIALLY DEFERRED), so the decision and
--- the block may be written in either order within one transaction.
+-- transaction commits (DEFERRABLE INITIALLY DEFERRED). When the new record is
+-- kept, the decision (on the new face) and the block (on the older face) may
+-- be written in either order; when the older record is kept, the verdict and
+-- the block are one UPDATE of the new face.
 -- 1. The record that lost has no live face, has a BLOCKED face, has no live
---    fingerprint key and no exemption waiting or approved; and the record
---    kept is not itself blocked. (Its fingers on ZKTeco terminals are taken
---    off by the roster, docs/plan/13 section 5.)
+--    fingerprint key and no exemption waiting or approved. (Its fingers on
+--    ZKTeco terminals are taken off by the roster, docs/plan/13 section 5.)
 -- 2. A face becomes BLOCKED only as the losing record of such a decision.
+-- 3. One pair of records is never decided two ways: a later decision about
+--    the same two people gives the same verdict and keeps the same record.
 CREATE FUNCTION public.biometric_duplicate_decisions_hold() RETURNS trigger
 LANGUAGE plpgsql SET search_path = '' AS $$
 DECLARE
@@ -863,9 +867,14 @@ BEGIN
                   WHERE employee_id = loser AND status IN ('REQUESTED', 'APPROVED')) THEN
       RAISE EXCEPTION 'biometric_credentials: a SAME_PERSON decision must block the other record (face wiped and blocked, keys revoked, exemption ended)';
     END IF;
-    IF public.biometric_record_is_blocked(NEW.kept_employee_id) THEN
-      RAISE EXCEPTION 'biometric_credentials: a record already blocked as a duplicate is never the one kept';
-    END IF;
+  END IF;
+  IF NEW.verdict IS NOT NULL AND (TG_OP = 'INSERT' OR OLD.verdict IS NULL) AND EXISTS (
+    SELECT 1 FROM public.biometric_credentials d
+    WHERE d.id <> NEW.id AND d.verdict IS NOT NULL
+      AND ((d.employee_id = NEW.employee_id AND d.collision_employee_id = NEW.collision_employee_id)
+        OR (d.employee_id = NEW.collision_employee_id AND d.collision_employee_id = NEW.employee_id))
+      AND (d.verdict <> NEW.verdict OR d.kept_employee_id IS DISTINCT FROM NEW.kept_employee_id)) THEN
+    RAISE EXCEPTION 'biometric_credentials: one pair of records is never decided two ways';
   END IF;
   IF NEW.kind = 'FACE' AND NEW.status = 'BLOCKED' AND (TG_OP = 'INSERT' OR OLD.status <> 'BLOCKED') THEN
     IF NOT EXISTS (
