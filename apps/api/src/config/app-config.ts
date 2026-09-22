@@ -16,6 +16,8 @@ export class AppConfig {
   readonly authSecret: string;
   /** Which biometric provider attendance uses; only the mock exists until Phase 3. */
   readonly biometricProvider: 'mock';
+  /** Whether simulator (MOCK) devices may send punches: yes unless ALLOW_SIMULATOR_DEVICES=no. */
+  readonly allowSimulatorDevices: boolean;
   /** The version from package.json. pnpm sets `npm_package_version` when it runs a script. */
   readonly version: string;
 
@@ -26,6 +28,7 @@ export class AppConfig {
     this.corsOrigins = env.CORS_ORIGINS;
     this.authSecret = env.AUTH_SECRET;
     this.biometricProvider = env.BIOMETRIC_PROVIDER ?? 'mock';
+    this.allowSimulatorDevices = env.ALLOW_SIMULATOR_DEVICES !== 'no';
     this.version = version;
   }
 

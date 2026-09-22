@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AppConfig } from './app-config.js';
 import { parseEnv } from './env.js';
 
 const minimalEnv = { DATABASE_URL: 'postgresql://samtec:secret@localhost:5432/samtec_test' };
@@ -72,6 +73,15 @@ describe('parseEnv', () => {
   it('rejects a database URL that is not PostgreSQL', () => {
     expect(() => parseEnv({ DATABASE_URL: 'mysql://root@localhost/samtec' })).toThrow(
       /DATABASE_URL/,
+    );
+  });
+
+  it('allows simulator devices unless ALLOW_SIMULATOR_DEVICES is no', () => {
+    expect(new AppConfig(parseEnv(minimalEnv)).allowSimulatorDevices).toBe(true);
+    const off = parseEnv({ ...minimalEnv, ALLOW_SIMULATOR_DEVICES: 'no' });
+    expect(new AppConfig(off).allowSimulatorDevices).toBe(false);
+    expect(() => parseEnv({ ...minimalEnv, ALLOW_SIMULATOR_DEVICES: 'maybe' })).toThrow(
+      /ALLOW_SIMULATOR_DEVICES/,
     );
   });
 

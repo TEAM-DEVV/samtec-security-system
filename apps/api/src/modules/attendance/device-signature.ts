@@ -7,8 +7,32 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * security scheme.
  */
 
-/** The only two routes a device may call. Signing the route name (not the URL) means hosting rewrites can never break a signature, and a signature can never be moved to the other endpoint. */
+/** The routes a device may call. Signing the route name (not the URL) means hosting rewrites can never break a signature, and a signature can never be moved to another endpoint. */
 export type SignedRoute = 'ingest/punches' | 'ingest/heartbeat';
+
+export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
+
+/**
+ * Which kinds of device each signed route accepts: an allow-list, so a new
+ * route or a new kind is refused until someone decides otherwise.
+ *
+ * - `ingest/punches` takes terminals, and the simulator where it is allowed.
+ *   Never a kiosk: a kiosk's punches are made by the server from a face match
+ *   (docs/plan/13 §3), so a stolen kiosk key can never post raw punches.
+ * - `ingest/heartbeat` takes every kind.
+ */
+export function kindMayUse(
+  route: SignedRoute,
+  kind: DeviceKind,
+  simulatorAllowed: boolean,
+): boolean {
+  switch (route) {
+    case 'ingest/punches':
+      return kind === 'ZKTECO' || (kind === 'MOCK' && simulatorAllowed);
+    case 'ingest/heartbeat':
+      return true;
+  }
+}
 
 /** A timestamp more than 5 minutes from the server clock is refused. */
 export const MAX_CLOCK_SKEW_SECONDS = 300;

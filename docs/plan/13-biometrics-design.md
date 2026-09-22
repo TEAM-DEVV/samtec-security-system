@@ -144,7 +144,7 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 **Device kinds are checked.** Each signed route lists the kinds it **allows**, and every other kind gets the same `401`:
 
 - `/kiosk/*` allows only `FACE_KIOSK`;
-- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (development and TEST);
+- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (`ALLOW_SIMULATOR_DEVICES`: on by default for development and TEST, whose attendance demo uses it; production sets it to `no`);
 - `/ingest/heartbeat` allows every kind.
 
 A stolen kiosk key therefore cannot post raw `FACE` punches. A test proves that a correctly signed request with no token is refused on the ADMIN kiosk routes.

@@ -75,6 +75,14 @@ export const envSchema = z
       .default(DEV_AUTH_SECRET),
     /** Which biometric provider the attendance module uses (docs/plan/10). Phase 3 adds the real ones. */
     BIOMETRIC_PROVIDER: z.enum(['mock']).optional(),
+    /**
+     * Whether devices of kind MOCK (the simulator) may send punches. On by
+     * default for development and the TEST environment, whose attendance demo
+     * uses the simulator; production sets it to `no` (docs/plan/07, Phase 8).
+     * A MOCK key is no stronger than a terminal's, so this is tidiness rather
+     * than a security boundary: the kiosk rule is what keeps kiosks out.
+     */
+    ALLOW_SIMULATOR_DEVICES: z.enum(['yes', 'no']).optional(),
   })
   .superRefine((env, context) => {
     // A production dashboard is always served over HTTPS.

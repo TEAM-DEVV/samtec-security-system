@@ -61,7 +61,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 **Goal: workers clock in by face and fingerprint on a company device at the site; ZKTeco terminals are ready for production.** Every rule is in [Biometrics design](13-biometrics-design.md).
 
 - [ ] Contract, mock API and design for the kiosk, biometrics and the live clock-ins board
-- [ ] Migration: consents, credentials, fingerprint keys and clock-in attempts (append-only); device kinds checked on every signed route
+- [x] Migration: consents, credentials, exemptions, fingerprint keys and clock-in attempts, with the rules the database enforces itself; device kinds checked on every signed route; the basis rule for the kiosk methods; `PATCH /devices` sets a serial number and switches fingerprints
 - [ ] Face matching on the server with Human's formula, templates encrypted and bound to their row
 - [ ] Enrollment on the kiosk by an ADMIN: Ghana Card digits, consent, 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep
 - [ ] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, and the live clock-ins board
@@ -107,6 +107,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
+- Production settings: `ALLOW_SIMULATOR_DEVICES=no` (no simulator devices), its own `AUTH_SECRET` never shared with TEST
 - **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands
