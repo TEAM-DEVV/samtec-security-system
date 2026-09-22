@@ -1,5 +1,6 @@
 import { attendanceHandlers } from './attendance';
 import { authHandlers } from './auth';
+import { biometricHandlers } from './biometrics';
 import { deviceHandlers } from './devices';
 import { employeeHandlers } from './employees';
 import { rosterHandlers } from './rosters';
@@ -28,4 +29,5 @@ export const handlers = [
   ...userHandlers,
   ...deviceHandlers,
   ...attendanceHandlers,
+  ...biometricHandlers,
 ];

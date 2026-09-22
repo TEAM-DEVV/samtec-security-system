@@ -22,6 +22,7 @@ import {
   validationProblem,
 } from '../helpers';
 import { userForRequest } from './auth';
+import { revokeMockPasskeysOn } from './biometrics';
 
 /**
  * The mock device registry (ADMIN only, like the real API). It keeps its own
@@ -113,6 +114,8 @@ export const deviceHandlers = [
         lastClockDriftSeconds: null,
         failedSignatureCount: 0,
         lastFailedSignatureAt: null,
+        serialNumber: null,
+        passkeysEnabled: false,
         createdAt: now,
         updatedAt: now,
       };
@@ -139,28 +142,71 @@ export const deviceHandlers = [
     async ({ params, request }) => {
       const refused = adminOnly(request);
       if (refused) return refused;
-      const found = findDevice(params.deviceId);
-      if (!found.device) return found.problem;
-      const device = found.device;
+      // The real API's order: the shape of the request (400), then the device
+      // (404), then the rules for its kind (400), then clashes (409). A
+      // refused request changes nothing.
       const body = await request.json();
-      const unknown = Object.keys(body).find((key) => key !== 'name' && key !== 'status');
+      const { name, status, serialNumber, passkeysEnabled } = body;
+      const fields = ['name', 'status', 'serialNumber', 'passkeysEnabled'];
+      const unknown = Object.keys(body).find((key) => !fields.includes(key));
+      if (!isUuid(params.deviceId)) return validationProblem('deviceId', 'Must be a valid ID.');
       if (unknown !== undefined) return validationProblem(unknown, 'Unrecognized field.');
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
       }
-      if (body.name !== undefined) {
-        const badName = nameProblem(body.name);
-        if (badName) return badName;
-        if (devices.some((other) => other.name === body.name && other.id !== device.id)) {
-          return conflict('A device with this name already exists.');
-        }
-        device.name = body.name;
+      const badName = name === undefined ? undefined : nameProblem(name);
+      if (badName) return badName;
+      if (status !== undefined && !isOneOf(STATUSES, status)) {
+        return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
       }
-      if (body.status !== undefined) {
-        if (!isOneOf(STATUSES, body.status)) {
-          return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
-        }
-        device.status = body.status;
+      if (
+        serialNumber !== undefined &&
+        serialNumber !== null &&
+        (typeof serialNumber !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(serialNumber))
+      ) {
+        return validationProblem(
+          'serialNumber',
+          'Use 1 to 64 letters, digits and dashes, or null.',
+        );
+      }
+      if (passkeysEnabled !== undefined && typeof passkeysEnabled !== 'boolean') {
+        return validationProblem('passkeysEnabled', 'Must be true or false.');
+      }
+
+      const found = findDevice(params.deviceId);
+      if (!found.device) return found.problem;
+      const device = found.device;
+      // Only a ZKTeco terminal has a serial number, typed from its label.
+      if (serialNumber && device.kind !== 'ZKTECO') {
+        return validationProblem('serialNumber', 'Only a ZKTeco terminal has a serial number.');
+      }
+      // Only a kiosk has a fingerprint sensor of its own.
+      if (passkeysEnabled && device.kind !== 'FACE_KIOSK') {
+        return validationProblem(
+          'passkeysEnabled',
+          'Only a face kiosk can use its own fingerprint sensor.',
+        );
+      }
+      if (
+        name !== undefined &&
+        devices.some((other) => other.name === name && other.id !== device.id)
+      ) {
+        return conflict('A device with this name already exists.');
+      }
+      if (
+        serialNumber &&
+        devices.some((other) => other.serialNumber === serialNumber && other.id !== device.id)
+      ) {
+        return conflict('Another device already has this serial number.');
+      }
+
+      if (name !== undefined) device.name = name;
+      if (status !== undefined) device.status = status;
+      if (serialNumber !== undefined) device.serialNumber = serialNumber;
+      if (passkeysEnabled !== undefined) {
+        // Switching fingerprints off revokes every key saved on this device.
+        if (device.passkeysEnabled && !passkeysEnabled) revokeMockPasskeysOn(device.id);
+        device.passkeysEnabled = passkeysEnabled;
       }
       device.updatedAt = new Date().toISOString();
       return HttpResponse.json<Device>(device);
