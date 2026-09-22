@@ -60,8 +60,8 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 **Goal: workers clock in by face and fingerprint on a company device at the site; ZKTeco terminals are ready for production.** Every rule is in [Biometrics design](13-biometrics-design.md).
 
-- [ ] Contract, mock API and design for the kiosk, biometrics and the live clock-ins board
-- [ ] Migration: consents, credentials, fingerprint keys and clock-in attempts (append-only); device kinds checked on every signed route
+- [x] Contract, mock API and design for the kiosk, biometrics and the live clock-ins board
+- [x] Migration: consents, credentials, exemptions, fingerprint keys and clock-in attempts, with the rules the database enforces itself; device kinds checked on every signed route; the basis rule for the kiosk methods; `PATCH /devices` sets a serial number and switches fingerprints
 - [ ] Face matching on the server with Human's formula, templates encrypted and bound to their row
 - [ ] Enrollment on the kiosk by an ADMIN: Ghana Card digits, consent, 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep
 - [ ] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, and the live clock-ins board
@@ -101,12 +101,14 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
 - Creating, resetting or promoting an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules)
+- Registering a device or rotating its secret needs a second ADMIN (a device key can post punches)
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
+- Production settings: `NODE_ENV=production` with `ALLOW_SIMULATOR_DEVICES` left unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
 - **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands

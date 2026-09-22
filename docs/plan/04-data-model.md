@@ -81,8 +81,17 @@ The API connects as the owner of the tables, and row-level security does not res
 | Only the API can read the tables | Row-level security on every table, and Supabase's Data API switched off (Phase 0) |
 | One current site assignment per employee | Workforce service (Phase 1), with a partial unique index in a SQL migration if tooling allows |
 | A repeated punch is stored once | Unique `(device_id, device_event_id)` (Phase 2) |
-| Consents and clock-in attempts can only grow; biometric credentials and fingerprint keys are never deleted | Database triggers (Phase 3) |
-| At most one unwiped face per employee; a face blocked as a duplicate stays blocked | Partial unique index and the attendance service (Phase 3) |
+| Consents and clock-in attempts can only grow (the retention sweep may only clear an attempt's network address); faces, exemptions and fingerprint keys are never deleted | Database triggers (Phase 3, built) |
+| At most one face in use per employee; one live fingerprint key per worker per kiosk; one exemption waiting or approved per employee | Partial unique indexes (Phase 3, built) |
+| A wiped face never comes back; a block is final; a collision decision and an exemption decision are final; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
+| The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
+| A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
+| A face that collided is never matched at clock-in until a second ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afterwards; one pair of records is never decided two ways | Database CHECKs and triggers (Phase 3, built) |
+| The record that loses a SAME_PERSON decision keeps a blocked face, and no face, fingerprint key or exemption in use | A trigger that checks both records when the change is saved (Phase 3, built) |
+| A new face, consent, exemption or fingerprint key starts undecided, on the right kind of device, inside the worker's company; a face needs the worker's own consent, still given (the database sets each consent's time); a blocked record gets nothing live, only a withdrawal of consent or a finger kept BLOCKED as evidence | Database triggers (Phase 3, built) |
+| A collision decision or a block, and anything new for the same worker, happen one at a time, so two ADMINs working at the same moment cannot slip past each other | A lock on the worker's employee row, taken by the triggers (Phase 3, built); services that change several rows lock the workers first (docs/plan/13, section 2) |
+| Switching a kiosk's fingerprints off must revoke every key on it, in the same transaction | A trigger checked when the change is saved (Phase 3, built) |
+| A device keeps its company, site and kind for life | Database trigger (Phase 3, built) |
 | An employee's counted (CONFIRMED) work segments never overlap | PostgreSQL exclusion constraint (Phase 2, see [12-attendance-design.md](12-attendance-design.md) §5) |
 | Money is integer pesewas | `INTEGER` columns and code review (Phase 4) |
 | Payroll runs only move forward: DRAFT → PENDING_APPROVAL → LOCKED → PAID | Payroll service plus a database trigger (Phase 4) |

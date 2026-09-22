@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  basisFor,
   type Direction,
   newSegmentRef,
   type PairablePunch,
+  type PunchMethod,
   pairPunches,
   planExceptions,
   planSegments,
   type StoredSegment,
+  shiftBasis,
 } from './pairing.js';
 
 const SITE = 'site-a';
@@ -375,5 +378,36 @@ describe('planExceptions', () => {
       checkedSegmentIds: new Set(['b']),
     });
     expect(plan.autoClose).toEqual(['ex-1']);
+  });
+});
+
+describe('basisFor and shiftBasis', () => {
+  it('counts a finger, a face, and a face confirmed by the kiosk sensor as biometric', () => {
+    expect(basisFor('FINGERPRINT')).toBe('BIOMETRIC');
+    expect(basisFor('FACE')).toBe('BIOMETRIC');
+    expect(basisFor('FACE_PASSKEY')).toBe('BIOMETRIC');
+  });
+
+  it('flags a PIN or co-sign, and a staff number confirmed by the kiosk sensor', () => {
+    expect(basisFor('PIN_FALLBACK')).toBe('PIN_FALLBACK');
+    expect(basisFor('STAFF_PASSKEY')).toBe('PIN_FALLBACK');
+  });
+
+  it('makes a shift only as strong as its weaker punch', () => {
+    const shift = (inMethod: PunchMethod, outMethod: PunchMethod) => ({
+      clockIn: punch('2026-09-21T06:00:00Z', 'IN', SITE, inMethod),
+      clockOut: punch('2026-09-21T18:00:00Z', 'OUT', SITE, outMethod),
+    });
+    expect(shiftBasis(shift('FACE_PASSKEY', 'FINGERPRINT'))).toBe('BIOMETRIC');
+    expect(shiftBasis(shift('FACE_PASSKEY', 'STAFF_PASSKEY'))).toBe('PIN_FALLBACK');
+    expect(shiftBasis(shift('PIN_FALLBACK', 'FACE'))).toBe('PIN_FALLBACK');
+  });
+
+  it('gives a new segment the basis of its weaker punch', () => {
+    const clockIn = punch('2026-09-21T06:00:00Z', 'IN', SITE, 'FACE_PASSKEY');
+    const clockOut = punch('2026-09-21T18:00:00Z', 'OUT', SITE, 'STAFF_PASSKEY');
+    const pairing = pairPunches([clockIn, clockOut], now);
+    const plan = planSegments(pairing, [], windowStart);
+    expect(plan.create.map((segment) => segment.basis)).toEqual(['PIN_FALLBACK']);
   });
 });

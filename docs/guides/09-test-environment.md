@@ -32,6 +32,13 @@ the API project (`apps/web/vercel.json`).
 Secrets (`AUTH_SECRET`, the database connection) live only in Vercel's
 environment settings — never in the repository, never in chats.
 
+The API project sets `ALLOW_SIMULATOR_DEVICES=yes`, so the attendance
+demo's simulator devices work ([The attendance demo](10-attendance-demo.md)).
+The API runs in production mode on Vercel, where simulators are refused
+unless this is set. A client's production leaves it unset. Vercel applies a
+changed setting from the next deploy, so after changing one, redeploy the API
+project (or merge the next pull request).
+
 ## How deploys happen
 
 1. You merge a pull request into `main` (after CI is green and review).
@@ -40,7 +47,7 @@ environment settings — never in the repository, never in chats.
    apply themselves** — merging a migration is all it takes.
 4. A minute or two later, TEST is running your change.
 
-Nothing to click, nothing to remember. If TEST breaks, check the deploy logs
+Normally there is nothing to click. If TEST breaks, check the deploy logs
 in Vercel first; the API also answers `/api/v1/health`.
 
 ## Signing in on TEST

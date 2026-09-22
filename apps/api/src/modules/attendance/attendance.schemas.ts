@@ -28,16 +28,33 @@ export const registerDeviceSchema = z.strictObject({
 });
 export type RegisterDeviceBody = z.infer<typeof registerDeviceSchema>;
 
-/** Contract: `UpdateDeviceRequest`. A device's site is fixed for life. */
+/**
+ * Contract: `UpdateDeviceRequest`. A device's site and kind are fixed for
+ * life. Which kinds may have a serial number or fingerprints is a rule about
+ * the device itself, checked by the service once the device is found.
+ */
 export const updateDeviceSchema = z
   .strictObject({
     name: deviceName.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    serialNumber: z
+      .string()
+      .regex(/^[A-Za-z0-9-]{1,64}$/, 'Use 1 to 64 letters, digits and dashes.')
+      .nullable()
+      .optional(),
+    passkeysEnabled: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Send at least one field to change.');
 export type UpdateDeviceBody = z.infer<typeof updateDeviceSchema>;
 
 // --- Ingest -------------------------------------------------------------------
+
+/**
+ * Contract: `IngestPunchMethod`. Narrower than every punch method: the kiosk
+ * methods (FACE_PASSKEY, STAFF_PASSKEY) are set only by the server, so a
+ * terminal can never claim one.
+ */
+export const INGEST_PUNCH_METHODS = ['FINGERPRINT', 'FACE', 'PIN_FALLBACK'] as const;
 
 /** Contract: `IngestPunch`. */
 const ingestPunch = z.strictObject({
@@ -49,7 +66,7 @@ const ingestPunch = z.strictObject({
   deviceUserRef: z.string().min(1).max(32),
   deviceTime: instant,
   direction: z.enum(['IN', 'OUT', 'UNKNOWN']),
-  method: z.enum(['FINGERPRINT', 'FACE', 'PIN_FALLBACK']),
+  method: z.enum(INGEST_PUNCH_METHODS),
 });
 export type IngestPunchBody = z.infer<typeof ingestPunch>;
 

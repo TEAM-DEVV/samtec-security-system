@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { signatureMatches, signRequest, timestampIsFresh } from './device-signature.js';
+import { kindMayUse, signatureMatches, signRequest, timestampIsFresh } from './device-signature.js';
 import {
   judgePunchTime,
   mayClockIn,
@@ -44,6 +44,25 @@ describe('device signatures', () => {
     expect(timestampIsFresh(String(seconds + 299), now)).toBe(true);
     expect(timestampIsFresh(String(seconds - 301), now)).toBe(false);
     expect(timestampIsFresh('soon', now)).toBe(false);
+  });
+});
+
+describe('kindMayUse (which devices each signed route accepts)', () => {
+  it('never lets a kiosk post raw punches, even where simulators are allowed', () => {
+    expect(kindMayUse('ingest/punches', 'FACE_KIOSK', true)).toBe(false);
+    expect(kindMayUse('ingest/punches', 'FACE_KIOSK', false)).toBe(false);
+  });
+
+  it('takes punches from terminals always, and from the simulator only where it is allowed', () => {
+    expect(kindMayUse('ingest/punches', 'ZKTECO', false)).toBe(true);
+    expect(kindMayUse('ingest/punches', 'MOCK', true)).toBe(true);
+    expect(kindMayUse('ingest/punches', 'MOCK', false)).toBe(false);
+  });
+
+  it('takes heartbeats from every kind', () => {
+    for (const kind of ['MOCK', 'ZKTECO', 'FACE_KIOSK'] as const) {
+      expect(kindMayUse('ingest/heartbeat', kind, false)).toBe(true);
+    }
   });
 });
 

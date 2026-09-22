@@ -37,10 +37,10 @@ The attendance module owns every new table. Each table has row-level security, U
 
 | Table | Holds | Rules |
 |---|---|---|
-| `biometric_consents` | employee, `GIVEN` or `WITHDRAWN`, text version (`bio-v1`), SHA-256 of the exact text shown, who recorded it, device, time | Append-only: a withdrawal is a new row |
-| `biometric_credentials` | employee, kind (`FACE`, `TERMINAL_FINGER`), device, the **encrypted** face template, key version, enrolled by, duplicate-check result (`PASSED`, `COLLISION`, `CLEARED`, `NOT_CHECKED`), who it looked like and how closely, the review (`OPEN` or `RESOLVED`, the verdict, the record kept, the note, who decided), status (`PENDING`, `ACTIVE`, `BLOCKED`, `REVOKED`), `wiped_at` | Never deleted; a wipe empties the template but keeps who it looked like. At most one unwiped face per employee (a partial unique index). A face blocked as a duplicate stays `BLOCKED` for good |
-| `biometric_exemptions` | employee, status (`REQUESTED`, `APPROVED`, `REJECTED`, `ENDED`), reason code (`DECLINED`, `CANNOT_ENROLL`, `CONSENT_WITHDRAWN`), a short note, who asked and when, who decided and when | Never deleted. A request is decided once, by a different ADMIN |
-| `device_passkeys` | employee, device, credential ID, public key, signature counter, "synced" flag, `revoked_at` | Never deleted. One live key per employee per device |
+| `biometric_consents` | employee, `GIVEN` or `WITHDRAWN`, text version (`bio-v1`), SHA-256 of the exact text shown, who recorded it, device, time | Append-only: a withdrawal is a new row. Consent is given on one of the company's kiosks; a withdrawal is recorded on the dashboard (no device) or on one of those kiosks, never on a terminal or another company's device. The database sets the time, so a consent and its withdrawal are always in the right order |
+| `biometric_credentials` | employee, kind (`FACE`, `TERMINAL_FINGER`), device, the **encrypted** face template, key version, enrolled by, duplicate-check result (`PASSED`, `COLLISION`, `CLEARED`, `NOT_CHECKED`), who it looked like and how closely, the review (open until decided: the verdict, the record kept, the note, who decided), status (`PENDING`, `ACTIVE`, `BLOCKED`, `REVOKED`), `wiped_at` | Never deleted; a wipe empties the template but keeps who it looked like. At most one unwiped face per employee (a partial unique index). A new face is enrolled on one of the company's kiosks, undecided, and only with the worker's own consent, still given; a finger comes from one of its ZKTeco terminals. Only a face that collided names who it looked like, and it is never matched until a second ADMIN clears it. The record that loses a SAME_PERSON decision keeps a blocked face and no face, fingerprint key or exemption in use (checked when the change is saved), and one pair of records is never decided two ways. A face blocked as a duplicate stays `BLOCKED` for good and is never decided afterwards. A blocked record gets nothing live, and a decision, a block and anything new for the same worker happen one at a time (a lock on the employee row) |
+| `biometric_exemptions` | employee, status (`REQUESTED`, `APPROVED`, `REJECTED`, `ENDED`), reason code (`DECLINED`, `CANNOT_ENROLL`, `CONSENT_WITHDRAWN`), a short note, who asked and when, who decided and when | Never deleted. A request is decided once, by a different ADMIN, while it is still waiting. It ends when its record is blocked as a duplicate |
+| `device_passkeys` | employee, device, credential ID, public key, signature counter, "synced" flag, `revoked_at` | Never deleted. One live key per employee per device, and a new key only on one of the company's kiosks with fingerprints switched on; switching them off is refused unless the same transaction revokes every key on it. The counter only goes up; a revoked key is never used again |
 | `clock_in_attempts` | ID (reused as the punch's `deviceEventId`, so a punch finds its attempt without changing it), device, purpose (`CLOCK`, `CO_SIGN`, `STAFF_PASSKEY`), direction, the staff number typed (for fallbacks and co-signs, even one that matches nobody), the co-signed worker, outcome (a `NOT_ME` row points at the attempt it cancels), employee, best and runner-up scores, anti-spoofing scores, threshold version, fingerprint challenge, the request's network address, time | Append-only. Scores stay on the server; embeddings are never stored here |
 
 **Other changes**
@@ -96,6 +96,7 @@ HR creates the worker as `PENDING_ENROLLMENT`. The rest happens on the kiosk. Th
 - `SAME_PERSON`: one person with two records. The reviewer says which record belongs to the person whose card they checked (`keepEmployeeId`). The choice matters. Suppose an insider wipes a real guard's face and enrolls a ghost with it. When the real guard enrolls again, the reviewer keeps the real guard's record and blocks the ghost, instead of always blocking the newer face.
   - The kept record, if it is the new one, gets a `CLEARED` face.
   - The **other record is blocked**: its face is wiped (`BLOCKED`), its fingerprint keys are revoked, any exemption ends, and an `ACTIVE` employee goes back to `PENDING_ENROLLMENT`, so the ghost can no longer clock in by any path.
+  - Only the closest match is reviewed. If a face looks like two records, the other one is caught when either worker enrolls again (the new face names it), and R1 flags it meanwhile. Keeping a record that is already blocked is allowed: it blocks the other one too, so a second copy of a ghost is caught the same way.
   - The decision is final. The blocked record can only be terminated: consent, enrollment, exemption and revoke are refused for it, a withdrawal of consent leaves it blocked, and the retention sweep leaves it alone. Nothing turns `BLOCKED` back into `REVOKED`.
 
 A cleared face activates the worker only if they are `PENDING_ENROLLMENT`, and only if the face is still there.
@@ -119,13 +120,15 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 
 **Withdrawing consent** (`POST /employees/{id}/biometric-consents/withdraw`) wipes the face at once and switches off the keys.
 
-- Only an ADMIN records a withdrawal (HR may take the worker's written request to one).
+- Only an ADMIN records a withdrawal (HR may take the worker's written request to one). It is recorded on the dashboard, with no device; the database also allows one of the company's own kiosks, for a later kiosk route.
 - If the face was in use and the worker is `ACTIVE`, the worker goes back to `PENDING_ENROLLMENT`, and the API **files** an exemption request (`CONSENT_WITHDRAWN`). The ADMIN who recorded the withdrawal is its asker, so a **different** ADMIN decides it: every exemption takes two ADMIN accounts.
   - While it waits, the worker can still clock in by a supervisor's co-sign. Those punches are stored and paired, but they raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for enrollment ([Attendance design](12-attendance-design.md) section 3), and payroll counts them only once a second ADMIN has approved. The worker's presence is on record from the first day, and they are paid in full once approved.
   - Once approved, the worker is `ACTIVE` again and clocks in by co-sign.
 - **Why not exempt at once?** A wiped face is no longer in the duplicate check. If one ADMIN could withdraw a face and keep that record working, they could enroll the same face again on a second record, and a third, with nobody else ever looking. Requiring a second person for every faceless worker closes that loop.
 - An exemption already approved is kept. Any other face (waiting for review, or blocked) gives no request. An open review stays open, and a blocked face stays blocked. **Withdrawing never activates anyone.**
 - A worker who withdrew may consent again later, unless the record is blocked as a duplicate.
+
+**Transactions (for pull requests 4, 5, 7 and 9).** Every biometric transaction runs at READ COMMITTED, the default, because the database rules read the newest saved rows after waiting for a lock. A service that changes several rows (a decision and its block, a withdrawal, a revoke, the retention sweep, an exemption approval) first locks the workers involved, in id order (`SELECT … FROM employees WHERE id = ANY(…) ORDER BY id FOR NO KEY UPDATE`). Otherwise two ADMINs acting on the same people at the same moment can deadlock; PostgreSQL then cancels one, and the API answers `409` so they can try again. Registering a fingerprint key locks the kiosk's device row first, for the same reason.
 
 **Seed data** gains a second ADMIN (so collisions and exemptions can be decided), two pending guards and one pending supervisor.
 
@@ -144,7 +147,7 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 **Device kinds are checked.** Each signed route lists the kinds it **allows**, and every other kind gets the same `401`:
 
 - `/kiosk/*` allows only `FACE_KIOSK`;
-- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (development and TEST);
+- `/ingest/punches` allows `ZKTECO`, and `MOCK` only where the simulator is allowed (`ALLOW_SIMULATOR_DEVICES`: when it is not set, simulators work in development and are refused in production; TEST sets `yes` for its attendance demo);
 - `/ingest/heartbeat` allows every kind.
 
 A stolen kiosk key therefore cannot post raw `FACE` punches. A test proves that a correctly signed request with no token is refused on the ADMIN kiosk routes.
@@ -226,7 +229,7 @@ The worker types their staff number. A supervisor then passes identify with purp
 
 **Delivery.** Each line is written to a SQLite outbox **before** the gateway answers `OK`, then sent in signed batches of at most 100, with that terminal's own secret. A server error or a timeout is retried; a `401` raises an alarm. The gateway, the API, the simulator and the kiosk all pass one shared file of signature test vectors.
 
-**Roster.** Every 5 minutes, a signed `POST /ingest/roster` returns the site's active and pending staff. The gateway compares it with the terminal's user list and adds or removes users. It is safe to repeat, so the server needs no command table.
+**Roster.** Every 5 minutes, a signed `POST /ingest/roster` returns the site's active and pending staff, leaving out any record blocked as a duplicate (so its fingers come off the terminals too). The gateway compares it with the terminal's user list and adds or removes users. It is safe to repeat, so the server needs no command table.
 
 **Enrollment proof.** When a terminal reports a new finger, the gateway sends only "user 42 enrolled a finger on this terminal at this time" (`POST /ingest/enrollments`); the fingerprint template itself is discarded. A finger enrolled inside a 30-minute window that an ADMIN opened for that worker becomes ACTIVE (`NOT_CHECKED`, because our server cannot compare terminal fingerprints). Any other finger becomes `BLOCKED` and raises `UNEXPECTED_DEVICE_ENROLLMENT`. A terminal never activates anyone.
 
@@ -285,7 +288,7 @@ At most two open at a time, merged as soon as each is green.
 | 6 | `apps/kiosk` (needs the owner's OK for a new Vercel project) | Shared signature vectors; Playwright. **The face demo works.** |
 | 7 | Passkeys | No user verification, keys from another device, and foreign keys all refused. **The full demo works.** |
 | 8 | Gateway and fake terminal | Outbox written before `OK`; 500 lines → 5 batches |
-| 9 | Roster, enrollment windows, pull script, demo guide, threshold report | A finger nobody asked for → an exception |
+| 9 | Roster, enrollment windows, pull script, demo guide, threshold report | A finger nobody asked for → an exception; a record blocked as a duplicate leaves the roster |
 
 **Samuel's dashboard screens** (enrollment itself happens on the kiosk):
 
@@ -316,5 +319,6 @@ The mock API already supports all of them.
 11. **One master secret.** A leaked `AUTH_SECRET` lets someone forge sign-ins and, together with a copy of the database, read the face templates. It lives only in the hosting settings, is never shared between TEST and production, and is backed up offline.
 12. **One person with two ADMIN accounts** (for example one they created, or one whose sign-in they reset) defeats every two-person rule. User changes are audited, rule R11 flags a decision made by an account that a handler created, reset or promoted, and Phase 7 makes creating or resetting an ADMIN account need a second ADMIN.
 13. **Indirect links are flagged, not blocked.** An ADMIN who created a record, or enrolled the other face, may still decide its review, so that small companies never deadlock. Rule R11 shows those decisions to the payroll checker.
+14. **One ADMIN can register a device and send punches with its key** (a terminal or, where allowed, a simulator), with any method a terminal may claim. Registration is audited, every punch names its device, rule R9 flags a device whose volume jumps, and the payroll checker sees the device behind each shift. Phase 7 makes registering a device or rotating its secret need a second ADMIN.
 
 Related: [Biometric integration](10-biometric-integration.md) · [Attendance design](12-attendance-design.md) · [Security and review gates](06-security-and-review-gates.md) · [Roadmap](07-roadmap.md)

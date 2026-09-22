@@ -16,8 +16,15 @@ import type { Request, Response } from 'express';
 import { Public } from '../../common/auth.decorators.js';
 import { RateLimitException } from '../../common/rate-limit.exception.js';
 import { getRequestId } from '../../common/request-id.middleware.js';
+import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
-import { type SignedRoute, signatureMatches, timestampIsFresh } from './device-signature.js';
+import {
+  type DeviceKind,
+  kindMayUse,
+  type SignedRoute,
+  signatureMatches,
+  timestampIsFresh,
+} from './device-signature.js';
 import { DevicesService } from './devices.service.js';
 
 /** The device a signed request came from, as `@CurrentDevice()` hands it over. */
@@ -25,6 +32,7 @@ export interface SignedDevice {
   id: string;
   companyId: string;
   siteId: string;
+  kind: DeviceKind;
 }
 
 /** At most this many signed requests per device per minute. */
@@ -71,6 +79,7 @@ export class DeviceSignatureGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
     private readonly devices: DevicesService,
+    private readonly config: AppConfig,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -116,9 +125,19 @@ export class DeviceSignatureGuard implements CanActivate {
       await this.recordFailedSignature(device.id);
       return refuse('bad_signature');
     }
-
     await this.countRequest(device.id);
-    request.signedDevice = { id: device.id, companyId: device.companyId, siteId: device.siteId };
+    // Checked after the signature (so only the real device's key reaches it)
+    // and after the rate limit (so a leaked kiosk key cannot hammer a route it
+    // may not use), with the same answer as every other failure.
+    if (!kindMayUse(route, device.kind, this.config.allowSimulatorDevices)) {
+      return refuse('kind_not_allowed');
+    }
+    request.signedDevice = {
+      id: device.id,
+      companyId: device.companyId,
+      siteId: device.siteId,
+      kind: device.kind,
+    };
     return true;
   }
 
