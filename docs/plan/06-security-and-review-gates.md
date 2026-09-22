@@ -81,9 +81,9 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 
 Biometric data is sensitive personal data. SAMTEC therefore:
 
-- records the employee's **consent** during enrollment (a step in the onboarding screen);
+- records the employee's **consent** during enrollment (a step on the kiosk, before the face is captured; the text's version and SHA-256 are stored), and lets an employee refuse or withdraw it without losing pay;
 - uses biometric data **only for attendance** (purpose limitation);
-- keeps a written **retention schedule** and deletes templates when it expires.
+- keeps a written **retention schedule** and deletes templates when it expires: a face is wiped at once when consent is withdrawn, and 90 days after the worker leaves.
 
 This section belongs in Samuel's report and in the client presentation.
 
@@ -94,9 +94,11 @@ This section belongs in Samuel's report and in the client presentation.
 | Buddy punching: a friend clocks in for an absent guard | Guard | Biometric-only clock-in; PIN fallback flagged and co-signed by a supervisor |
 | Editing payroll after approval | HR user | Locked runs, maker–checker, audit log, database trigger |
 | A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); volume anomaly detection (Phase 5) |
-| Stealing biometric templates | Outsider | Encryption at rest; templates are useless without the vendor's matcher; no images stored |
+| Stealing biometric templates | Outsider | Encryption at rest, bound to each row; no images stored; templates never leave the server or reach a log. Face templates can be turned back into a rough face, so they are treated as sensitive data (Phase 3) |
 | Replaying captured punches | Network attacker | Idempotency key and payload hash, plus a signed timestamp that expires after 5 minutes (built, Phase 2) |
-| Holding a photo up to the face kiosk | Guard | Anti-spoofing score threshold and a random blink challenge; documented as a version 1 limitation |
+| Holding a photo up to the face kiosk | Guard | Anti-spoofing and liveness scores, checked on the kiosk and again on the server, plus a random head-turn challenge; documented as a version 1 limitation, because a replayed video or a mask can still pass (Phase 3) |
+| A stolen kiosk, or a copied kiosk key | Outsider or insider | The key works only on `/kiosk` routes, never for raw punches; enrollment also needs an ADMIN's token with two-factor; the ADMIN rotates the secret (Phase 3) |
+| Probing the face matcher to learn who is enrolled | Insider | Answers never contain a score; every attempt is recorded; per-device rate limit (Phase 3) |
 | A malicious package version | Supply chain | 1-day release age rule, install-script approval, lockfile, `pnpm audit`, code owner review of dependency changes |
 | Stealing a refresh token | Outsider | `HttpOnly` cookie, rotation with reuse detection, `SameSite=Strict`, `Origin` check |
 | Guessing passwords or two-factor codes | Outsider | scrypt, per-email lockout with atomic counting, per-account two-factor lockout across fresh challenges, answers that never reveal whether an email has an account |

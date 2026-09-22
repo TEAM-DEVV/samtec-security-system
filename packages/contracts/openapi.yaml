@@ -62,6 +62,15 @@ tags:
       user. Built in Phase 2.
   - name: Attendance
     description: Worked shifts and the exception queue. Built in Phase 2.
+  - name: Kiosk
+    description: >-
+      The company's clock-in device at a site (a tablet, phone or laptop
+      running the kiosk app): face and fingerprint clock-in, and enrollment by
+      an ADMIN. Signed by the device. Built in Phase 3.
+  - name: Biometrics
+    description: >-
+      Consent, enrolled faces and fingerprint keys, the duplicate-enrollment
+      queue, and exemptions. Never an image or a template. Built in Phase 3.
 
 security:
   - bearerAuth: []
@@ -1697,6 +1706,733 @@ paths:
         "503":
           $ref: "#/components/responses/Busy"
 
+  /kiosk/identify:
+    post:
+      tags: [Kiosk]
+      operationId: kioskIdentify
+      summary: Find who is in front of the kiosk camera
+      description: |
+        **Signed by a `FACE_KIOSK` device** (route name `kiosk/identify`); any
+        other kind of device answers `401`. The kiosk sends one face
+        sample taken after its liveness challenge (a random head turn). The
+        server checks the anti-spoofing scores again and compares the face
+        with every enrolled face in the company.
+
+        - `MATCHED`: the best match is at least the threshold **and** clearly
+          ahead of the next person. The kiosk shows the name for 2 seconds
+          ("Not me" cancels), then calls `POST /kiosk/confirm`.
+        - `AMBIGUOUS`, `NOT_RECOGNISED`, `LOW_LIVENESS`: nothing is recorded
+          except the attempt; try again. After 3 failed attempts the kiosk
+          may offer the fingerprint fallback or a supervisor's co-sign.
+
+        No punch is made here. The answer never contains a score, so it
+        cannot be used to probe the stored faces. `purpose: CO_SIGN` is a
+        site supervisor confirming a worker who cannot use the face path.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KioskIdentifyRequest"
+      responses:
+        "200":
+          description: The outcome of this attempt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskIdentifyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /kiosk/confirm:
+    post:
+      tags: [Kiosk]
+      operationId: kioskConfirm
+      summary: Record the clock-in or clock-out of an identified worker
+      description: |
+        **Signed by the same `FACE_KIOSK` device** that made the attempt
+        (route name `kiosk/confirm`). The attempt must be `MATCHED` (or a
+        fingerprint attempt from `POST /kiosk/fingerprint-options`) and at
+        most 60 seconds old. When the attempt asked for a fingerprint, the
+        `assertion` from the device's built-in sensor is required and must
+        come from that worker's passkey on this device.
+
+        The punch goes through the same rules as every other punch (it is
+        stored once, paired into shifts, and checked). The server chooses
+        the method: `FACE`, `FACE_PASSKEY` (face, then fingerprint) or
+        `STAFF_PASSKEY` (staff number, then fingerprint; flagged). The time
+        is the server's time of the attempt, so a kiosk cannot backdate.
+        Sending the same confirmation again answers `DUPLICATE`.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KioskConfirmRequest"
+      responses:
+        "200":
+          description: The punch was recorded (or had been already).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskPunchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "409":
+          description: >-
+            The attempt cannot be confirmed: it is not a match, it belongs to
+            another device, it is older than 60 seconds, or its fingerprint
+            check failed. Start again.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /kiosk/fingerprint-options:
+    post:
+      tags: [Kiosk]
+      operationId: kioskFingerprintOptions
+      summary: Fall back to staff number plus fingerprint
+      description: >-
+        **Signed by a `FACE_KIOSK` device** (route name
+        `kiosk/fingerprint-options`). Offered only after 3 failed face
+        attempts on this device in the last 10 minutes, on a device with
+        fingerprints switched on, for a worker who has a passkey on it. The
+        answer carries the challenge for the device's fingerprint sensor;
+        send the result to `POST /kiosk/confirm`. The punch is marked
+        `STAFF_PASSKEY` and counted by the ghost rules, because any finger
+        saved on the device can unlock any worker's key.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KioskFingerprintOptionsRequest"
+      responses:
+        "200":
+          description: A fingerprint attempt, waiting for the sensor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskFingerprintOptionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "409":
+          description: >-
+            The fallback is not available here: too few failed face attempts,
+            fingerprints are off on this device, or this worker has no
+            passkey on it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /kiosk/assisted-punches:
+    post:
+      tags: [Kiosk]
+      operationId: kioskAssistedPunch
+      summary: Record a punch confirmed by a site supervisor's face
+      description: >-
+        **Signed by a `FACE_KIOSK` device** (route name
+        `kiosk/assisted-punches`). For a worker whose face and fingerprint
+        both fail, or who is exempt from biometrics. The worker types their
+        staff number; a SUPERVISOR who is ACTIVE, posted to this device's
+        site and not the worker themselves passes `POST /kiosk/identify`
+        with `purpose: CO_SIGN` (at most 60 seconds earlier). The punch is
+        marked `PIN_FALLBACK`, the reason is audited, and the ghost rules
+        count these per worker and per supervisor.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KioskAssistedPunchRequest"
+      responses:
+        "200":
+          description: The punch was recorded (or had been already).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskPunchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "409":
+          description: >-
+            The co-sign cannot be used: it is not a matched supervisor of this
+            site, it is the worker themselves, or it is older than 60 seconds.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /kiosk/consents:
+    post:
+      tags: [Kiosk]
+      operationId: kioskRecordConsent
+      summary: Record a worker's consent before enrollment
+      description: >-
+        **An ADMIN on a `FACE_KIOSK` device:** needs both the ADMIN's access
+        token and the device's signature (route name `kiosk/consents`). The
+        worker reads the consent text from `GET /biometrics/consent-text` on
+        the kiosk and taps "I agree". The ADMIN first checks the worker's
+        physical Ghana Card: the last 4 digits must match the employee
+        record (a wrong answer is a `400` on `ghanaCardLast4` and is
+        audited). The full number never reaches the kiosk. Consent must be
+        freely given; a worker who refuses can be exempted instead.
+      security:
+        - bearerAuth: []
+          deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordConsentRequest"
+      responses:
+        "201":
+          description: The consent is recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BiometricConsent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The device signature or the ADMIN's access token is missing or not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The employee is terminated, or this consent version is already recorded.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /kiosk/face-enrollments:
+    post:
+      tags: [Kiosk]
+      operationId: kioskEnrollFace
+      summary: Enroll a worker's face, with the duplicate check
+      description: |
+        **An ADMIN on a `FACE_KIOSK` device** (token and signature, route name
+        `kiosk/face-enrollments`). Needs the worker's current consent
+        (otherwise `409`). The kiosk sends three samples taken half a
+        second apart after a head-turn challenge; each must look real and
+        live, and the three must be the same face.
+
+        **Duplicate check:** the new face is compared with every other
+        enrolled face in the company, whatever its status. A likely match is
+        a `COLLISION`: the worker stays `PENDING_ENROLLMENT` and a
+        *different* ADMIN reviews it (`/biometric-collisions`). Otherwise
+        the face is `PASSED` and the worker becomes `ACTIVE`. No image is
+        ever stored: only the numbers, encrypted.
+      security:
+        - bearerAuth: []
+          deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollFaceRequest"
+      responses:
+        "201":
+          description: The face is stored, with the result of the duplicate check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaceEnrollmentResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The device signature or the ADMIN's access token is missing or not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: No current consent, or the employee is terminated.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /kiosk/passkey-options:
+    post:
+      tags: [Kiosk]
+      operationId: kioskPasskeyOptions
+      summary: Start saving a worker's fingerprint on this device
+      description: >-
+        **An ADMIN on a `FACE_KIOSK` device with fingerprints switched on**
+        (token and signature, route name `kiosk/passkey-options`). The
+        worker's face must be enrolled first, and their finger must already
+        be saved in the device's own settings. The answer carries the
+        options for the device's built-in sensor (WebAuthn) and a sealed
+        ticket; send both results to `POST /kiosk/passkeys` within 2
+        minutes. The device keeps a key that only an enrolled finger can
+        unlock; SAMTEC keeps only the public half, never a fingerprint.
+      security:
+        - bearerAuth: []
+          deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyOptionsRequest"
+      responses:
+        "200":
+          description: Options for the device's fingerprint sensor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyOptionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The device signature or the ADMIN's access token is missing or not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Fingerprints are off on this device, or the worker has no enrolled face yet.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /kiosk/passkeys:
+    post:
+      tags: [Kiosk]
+      operationId: kioskRegisterPasskey
+      summary: Save the worker's fingerprint key on this device
+      description: >-
+        **An ADMIN on a `FACE_KIOSK` device** (token and signature, route
+        name `kiosk/passkeys`). Checks the ticket, the origin, that the key
+        lives on this device itself (not a phone or security key held
+        nearby) and that the finger was verified. It replaces any earlier
+        key of this worker on this device. `synced` says whether the device
+        may copy the key to its cloud account, which the report must
+        mention.
+      security:
+        - bearerAuth: []
+          deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterPasskeyRequest"
+      responses:
+        "201":
+          description: The key is saved for this worker on this device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicePasskey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The device signature or the ADMIN's access token is missing or not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The ticket has expired or was already used. Start again.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /biometrics/consent-text:
+    get:
+      tags: [Biometrics]
+      operationId: getBiometricConsentText
+      summary: The consent text a worker reads before enrollment
+      description: >-
+        **Roles:** every signed-in role. The one official wording, so the
+        kiosk and the dashboard always show the same words. Its `version`
+        and `sha256` are what a consent record points to.
+      responses:
+        "200":
+          description: The current consent text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BiometricConsentText"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /employees/{employeeId}/biometrics:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Biometrics]
+      operationId: getEmployeeBiometrics
+      summary: An employee's biometric status
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only; others answer
+        `404`). Status only: consent, the face's state and duplicate-check
+        result, the fingerprint keys by device, and any exemption. Never a
+        template, an embedding or a score.
+      responses:
+        "200":
+          description: The employee's biometric status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeBiometrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /employees/{employeeId}/biometrics/revoke:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    post:
+      tags: [Biometrics]
+      operationId: revokeEmployeeBiometrics
+      summary: Delete an employee's face and fingerprint keys
+      description: >-
+        **Roles:** ADMIN. Wipes the stored face at once and switches off every
+        fingerprint key, for example after a wrong enrollment. The employee
+        goes back to `PENDING_ENROLLMENT` (unless terminated) and must be
+        enrolled again. Audited with the reason; the history rows stay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BiometricReasonRequest"
+      responses:
+        "200":
+          description: The new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeBiometrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /employees/{employeeId}/biometric-exemption:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    post:
+      tags: [Biometrics]
+      operationId: exemptEmployeeFromBiometrics
+      summary: Let a worker who refuses biometrics work without them
+      description: >-
+        **Roles:** ADMIN. Consent must be a free choice, so a worker may
+        refuse. The worker becomes `ACTIVE` without a face and clocks in only
+        with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work
+        is flagged for review. Audited with the reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BiometricReasonRequest"
+      responses:
+        "200":
+          description: The new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeBiometrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The employee is terminated or already exempt.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /employees/{employeeId}/biometric-consents/withdraw:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    post:
+      tags: [Biometrics]
+      operationId: withdrawBiometricConsent
+      summary: Record that a worker withdrew their consent
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the
+        fingerprint keys at once, as the law requires, then exempts the
+        worker so they can keep working with co-signed clock-ins. Audited;
+        the consent history stays.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BiometricReasonRequest"
+      responses:
+        "200":
+          description: The new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeBiometrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: There is no consent to withdraw.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /biometric-collisions:
+    get:
+      tags: [Biometrics]
+      operationId: listBiometricCollisions
+      summary: Faces that look like someone already enrolled
+      description: >-
+        **Roles:** ADMIN. The duplicate-enrollment queue: each item is a new
+        face that looked like another employee's face (a possible ghost
+        worker enrolled twice). Newest first.
+      parameters:
+        - name: status
+          in: query
+          description: Defaults to OPEN.
+          schema:
+            $ref: "#/components/schemas/CollisionStatus"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of collisions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BiometricCollisionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /biometric-collisions/{credentialId}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/CredentialId"
+    post:
+      tags: [Biometrics]
+      operationId: resolveBiometricCollision
+      summary: Decide whether two faces are the same person
+      description: >-
+        **Roles:** ADMIN, but **not the ADMIN who did the enrollment**
+        (`403`). Check both people's Ghana Cards in person first.
+        `DIFFERENT_PEOPLE` clears the face and activates the worker;
+        `SAME_PERSON` wipes the new face and leaves the worker pending for HR
+        to investigate. A note is required, and everything is audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCollisionRequest"
+      responses:
+        "200":
+          description: The resolved collision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BiometricCollision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: This collision has already been decided.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /attendance/punches:
+    get:
+      tags: [Attendance]
+      operationId: listPunches
+      summary: The live list of clock-ins and clock-outs
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only; others answer
+        `404`). Every punch from every device, newest first by the time the
+        API received it, with its method, so the dashboard can show a live
+        board (refresh every few seconds). Flagged methods (`STAFF_PASSKEY`,
+        `PIN_FALLBACK`) deserve a different colour.
+      parameters:
+        - name: siteId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: since
+          in: query
+          description: Only punches received at or after this moment.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of punches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PunchFeedList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /attendance/clock-in-attempts:
+    get:
+      tags: [Attendance]
+      operationId: listClockInAttempts
+      summary: Every face and fingerprint attempt at the kiosks
+      description: >-
+        **Roles:** ADMIN. Successes and failures, newest first, so an ADMIN can
+        see a kiosk that keeps failing, or someone trying face after face.
+        Never a score or an embedding.
+      parameters:
+        - name: deviceId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: outcome
+          in: query
+          schema:
+            $ref: "#/components/schemas/AttemptOutcome"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of attempts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockInAttemptList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1734,8 +2470,14 @@ components:
 
               v1\n<timestamp>\n<route>\n<body>
 
-          where `<route>` is `ingest/punches` or `ingest/heartbeat` and
-          `<body>` is the exact JSON text sent as the request body.
+          where `<route>` is the operation's route name (`ingest/punches`,
+          `ingest/heartbeat`, or a `kiosk/…` name given in each kiosk
+          operation) and `<body>` is the exact JSON text sent as the request body.
+
+        Kiosk operations accept only devices of kind `FACE_KIOSK`, and
+        `/ingest/punches` refuses them, so a kiosk key can never post raw
+        punches. The kiosk's ADMIN operations need the ADMIN's access token
+        **and** the signature.
 
         Serialise the body once, sign that string, and send the same string.
         A wrong signature, an unknown or switched-off device, and a stale
@@ -1841,6 +2583,15 @@ components:
       in: path
       required: true
       description: The shift pattern's ID.
+      schema:
+        type: string
+        format: uuid
+
+    CredentialId:
+      name: credentialId
+      in: path
+      required: true
+      description: The enrolled face's ID.
       schema:
         type: string
         format: uuid
@@ -2289,6 +3040,8 @@ components:
           minLength: 1
           maxLength: 128
           writeOnly: true
+        keepSignedIn:
+          $ref: "#/components/schemas/KeepSignedIn"
 
     LoginResponse:
       description: >-
@@ -2374,6 +3127,16 @@ components:
           $ref: "#/components/schemas/OneTimeToken"
         code:
           $ref: "#/components/schemas/TwoFactorCode"
+        keepSignedIn:
+          $ref: "#/components/schemas/KeepSignedIn"
+
+    KeepSignedIn:
+      type: boolean
+      default: true
+      description: >-
+        `false` on a shared device such as a kiosk: the API then sets no
+        refresh cookie, so the session ends with the 15-minute access token
+        and the device never stays signed in.
 
     TwoFactorSetupRequest:
       type: object
@@ -3001,6 +3764,8 @@ components:
         - lastClockDriftSeconds
         - failedSignatureCount
         - lastFailedSignatureAt
+        - serialNumber
+        - passkeysEnabled
         - createdAt
         - updatedAt
       properties:
@@ -3037,6 +3802,15 @@ components:
         lastFailedSignatureAt:
           type: [string, "null"]
           format: date-time
+        serialNumber:
+          type: [string, "null"]
+          description: The terminal's serial number (ZKTeco terminals report it); `null` for kiosks.
+        passkeysEnabled:
+          type: boolean
+          description: >-
+            Workers may save a fingerprint on this device's own sensor. Only
+            for kiosks with a fingerprint sensor (an Android phone or a
+            laptop with a fingerprint reader).
         createdAt:
           type: string
           format: date-time
@@ -3083,6 +3857,13 @@ components:
           maxLength: 60
         status:
           $ref: "#/components/schemas/DeviceStatus"
+        serialNumber:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 64
+        passkeysEnabled:
+          type: boolean
+          description: Only kiosks (`FACE_KIOSK`) can switch this on.
 
     DeviceWithSecret:
       type: object
@@ -3105,8 +3886,14 @@ components:
 
     PunchMethod:
       type: string
-      description: "`PIN_FALLBACK` is flagged everywhere: a PIN proves nothing about who typed it."
-      enum: [FINGERPRINT, FACE, PIN_FALLBACK]
+      description: |
+        How the person proved who they were:
+        - `FINGERPRINT`: a fingerprint terminal matched the finger itself.
+        - `FACE`: the kiosk camera matched the face.
+        - `FACE_PASSKEY`: the face matched, then the device's own fingerprint sensor confirmed it.
+        - `STAFF_PASSKEY`: a typed staff number, then the device's fingerprint sensor. **Flagged:** any finger saved on the device can unlock any worker's key.
+        - `PIN_FALLBACK`: a PIN or a supervisor's co-sign. **Flagged:** it proves nothing about who was there.
+      enum: [FINGERPRINT, FACE, FACE_PASSKEY, STAFF_PASSKEY, PIN_FALLBACK]
 
     IngestPunch:
       type: object
@@ -3135,7 +3922,7 @@ components:
         direction:
           $ref: "#/components/schemas/PunchDirection"
         method:
-          $ref: "#/components/schemas/PunchMethod"
+          $ref: "#/components/schemas/IngestPunchMethod"
 
     IngestPunchesRequest:
       type: object
@@ -3529,3 +4316,618 @@ components:
           ADD_SEGMENT: "#/components/schemas/AddSegmentResolution"
           KEEP_SEGMENT: "#/components/schemas/KeepSegmentResolution"
           VOID_ALL: "#/components/schemas/VoidAllResolution"
+
+    IngestPunchMethod:
+      type: string
+      description: >-
+        The methods a terminal or its gateway may report. The kiosk methods
+        (`FACE_PASSKEY`, `STAFF_PASSKEY`) are set only by the server, so a
+        device can never claim them.
+      enum: [FINGERPRINT, FACE, PIN_FALLBACK]
+
+    FaceSample:
+      type: object
+      additionalProperties: false
+      description: >-
+        What the kiosk's face model measured in one camera frame: numbers
+        only, never an image. `real` (anti-spoofing) and `live` (liveness)
+        are 0 to 1; higher means more likely a real, live person.
+      required: [model, embedding, real, live]
+      properties:
+        model:
+          type: string
+          const: human-faceres-1
+          description: The face model that made the numbers. Faces from different models can never be compared.
+        embedding:
+          type: array
+          minItems: 1024
+          maxItems: 1024
+          items:
+            type: number
+        real:
+          type: number
+          minimum: 0
+          maximum: 1
+        live:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    KioskPurpose:
+      type: string
+      description: "`CLOCK`: a worker clocking in or out. `CO_SIGN`: a site supervisor confirming someone else's punch."
+      enum: [CLOCK, CO_SIGN]
+
+    KioskDirection:
+      type: string
+      description: "Which button the worker pressed: Start shift (`IN`) or End shift (`OUT`)."
+      enum: [IN, OUT]
+
+    KioskIdentifyRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, sample]
+      properties:
+        purpose:
+          $ref: "#/components/schemas/KioskPurpose"
+        direction:
+          $ref: "#/components/schemas/KioskDirection"
+          description: Required when `purpose` is `CLOCK`.
+        sample:
+          $ref: "#/components/schemas/FaceSample"
+
+    AttemptOutcome:
+      type: string
+      description: |
+        - `MATCHED`: one person, clearly.
+        - `AMBIGUOUS`: two people scored too close to tell apart.
+        - `NOT_RECOGNISED`: nobody scored high enough.
+        - `LOW_LIVENESS`: the face did not look real or live enough.
+        - `FINGERPRINT_REQUESTED`: the staff-number fallback asked for a fingerprint.
+      enum: [MATCHED, AMBIGUOUS, NOT_RECOGNISED, LOW_LIVENESS, FINGERPRINT_REQUESTED]
+
+    KioskWorker:
+      type: object
+      description: >-
+        How the kiosk names a worker on a shared screen: first name and the
+        initial of the last name, and the staff number.
+      required: [displayName, staffNumber]
+      properties:
+        displayName:
+          type: string
+          examples: [Kwame A.]
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+
+    KioskIdentifyResponse:
+      type: object
+      required: [attemptId, outcome, worker, fingerprint]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        outcome:
+          $ref: "#/components/schemas/AttemptOutcome"
+        worker:
+          description: The matched person; `null` unless `outcome` is `MATCHED`.
+          oneOf:
+            - $ref: "#/components/schemas/KioskWorker"
+            - type: "null"
+        fingerprint:
+          description: >-
+            Set when the matched worker has a fingerprint key on this device:
+            the fingerprint is then required before `POST /kiosk/confirm`.
+          oneOf:
+            - $ref: "#/components/schemas/FingerprintChallenge"
+            - type: "null"
+
+    FingerprintChallenge:
+      type: object
+      required: [options]
+      properties:
+        options:
+          $ref: "#/components/schemas/PasskeyRequestOptions"
+
+    KioskConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [attemptId]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        assertion:
+          $ref: "#/components/schemas/PasskeyAssertion"
+
+    KioskPunchResponse:
+      type: object
+      required: [punchId, status, method, direction, recordedAt, worker]
+      properties:
+        punchId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: "`DUPLICATE` when this confirmation was already recorded."
+          enum: [ACCEPTED, DUPLICATE]
+        method:
+          $ref: "#/components/schemas/PunchMethod"
+        direction:
+          $ref: "#/components/schemas/KioskDirection"
+        recordedAt:
+          type: string
+          format: date-time
+        worker:
+          $ref: "#/components/schemas/KioskWorker"
+
+    KioskFingerprintOptionsRequest:
+      type: object
+      additionalProperties: false
+      required: [staffNumber, direction]
+      properties:
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        direction:
+          $ref: "#/components/schemas/KioskDirection"
+
+    KioskFingerprintOptionsResponse:
+      type: object
+      required: [attemptId, worker, options]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        worker:
+          $ref: "#/components/schemas/KioskWorker"
+        options:
+          $ref: "#/components/schemas/PasskeyRequestOptions"
+
+    KioskAssistedPunchRequest:
+      type: object
+      additionalProperties: false
+      required: [coSignAttemptId, staffNumber, direction, reason]
+      properties:
+        coSignAttemptId:
+          type: string
+          format: uuid
+          description: The supervisor's `CO_SIGN` attempt from `POST /kiosk/identify`.
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        direction:
+          $ref: "#/components/schemas/KioskDirection"
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 200
+          description: Why the worker could not use their face or fingerprint. Audited.
+
+    BiometricConsentText:
+      type: object
+      required: [version, text, sha256]
+      properties:
+        version:
+          type: string
+          examples: [bio-v1]
+        text:
+          type: string
+          description: The whole consent text, in plain English.
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 of `text`, so a consent record proves exactly which words were shown.
+
+    RecordConsentRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId, ghanaCardLast4, textVersion]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+        ghanaCardLast4:
+          type: string
+          pattern: "^[0-9]{4}$"
+          description: >-
+            The last 4 digits of the Ghana Card number, read off the worker's
+            physical card (ignore the dashes), to prove the right person is
+            being enrolled.
+          writeOnly: true
+        textVersion:
+          type: string
+          description: The `version` of the consent text the worker agreed to.
+
+    BiometricConsentStatus:
+      type: string
+      enum: [NONE, GIVEN, WITHDRAWN]
+
+    BiometricConsent:
+      type: object
+      required: [id, employeeId, status, textVersion, textSha256, recordedAt, recordedByUserId, deviceId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        employeeId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [GIVEN, WITHDRAWN]
+        textVersion:
+          type: string
+        textSha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        recordedAt:
+          type: string
+          format: date-time
+        recordedByUserId:
+          type: string
+          format: uuid
+        deviceId:
+          type: [string, "null"]
+          format: uuid
+          description: The kiosk it was given on; `null` for a withdrawal recorded on the dashboard.
+
+    EnrollFaceRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId, consentId, samples]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+        consentId:
+          type: string
+          format: uuid
+        samples:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: Three frames, half a second apart, after the head-turn challenge.
+          items:
+            $ref: "#/components/schemas/FaceSample"
+
+    DedupeResult:
+      type: string
+      description: |
+        The duplicate check at enrollment:
+        - `PASSED`: looks like nobody else.
+        - `COLLISION`: looks like someone already enrolled; an ADMIN must decide.
+        - `CLEARED`: was a collision, and an ADMIN confirmed two different people.
+        - `NOT_CHECKED`: enrolled on a terminal that keeps its own fingerprints.
+      enum: [PASSED, COLLISION, CLEARED, NOT_CHECKED]
+
+    FaceEnrollmentResult:
+      type: object
+      required: [credentialId, dedupe, employeeStatus]
+      properties:
+        credentialId:
+          type: string
+          format: uuid
+        dedupe:
+          $ref: "#/components/schemas/DedupeResult"
+        employeeStatus:
+          $ref: "#/components/schemas/EmployeeStatus"
+
+    PasskeyOptionsRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+
+    PasskeyOptionsResponse:
+      type: object
+      required: [ticket, options]
+      properties:
+        ticket:
+          type: string
+          description: A sealed, 2-minute ticket that only the server can read. Send it back unchanged.
+        options:
+          $ref: "#/components/schemas/PasskeyCreationOptions"
+
+    RegisterPasskeyRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId, ticket, response]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+        ticket:
+          type: string
+        response:
+          $ref: "#/components/schemas/PasskeyRegistrationResponse"
+
+    DevicePasskey:
+      type: object
+      required: [id, deviceId, deviceName, registeredAt, synced, revokedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        registeredAt:
+          type: string
+          format: date-time
+        synced:
+          type: boolean
+          description: The device said it may copy this key to its cloud account (a synced passkey).
+        revokedAt:
+          type: [string, "null"]
+          format: date-time
+
+    PasskeyCreationOptions:
+      type: object
+      description: >-
+        WebAuthn options for creating a key (`PublicKeyCredentialCreationOptionsJSON`
+        in the W3C WebAuthn specification). Pass them unchanged to the browser.
+
+    PasskeyRegistrationResponse:
+      type: object
+      description: >-
+        The browser's answer to `PasskeyCreationOptions`
+        (`RegistrationResponseJSON` in the W3C WebAuthn specification), unchanged.
+
+    PasskeyRequestOptions:
+      type: object
+      description: >-
+        WebAuthn options for using a key (`PublicKeyCredentialRequestOptionsJSON`
+        in the W3C WebAuthn specification). Pass them unchanged to the browser.
+
+    PasskeyAssertion:
+      type: object
+      description: >-
+        The browser's answer to `PasskeyRequestOptions`
+        (`AuthenticationResponseJSON` in the W3C WebAuthn specification), unchanged.
+
+    FaceStatus:
+      type: string
+      description: |
+        - `NONE`: no face enrolled.
+        - `PENDING`: enrolled but waiting for a collision review.
+        - `ACTIVE`: in use for clock-ins.
+        - `BLOCKED`: the review found the same person as someone else.
+        - `REVOKED`: wiped by an ADMIN, a withdrawal of consent, or after the retention period.
+      enum: [NONE, PENDING, ACTIVE, BLOCKED, REVOKED]
+
+    EmployeeBiometrics:
+      type: object
+      required: [employeeId, consent, face, passkeys, exemption]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+        consent:
+          type: object
+          required: [status, textVersion, at]
+          properties:
+            status:
+              $ref: "#/components/schemas/BiometricConsentStatus"
+            textVersion:
+              type: [string, "null"]
+            at:
+              type: [string, "null"]
+              format: date-time
+        face:
+          type: object
+          required: [status, dedupe, enrolledAt, deviceName]
+          properties:
+            status:
+              $ref: "#/components/schemas/FaceStatus"
+            dedupe:
+              oneOf:
+                - $ref: "#/components/schemas/DedupeResult"
+                - type: "null"
+            enrolledAt:
+              type: [string, "null"]
+              format: date-time
+            deviceName:
+              type: [string, "null"]
+              description: The kiosk it was enrolled on.
+        passkeys:
+          type: array
+          description: Fingerprint keys, one per device at most.
+          items:
+            $ref: "#/components/schemas/DevicePasskey"
+        exemption:
+          description: Set when an ADMIN let this worker work without biometrics.
+          oneOf:
+            - $ref: "#/components/schemas/BiometricExemption"
+            - type: "null"
+
+    BiometricExemption:
+      type: object
+      required: [exemptAt, reason]
+      properties:
+        exemptAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    BiometricReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Why. Kept with the audit record.
+
+    CollisionStatus:
+      type: string
+      enum: [OPEN, RESOLVED]
+
+    CollisionVerdict:
+      type: string
+      description: "`DIFFERENT_PEOPLE`: two real people who look alike. `SAME_PERSON`: one person enrolled twice."
+      enum: [DIFFERENT_PEOPLE, SAME_PERSON]
+
+    BiometricCollision:
+      type: object
+      required: [credentialId, status, employee, lookedLike, similarity, enrolledAt, enrolledByUserId, deviceId, resolution]
+      properties:
+        credentialId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/CollisionStatus"
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        lookedLike:
+          $ref: "#/components/schemas/EmployeeRef"
+        similarity:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: How alike the two faces scored (1 = identical). Shown to ADMINs only, never on a kiosk.
+        enrolledAt:
+          type: string
+          format: date-time
+        enrolledByUserId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/CollisionResolution"
+            - type: "null"
+
+    CollisionResolution:
+      type: object
+      required: [verdict, note, resolvedAt, resolvedByUserId]
+      properties:
+        verdict:
+          $ref: "#/components/schemas/CollisionVerdict"
+        note:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolvedByUserId:
+          type: string
+          format: uuid
+
+    BiometricCollisionList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BiometricCollision"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ResolveCollisionRequest:
+      type: object
+      additionalProperties: false
+      required: [verdict, note]
+      properties:
+        verdict:
+          $ref: "#/components/schemas/CollisionVerdict"
+        note:
+          type: string
+          minLength: 3
+          maxLength: 500
+
+    PunchFeedItem:
+      type: object
+      required: [id, employee, deviceUserRef, siteId, deviceId, deviceName, deviceTime, serverTime, direction, method, clockSuspect]
+      properties:
+        id:
+          type: string
+          format: uuid
+        employee:
+          description: "`null` when the user number matched nobody."
+          oneOf:
+            - $ref: "#/components/schemas/EmployeeRef"
+            - type: "null"
+        deviceUserRef:
+          type: string
+        siteId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        deviceTime:
+          type: string
+          format: date-time
+        serverTime:
+          type: string
+          format: date-time
+        direction:
+          $ref: "#/components/schemas/PunchDirection"
+        method:
+          $ref: "#/components/schemas/PunchMethod"
+        clockSuspect:
+          type: boolean
+
+    PunchFeedList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunchFeedItem"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ClockInAttempt:
+      type: object
+      required: [id, deviceId, deviceName, purpose, outcome, employee, attemptedAt, punchId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        purpose:
+          type: string
+          enum: [CLOCK, CO_SIGN, STAFF_PASSKEY]
+        outcome:
+          $ref: "#/components/schemas/AttemptOutcome"
+        employee:
+          oneOf:
+            - $ref: "#/components/schemas/EmployeeRef"
+            - type: "null"
+        attemptedAt:
+          type: string
+          format: date-time
+        punchId:
+          type: [string, "null"]
+          format: uuid
+          description: The punch this attempt led to, if it was confirmed.
+
+    ClockInAttemptList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockInAttempt"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.

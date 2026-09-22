@@ -14,7 +14,7 @@ The original proposal defines a ghost worker as "an employee without a valid bio
 | R4 | **Bilocation** | One employee has overlapping work segments at two sites | HIGH |
 | R5 | **Never seen** | ACTIVE for more than N days with no punches at all | HIGH: the classic ghost |
 | R6 | **Terminated but active** | Punches or payroll lines after the termination date | CRITICAL |
-| R7 | **PIN fallback abuse** | An employee's share of PIN clock-ins is above a threshold (avoiding biometrics) | MEDIUM |
+| R7 | **PIN fallback abuse** | An employee's share of flagged clock-ins (a supervisor's co-sign, or staff number plus fingerprint) is above a threshold, counted per worker and per co-signing supervisor (avoiding biometrics) | MEDIUM |
 | R8 | **Robot regularity** | Punch times with almost no variation over weeks (manufactured logs) | MEDIUM |
 | R9 | **Device anomaly** | A device's punch volume spikes against its history, its clock drifts by more than 5 minutes, or it sends punches during an offline window | MEDIUM |
 | R10 | **Orphan punches** | Punches whose device user reference matches nobody | MEDIUM: wrong enrollment or someone probing |

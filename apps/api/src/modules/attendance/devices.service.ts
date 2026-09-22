@@ -171,6 +171,10 @@ export function toApiDevice(device: Device): ApiDevice {
     lastClockDriftSeconds: device.lastClockDriftSeconds,
     failedSignatureCount: device.failedSignatureCount,
     lastFailedSignatureAt: device.lastFailedSignatureAt?.toISOString() ?? null,
+    // The columns for these arrive with the Phase 3 migration (docs/plan/13);
+    // until then no device has a serial number or fingerprint keys.
+    serialNumber: null,
+    passkeysEnabled: false,
     createdAt: device.createdAt.toISOString(),
     updatedAt: device.updatedAt.toISOString(),
   };

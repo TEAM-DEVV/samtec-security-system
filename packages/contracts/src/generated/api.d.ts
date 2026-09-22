@@ -835,6 +835,399 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kiosk/identify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find who is in front of the kiosk camera
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/identify`); any
+         *     other kind of device answers `401`. The kiosk sends one face
+         *     sample taken after its liveness challenge (a random head turn). The
+         *     server checks the anti-spoofing scores again and compares the face
+         *     with every enrolled face in the company.
+         *
+         *     - `MATCHED`: the best match is at least the threshold **and** clearly
+         *       ahead of the next person. The kiosk shows the name for 2 seconds
+         *       ("Not me" cancels), then calls `POST /kiosk/confirm`.
+         *     - `AMBIGUOUS`, `NOT_RECOGNISED`, `LOW_LIVENESS`: nothing is recorded
+         *       except the attempt; try again. After 3 failed attempts the kiosk
+         *       may offer the fingerprint fallback or a supervisor's co-sign.
+         *
+         *     No punch is made here. The answer never contains a score, so it
+         *     cannot be used to probe the stored faces. `purpose: CO_SIGN` is a
+         *     site supervisor confirming a worker who cannot use the face path.
+         */
+        post: operations["kioskIdentify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the clock-in or clock-out of an identified worker
+         * @description **Signed by the same `FACE_KIOSK` device** that made the attempt
+         *     (route name `kiosk/confirm`). The attempt must be `MATCHED` (or a
+         *     fingerprint attempt from `POST /kiosk/fingerprint-options`) and at
+         *     most 60 seconds old. When the attempt asked for a fingerprint, the
+         *     `assertion` from the device's built-in sensor is required and must
+         *     come from that worker's passkey on this device.
+         *
+         *     The punch goes through the same rules as every other punch (it is
+         *     stored once, paired into shifts, and checked). The server chooses
+         *     the method: `FACE`, `FACE_PASSKEY` (face, then fingerprint) or
+         *     `STAFF_PASSKEY` (staff number, then fingerprint; flagged). The time
+         *     is the server's time of the attempt, so a kiosk cannot backdate.
+         *     Sending the same confirmation again answers `DUPLICATE`.
+         */
+        post: operations["kioskConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/fingerprint-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fall back to staff number plus fingerprint
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/fingerprint-options`). Offered only after 3 failed face attempts on this device in the last 10 minutes, on a device with fingerprints switched on, for a worker who has a passkey on it. The answer carries the challenge for the device's fingerprint sensor; send the result to `POST /kiosk/confirm`. The punch is marked `STAFF_PASSKEY` and counted by the ghost rules, because any finger saved on the device can unlock any worker's key.
+         */
+        post: operations["kioskFingerprintOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/assisted-punches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a punch confirmed by a site supervisor's face
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker whose face and fingerprint both fail, or who is exempt from biometrics. The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN` (at most 60 seconds earlier). The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
+         */
+        post: operations["kioskAssistedPunch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a worker's consent before enrollment
+         * @description **An ADMIN on a `FACE_KIOSK` device:** needs both the ADMIN's access token and the device's signature (route name `kiosk/consents`). The worker reads the consent text from `GET /biometrics/consent-text` on the kiosk and taps "I agree". The ADMIN first checks the worker's physical Ghana Card: the last 4 digits must match the employee record (a wrong answer is a `400` on `ghanaCardLast4` and is audited). The full number never reaches the kiosk. Consent must be freely given; a worker who refuses can be exempted instead.
+         */
+        post: operations["kioskRecordConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/face-enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enroll a worker's face, with the duplicate check
+         * @description **An ADMIN on a `FACE_KIOSK` device** (token and signature, route name
+         *     `kiosk/face-enrollments`). Needs the worker's current consent
+         *     (otherwise `409`). The kiosk sends three samples taken half a
+         *     second apart after a head-turn challenge; each must look real and
+         *     live, and the three must be the same face.
+         *
+         *     **Duplicate check:** the new face is compared with every other
+         *     enrolled face in the company, whatever its status. A likely match is
+         *     a `COLLISION`: the worker stays `PENDING_ENROLLMENT` and a
+         *     *different* ADMIN reviews it (`/biometric-collisions`). Otherwise
+         *     the face is `PASSED` and the worker becomes `ACTIVE`. No image is
+         *     ever stored: only the numbers, encrypted.
+         */
+        post: operations["kioskEnrollFace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/passkey-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start saving a worker's fingerprint on this device
+         * @description **An ADMIN on a `FACE_KIOSK` device with fingerprints switched on** (token and signature, route name `kiosk/passkey-options`). The worker's face must be enrolled first, and their finger must already be saved in the device's own settings. The answer carries the options for the device's built-in sensor (WebAuthn) and a sealed ticket; send both results to `POST /kiosk/passkeys` within 2 minutes. The device keeps a key that only an enrolled finger can unlock; SAMTEC keeps only the public half, never a fingerprint.
+         */
+        post: operations["kioskPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kiosk/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save the worker's fingerprint key on this device
+         * @description **An ADMIN on a `FACE_KIOSK` device** (token and signature, route name `kiosk/passkeys`). Checks the ticket, the origin, that the key lives on this device itself (not a phone or security key held nearby) and that the finger was verified. It replaces any earlier key of this worker on this device. `synced` says whether the device may copy the key to its cloud account, which the report must mention.
+         */
+        post: operations["kioskRegisterPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/biometrics/consent-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The consent text a worker reads before enrollment
+         * @description **Roles:** every signed-in role. The one official wording, so the kiosk and the dashboard always show the same words. Its `version` and `sha256` are what a consent record points to.
+         */
+        get: operations["getBiometricConsentText"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * An employee's biometric status
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only; others answer `404`). Status only: consent, the face's state and duplicate-check result, the fingerprint keys by device, and any exemption. Never a template, an embedding or a score.
+         */
+        get: operations["getEmployeeBiometrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometrics/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete an employee's face and fingerprint keys
+         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` (unless terminated) and must be enrolled again. Audited with the reason; the history rows stay.
+         */
+        post: operations["revokeEmployeeBiometrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometric-exemption": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a worker who refuses biometrics work without them
+         * @description **Roles:** ADMIN. Consent must be a free choice, so a worker may refuse. The worker becomes `ACTIVE` without a face and clocks in only with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work is flagged for review. Audited with the reason.
+         */
+        post: operations["exemptEmployeeFromBiometrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometric-consents/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that a worker withdrew their consent
+         * @description **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the fingerprint keys at once, as the law requires, then exempts the worker so they can keep working with co-signed clock-ins. Audited; the consent history stays.
+         */
+        post: operations["withdrawBiometricConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/biometric-collisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Faces that look like someone already enrolled
+         * @description **Roles:** ADMIN. The duplicate-enrollment queue: each item is a new face that looked like another employee's face (a possible ghost worker enrolled twice). Newest first.
+         */
+        get: operations["listBiometricCollisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/biometric-collisions/{credentialId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The enrolled face's ID. */
+                credentialId: components["parameters"]["CredentialId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide whether two faces are the same person
+         * @description **Roles:** ADMIN, but **not the ADMIN who did the enrollment** (`403`). Check both people's Ghana Cards in person first. `DIFFERENT_PEOPLE` clears the face and activates the worker; `SAME_PERSON` wipes the new face and leaves the worker pending for HR to investigate. A note is required, and everything is audited.
+         */
+        post: operations["resolveBiometricCollision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/punches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The live list of clock-ins and clock-outs
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR (own sites only; others answer `404`). Every punch from every device, newest first by the time the API received it, with its method, so the dashboard can show a live board (refresh every few seconds). Flagged methods (`STAFF_PASSKEY`, `PIN_FALLBACK`) deserve a different colour.
+         */
+        get: operations["listPunches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attendance/clock-in-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every face and fingerprint attempt at the kiosks
+         * @description **Roles:** ADMIN. Successes and failures, newest first, so an ADMIN can see a kiosk that keeps failing, or someone trying face after face. Never a score or an embedding.
+         */
+        get: operations["listClockInAttempts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1011,6 +1404,7 @@ export interface components {
             /** Format: email */
             email: string;
             password: string;
+            keepSignedIn?: components["schemas"]["KeepSignedIn"];
         };
         /** @description A finished sign-in, a request for a two-factor code, or a request to set up two-factor authentication. Check `status` to tell them apart. */
         LoginResponse: components["schemas"]["AuthenticatedSession"] | components["schemas"]["TwoFactorChallenge"] | components["schemas"]["TwoFactorSetupRequired"];
@@ -1056,7 +1450,13 @@ export interface components {
         VerifyTwoFactorRequest: {
             challengeToken: components["schemas"]["OneTimeToken"];
             code: components["schemas"]["TwoFactorCode"];
+            keepSignedIn?: components["schemas"]["KeepSignedIn"];
         };
+        /**
+         * @description `false` on a shared device such as a kiosk: the API then sets no refresh cookie, so the session ends with the 15-minute access token and the device never stays signed in.
+         * @default true
+         */
+        KeepSignedIn: boolean;
         TwoFactorSetupRequest: {
             setupToken: components["schemas"]["OneTimeToken"];
         };
@@ -1420,6 +1820,10 @@ export interface components {
             failedSignatureCount: number;
             /** Format: date-time */
             lastFailedSignatureAt: string | null;
+            /** @description The terminal's serial number (ZKTeco terminals report it); `null` for kiosks. */
+            serialNumber: string | null;
+            /** @description Workers may save a fingerprint on this device's own sensor. Only for kiosks with a fingerprint sensor (an Android phone or a laptop with a fingerprint reader). */
+            passkeysEnabled: boolean;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1440,6 +1844,9 @@ export interface components {
         UpdateDeviceRequest: {
             name?: string;
             status?: components["schemas"]["DeviceStatus"];
+            serialNumber?: string | null;
+            /** @description Only kiosks (`FACE_KIOSK`) can switch this on. */
+            passkeysEnabled?: boolean;
         };
         /** @description A device plus its secret, shown only in this one response. */
         DeviceWithSecret: {
@@ -1456,10 +1863,15 @@ export interface components {
          */
         PunchDirection: "IN" | "OUT" | "UNKNOWN";
         /**
-         * @description `PIN_FALLBACK` is flagged everywhere: a PIN proves nothing about who typed it.
+         * @description How the person proved who they were:
+         *     - `FINGERPRINT`: a fingerprint terminal matched the finger itself.
+         *     - `FACE`: the kiosk camera matched the face.
+         *     - `FACE_PASSKEY`: the face matched, then the device's own fingerprint sensor confirmed it.
+         *     - `STAFF_PASSKEY`: a typed staff number, then the device's fingerprint sensor. **Flagged:** any finger saved on the device can unlock any worker's key.
+         *     - `PIN_FALLBACK`: a PIN or a supervisor's co-sign. **Flagged:** it proves nothing about who was there.
          * @enum {string}
          */
-        PunchMethod: "FINGERPRINT" | "FACE" | "PIN_FALLBACK";
+        PunchMethod: "FINGERPRINT" | "FACE" | "FACE_PASSKEY" | "STAFF_PASSKEY" | "PIN_FALLBACK";
         IngestPunch: {
             /** @description The device's own ID for this punch (printable ASCII, no spaces). Together with the device it identifies the punch forever. */
             deviceEventId: string;
@@ -1471,7 +1883,7 @@ export interface components {
              */
             deviceTime: string;
             direction: components["schemas"]["PunchDirection"];
-            method: components["schemas"]["PunchMethod"];
+            method: components["schemas"]["IngestPunchMethod"];
         };
         IngestPunchesRequest: {
             /**
@@ -1698,6 +2110,328 @@ export interface components {
             note: components["schemas"]["ResolutionNote"];
         };
         ResolveExceptionRequest: components["schemas"]["DismissResolution"] | components["schemas"]["AddSegmentResolution"] | components["schemas"]["KeepSegmentResolution"] | components["schemas"]["VoidAllResolution"];
+        /**
+         * @description The methods a terminal or its gateway may report. The kiosk methods (`FACE_PASSKEY`, `STAFF_PASSKEY`) are set only by the server, so a device can never claim them.
+         * @enum {string}
+         */
+        IngestPunchMethod: "FINGERPRINT" | "FACE" | "PIN_FALLBACK";
+        /** @description What the kiosk's face model measured in one camera frame: numbers only, never an image. `real` (anti-spoofing) and `live` (liveness) are 0 to 1; higher means more likely a real, live person. */
+        FaceSample: {
+            /**
+             * @description The face model that made the numbers. Faces from different models can never be compared.
+             * @constant
+             */
+            model: "human-faceres-1";
+            embedding: number[];
+            real: number;
+            live: number;
+        };
+        /**
+         * @description `CLOCK`: a worker clocking in or out. `CO_SIGN`: a site supervisor confirming someone else's punch.
+         * @enum {string}
+         */
+        KioskPurpose: "CLOCK" | "CO_SIGN";
+        /**
+         * @description Which button the worker pressed: Start shift (`IN`) or End shift (`OUT`).
+         * @enum {string}
+         */
+        KioskDirection: "IN" | "OUT";
+        KioskIdentifyRequest: {
+            purpose: components["schemas"]["KioskPurpose"];
+            /** @description Required when `purpose` is `CLOCK`. */
+            direction?: components["schemas"]["KioskDirection"];
+            sample: components["schemas"]["FaceSample"];
+        };
+        /**
+         * @description - `MATCHED`: one person, clearly.
+         *     - `AMBIGUOUS`: two people scored too close to tell apart.
+         *     - `NOT_RECOGNISED`: nobody scored high enough.
+         *     - `LOW_LIVENESS`: the face did not look real or live enough.
+         *     - `FINGERPRINT_REQUESTED`: the staff-number fallback asked for a fingerprint.
+         * @enum {string}
+         */
+        AttemptOutcome: "MATCHED" | "AMBIGUOUS" | "NOT_RECOGNISED" | "LOW_LIVENESS" | "FINGERPRINT_REQUESTED";
+        /** @description How the kiosk names a worker on a shared screen: first name and the initial of the last name, and the staff number. */
+        KioskWorker: {
+            /** @example Kwame A. */
+            displayName: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+        };
+        KioskIdentifyResponse: {
+            /** Format: uuid */
+            attemptId: string;
+            outcome: components["schemas"]["AttemptOutcome"];
+            /** @description The matched person; `null` unless `outcome` is `MATCHED`. */
+            worker: components["schemas"]["KioskWorker"] | null;
+            /** @description Set when the matched worker has a fingerprint key on this device: the fingerprint is then required before `POST /kiosk/confirm`. */
+            fingerprint: components["schemas"]["FingerprintChallenge"] | null;
+        };
+        FingerprintChallenge: {
+            options: components["schemas"]["PasskeyRequestOptions"];
+        };
+        KioskConfirmRequest: {
+            /** Format: uuid */
+            attemptId: string;
+            assertion?: components["schemas"]["PasskeyAssertion"];
+        };
+        KioskPunchResponse: {
+            /** Format: uuid */
+            punchId: string;
+            /**
+             * @description `DUPLICATE` when this confirmation was already recorded.
+             * @enum {string}
+             */
+            status: "ACCEPTED" | "DUPLICATE";
+            method: components["schemas"]["PunchMethod"];
+            direction: components["schemas"]["KioskDirection"];
+            /** Format: date-time */
+            recordedAt: string;
+            worker: components["schemas"]["KioskWorker"];
+        };
+        KioskFingerprintOptionsRequest: {
+            staffNumber: components["schemas"]["StaffNumber"];
+            direction: components["schemas"]["KioskDirection"];
+        };
+        KioskFingerprintOptionsResponse: {
+            /** Format: uuid */
+            attemptId: string;
+            worker: components["schemas"]["KioskWorker"];
+            options: components["schemas"]["PasskeyRequestOptions"];
+        };
+        KioskAssistedPunchRequest: {
+            /**
+             * Format: uuid
+             * @description The supervisor's `CO_SIGN` attempt from `POST /kiosk/identify`.
+             */
+            coSignAttemptId: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            direction: components["schemas"]["KioskDirection"];
+            /** @description Why the worker could not use their face or fingerprint. Audited. */
+            reason: string;
+        };
+        BiometricConsentText: {
+            /** @example bio-v1 */
+            version: string;
+            /** @description The whole consent text, in plain English. */
+            text: string;
+            /** @description SHA-256 of `text`, so a consent record proves exactly which words were shown. */
+            sha256: string;
+        };
+        RecordConsentRequest: {
+            /** Format: uuid */
+            employeeId: string;
+            /** @description The last 4 digits of the Ghana Card number, read off the worker's physical card (ignore the dashes), to prove the right person is being enrolled. */
+            ghanaCardLast4: string;
+            /** @description The `version` of the consent text the worker agreed to. */
+            textVersion: string;
+        };
+        /** @enum {string} */
+        BiometricConsentStatus: "NONE" | "GIVEN" | "WITHDRAWN";
+        BiometricConsent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            employeeId: string;
+            /** @enum {string} */
+            status: "GIVEN" | "WITHDRAWN";
+            textVersion: string;
+            textSha256: string;
+            /** Format: date-time */
+            recordedAt: string;
+            /** Format: uuid */
+            recordedByUserId: string;
+            /**
+             * Format: uuid
+             * @description The kiosk it was given on; `null` for a withdrawal recorded on the dashboard.
+             */
+            deviceId: string | null;
+        };
+        EnrollFaceRequest: {
+            /** Format: uuid */
+            employeeId: string;
+            /** Format: uuid */
+            consentId: string;
+            /** @description Three frames, half a second apart, after the head-turn challenge. */
+            samples: components["schemas"]["FaceSample"][];
+        };
+        /**
+         * @description The duplicate check at enrollment:
+         *     - `PASSED`: looks like nobody else.
+         *     - `COLLISION`: looks like someone already enrolled; an ADMIN must decide.
+         *     - `CLEARED`: was a collision, and an ADMIN confirmed two different people.
+         *     - `NOT_CHECKED`: enrolled on a terminal that keeps its own fingerprints.
+         * @enum {string}
+         */
+        DedupeResult: "PASSED" | "COLLISION" | "CLEARED" | "NOT_CHECKED";
+        FaceEnrollmentResult: {
+            /** Format: uuid */
+            credentialId: string;
+            dedupe: components["schemas"]["DedupeResult"];
+            employeeStatus: components["schemas"]["EmployeeStatus"];
+        };
+        PasskeyOptionsRequest: {
+            /** Format: uuid */
+            employeeId: string;
+        };
+        PasskeyOptionsResponse: {
+            /** @description A sealed, 2-minute ticket that only the server can read. Send it back unchanged. */
+            ticket: string;
+            options: components["schemas"]["PasskeyCreationOptions"];
+        };
+        RegisterPasskeyRequest: {
+            /** Format: uuid */
+            employeeId: string;
+            ticket: string;
+            response: components["schemas"]["PasskeyRegistrationResponse"];
+        };
+        DevicePasskey: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deviceId: string;
+            deviceName: string;
+            /** Format: date-time */
+            registeredAt: string;
+            /** @description The device said it may copy this key to its cloud account (a synced passkey). */
+            synced: boolean;
+            /** Format: date-time */
+            revokedAt: string | null;
+        };
+        /** @description WebAuthn options for creating a key (`PublicKeyCredentialCreationOptionsJSON` in the W3C WebAuthn specification). Pass them unchanged to the browser. */
+        PasskeyCreationOptions: Record<string, never>;
+        /** @description The browser's answer to `PasskeyCreationOptions` (`RegistrationResponseJSON` in the W3C WebAuthn specification), unchanged. */
+        PasskeyRegistrationResponse: Record<string, never>;
+        /** @description WebAuthn options for using a key (`PublicKeyCredentialRequestOptionsJSON` in the W3C WebAuthn specification). Pass them unchanged to the browser. */
+        PasskeyRequestOptions: Record<string, never>;
+        /** @description The browser's answer to `PasskeyRequestOptions` (`AuthenticationResponseJSON` in the W3C WebAuthn specification), unchanged. */
+        PasskeyAssertion: Record<string, never>;
+        /**
+         * @description - `NONE`: no face enrolled.
+         *     - `PENDING`: enrolled but waiting for a collision review.
+         *     - `ACTIVE`: in use for clock-ins.
+         *     - `BLOCKED`: the review found the same person as someone else.
+         *     - `REVOKED`: wiped by an ADMIN, a withdrawal of consent, or after the retention period.
+         * @enum {string}
+         */
+        FaceStatus: "NONE" | "PENDING" | "ACTIVE" | "BLOCKED" | "REVOKED";
+        EmployeeBiometrics: {
+            /** Format: uuid */
+            employeeId: string;
+            consent: {
+                status: components["schemas"]["BiometricConsentStatus"];
+                textVersion: string | null;
+                /** Format: date-time */
+                at: string | null;
+            };
+            face: {
+                status: components["schemas"]["FaceStatus"];
+                dedupe: components["schemas"]["DedupeResult"] | null;
+                /** Format: date-time */
+                enrolledAt: string | null;
+                /** @description The kiosk it was enrolled on. */
+                deviceName: string | null;
+            };
+            /** @description Fingerprint keys, one per device at most. */
+            passkeys: components["schemas"]["DevicePasskey"][];
+            /** @description Set when an ADMIN let this worker work without biometrics. */
+            exemption: components["schemas"]["BiometricExemption"] | null;
+        };
+        BiometricExemption: {
+            /** Format: date-time */
+            exemptAt: string;
+            reason: string;
+        };
+        BiometricReasonRequest: {
+            /** @description Why. Kept with the audit record. */
+            reason: string;
+        };
+        /** @enum {string} */
+        CollisionStatus: "OPEN" | "RESOLVED";
+        /**
+         * @description `DIFFERENT_PEOPLE`: two real people who look alike. `SAME_PERSON`: one person enrolled twice.
+         * @enum {string}
+         */
+        CollisionVerdict: "DIFFERENT_PEOPLE" | "SAME_PERSON";
+        BiometricCollision: {
+            /** Format: uuid */
+            credentialId: string;
+            status: components["schemas"]["CollisionStatus"];
+            employee: components["schemas"]["EmployeeRef"];
+            lookedLike: components["schemas"]["EmployeeRef"];
+            /** @description How alike the two faces scored (1 = identical). Shown to ADMINs only, never on a kiosk. */
+            similarity: number;
+            /** Format: date-time */
+            enrolledAt: string;
+            /** Format: uuid */
+            enrolledByUserId: string;
+            /** Format: uuid */
+            deviceId: string;
+            resolution: components["schemas"]["CollisionResolution"] | null;
+        };
+        CollisionResolution: {
+            verdict: components["schemas"]["CollisionVerdict"];
+            note: string;
+            /** Format: date-time */
+            resolvedAt: string;
+            /** Format: uuid */
+            resolvedByUserId: string;
+        };
+        BiometricCollisionList: {
+            items: components["schemas"]["BiometricCollision"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        ResolveCollisionRequest: {
+            verdict: components["schemas"]["CollisionVerdict"];
+            note: string;
+        };
+        PunchFeedItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description `null` when the user number matched nobody. */
+            employee: components["schemas"]["EmployeeRef"] | null;
+            deviceUserRef: string;
+            /** Format: uuid */
+            siteId: string;
+            /** Format: uuid */
+            deviceId: string;
+            deviceName: string;
+            /** Format: date-time */
+            deviceTime: string;
+            /** Format: date-time */
+            serverTime: string;
+            direction: components["schemas"]["PunchDirection"];
+            method: components["schemas"]["PunchMethod"];
+            clockSuspect: boolean;
+        };
+        PunchFeedList: {
+            items: components["schemas"]["PunchFeedItem"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        ClockInAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deviceId: string;
+            deviceName: string;
+            /** @enum {string} */
+            purpose: "CLOCK" | "CO_SIGN" | "STAFF_PASSKEY";
+            outcome: components["schemas"]["AttemptOutcome"];
+            employee: components["schemas"]["EmployeeRef"] | null;
+            /** Format: date-time */
+            attemptedAt: string;
+            /**
+             * Format: uuid
+             * @description The punch this attempt led to, if it was confirmed.
+             */
+            punchId: string | null;
+        };
+        ClockInAttemptList: {
+            items: components["schemas"]["ClockInAttempt"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
     };
     responses: {
         /** @description The signature is wrong, the device is unknown or switched off, or the timestamp is more than 5 minutes from the server clock. Always the same answer, so nobody can learn which device IDs exist. */
@@ -1818,6 +2552,8 @@ export interface components {
         UserId: string;
         /** @description The shift pattern's ID. */
         ShiftPatternId: string;
+        /** @description The enrolled face's ID. */
+        CredentialId: string;
     };
     requestBodies: never;
     headers: {
@@ -1852,6 +2588,7 @@ export type TwoFactorSetupRequired = components['schemas']['TwoFactorSetupRequir
 export type OneTimeToken = components['schemas']['OneTimeToken'];
 export type TwoFactorCode = components['schemas']['TwoFactorCode'];
 export type VerifyTwoFactorRequest = components['schemas']['VerifyTwoFactorRequest'];
+export type KeepSignedIn = components['schemas']['KeepSignedIn'];
 export type TwoFactorSetupRequest = components['schemas']['TwoFactorSetupRequest'];
 export type TwoFactorSetup = components['schemas']['TwoFactorSetup'];
 export type EnableTwoFactorRequest = components['schemas']['EnableTwoFactorRequest'];
@@ -1921,6 +2658,49 @@ export type AddSegmentResolution = components['schemas']['AddSegmentResolution']
 export type KeepSegmentResolution = components['schemas']['KeepSegmentResolution'];
 export type VoidAllResolution = components['schemas']['VoidAllResolution'];
 export type ResolveExceptionRequest = components['schemas']['ResolveExceptionRequest'];
+export type IngestPunchMethod = components['schemas']['IngestPunchMethod'];
+export type FaceSample = components['schemas']['FaceSample'];
+export type KioskPurpose = components['schemas']['KioskPurpose'];
+export type KioskDirection = components['schemas']['KioskDirection'];
+export type KioskIdentifyRequest = components['schemas']['KioskIdentifyRequest'];
+export type AttemptOutcome = components['schemas']['AttemptOutcome'];
+export type KioskWorker = components['schemas']['KioskWorker'];
+export type KioskIdentifyResponse = components['schemas']['KioskIdentifyResponse'];
+export type FingerprintChallenge = components['schemas']['FingerprintChallenge'];
+export type KioskConfirmRequest = components['schemas']['KioskConfirmRequest'];
+export type KioskPunchResponse = components['schemas']['KioskPunchResponse'];
+export type KioskFingerprintOptionsRequest = components['schemas']['KioskFingerprintOptionsRequest'];
+export type KioskFingerprintOptionsResponse = components['schemas']['KioskFingerprintOptionsResponse'];
+export type KioskAssistedPunchRequest = components['schemas']['KioskAssistedPunchRequest'];
+export type BiometricConsentText = components['schemas']['BiometricConsentText'];
+export type RecordConsentRequest = components['schemas']['RecordConsentRequest'];
+export type BiometricConsentStatus = components['schemas']['BiometricConsentStatus'];
+export type BiometricConsent = components['schemas']['BiometricConsent'];
+export type EnrollFaceRequest = components['schemas']['EnrollFaceRequest'];
+export type DedupeResult = components['schemas']['DedupeResult'];
+export type FaceEnrollmentResult = components['schemas']['FaceEnrollmentResult'];
+export type PasskeyOptionsRequest = components['schemas']['PasskeyOptionsRequest'];
+export type PasskeyOptionsResponse = components['schemas']['PasskeyOptionsResponse'];
+export type RegisterPasskeyRequest = components['schemas']['RegisterPasskeyRequest'];
+export type DevicePasskey = components['schemas']['DevicePasskey'];
+export type PasskeyCreationOptions = components['schemas']['PasskeyCreationOptions'];
+export type PasskeyRegistrationResponse = components['schemas']['PasskeyRegistrationResponse'];
+export type PasskeyRequestOptions = components['schemas']['PasskeyRequestOptions'];
+export type PasskeyAssertion = components['schemas']['PasskeyAssertion'];
+export type FaceStatus = components['schemas']['FaceStatus'];
+export type EmployeeBiometrics = components['schemas']['EmployeeBiometrics'];
+export type BiometricExemption = components['schemas']['BiometricExemption'];
+export type BiometricReasonRequest = components['schemas']['BiometricReasonRequest'];
+export type CollisionStatus = components['schemas']['CollisionStatus'];
+export type CollisionVerdict = components['schemas']['CollisionVerdict'];
+export type BiometricCollision = components['schemas']['BiometricCollision'];
+export type CollisionResolution = components['schemas']['CollisionResolution'];
+export type BiometricCollisionList = components['schemas']['BiometricCollisionList'];
+export type ResolveCollisionRequest = components['schemas']['ResolveCollisionRequest'];
+export type PunchFeedItem = components['schemas']['PunchFeedItem'];
+export type PunchFeedList = components['schemas']['PunchFeedList'];
+export type ClockInAttempt = components['schemas']['ClockInAttempt'];
+export type ClockInAttemptList = components['schemas']['ClockInAttemptList'];
 export type ResponseDeviceNotTrusted = components['responses']['DeviceNotTrusted'];
 export type ResponsePayloadTooLarge = components['responses']['PayloadTooLarge'];
 export type ResponseBusy = components['responses']['Busy'];
@@ -1942,6 +2722,7 @@ export type ParameterSiteId = components['parameters']['SiteId'];
 export type ParameterPostId = components['parameters']['PostId'];
 export type ParameterUserId = components['parameters']['UserId'];
 export type ParameterShiftPatternId = components['parameters']['ShiftPatternId'];
+export type ParameterCredentialId = components['parameters']['CredentialId'];
 export type HeaderNoStore = components['headers']['NoStore'];
 export type $defs = Record<string, never>;
 export interface operations {
@@ -3176,6 +3957,658 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             503: components["responses"]["Busy"];
+        };
+    };
+    kioskIdentify: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KioskIdentifyRequest"];
+            };
+        };
+        responses: {
+            /** @description The outcome of this attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KioskIdentifyResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    kioskConfirm: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KioskConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description The punch was recorded (or had been already). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KioskPunchResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            /** @description The attempt cannot be confirmed: it is not a match, it belongs to another device, it is older than 60 seconds, or its fingerprint check failed. Start again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    kioskFingerprintOptions: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KioskFingerprintOptionsRequest"];
+            };
+        };
+        responses: {
+            /** @description A fingerprint attempt, waiting for the sensor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KioskFingerprintOptionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            /** @description The fallback is not available here: too few failed face attempts, fingerprints are off on this device, or this worker has no passkey on it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    kioskAssistedPunch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KioskAssistedPunchRequest"];
+            };
+        };
+        responses: {
+            /** @description The punch was recorded (or had been already). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KioskPunchResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            /** @description The co-sign cannot be used: it is not a matched supervisor of this site, it is the worker themselves, or it is older than 60 seconds. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    kioskRecordConsent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description The consent is recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BiometricConsent"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The device signature or the ADMIN's access token is missing or not valid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The employee is terminated, or this consent version is already recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    kioskEnrollFace: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollFaceRequest"];
+            };
+        };
+        responses: {
+            /** @description The face is stored, with the result of the duplicate check. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaceEnrollmentResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The device signature or the ADMIN's access token is missing or not valid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description No current consent, or the employee is terminated. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    kioskPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyOptionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Options for the device's fingerprint sensor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyOptionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The device signature or the ADMIN's access token is missing or not valid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Fingerprints are off on this device, or the worker has no enrolled face yet. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    kioskRegisterPasskey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterPasskeyRequest"];
+            };
+        };
+        responses: {
+            /** @description The key is saved for this worker on this device. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicePasskey"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The device signature or the ADMIN's access token is missing or not valid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The ticket has expired or was already used. Start again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getBiometricConsentText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current consent text. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BiometricConsentText"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getEmployeeBiometrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The employee's biometric status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    revokeEmployeeBiometrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BiometricReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    exemptEmployeeFromBiometrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BiometricReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The employee is terminated or already exempt. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    withdrawBiometricConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BiometricReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description There is no consent to withdraw. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    listBiometricCollisions: {
+        parameters: {
+            query?: {
+                /** @description Defaults to OPEN. */
+                status?: components["schemas"]["CollisionStatus"];
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of collisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BiometricCollisionList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    resolveBiometricCollision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The enrolled face's ID. */
+                credentialId: components["parameters"]["CredentialId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveCollisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The resolved collision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BiometricCollision"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description This collision has already been decided. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    listPunches: {
+        parameters: {
+            query?: {
+                siteId?: string;
+                /** @description Only punches received at or after this moment. */
+                since?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of punches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PunchFeedList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listClockInAttempts: {
+        parameters: {
+            query?: {
+                deviceId?: string;
+                outcome?: components["schemas"]["AttemptOutcome"];
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of attempts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockInAttemptList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

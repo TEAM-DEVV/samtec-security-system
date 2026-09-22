@@ -113,6 +113,8 @@ export const deviceHandlers = [
         lastClockDriftSeconds: null,
         failedSignatureCount: 0,
         lastFailedSignatureAt: null,
+        serialNumber: null,
+        passkeysEnabled: false,
         createdAt: now,
         updatedAt: now,
       };
@@ -143,7 +145,8 @@ export const deviceHandlers = [
       if (!found.device) return found.problem;
       const device = found.device;
       const body = await request.json();
-      const unknown = Object.keys(body).find((key) => key !== 'name' && key !== 'status');
+      const fields = ['name', 'status', 'serialNumber', 'passkeysEnabled'];
+      const unknown = Object.keys(body).find((key) => !fields.includes(key));
       if (unknown !== undefined) return validationProblem(unknown, 'Unrecognized field.');
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
@@ -161,6 +164,29 @@ export const deviceHandlers = [
           return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
         }
         device.status = body.status;
+      }
+      if (body.serialNumber !== undefined) {
+        const serial = body.serialNumber;
+        if (
+          serial !== null &&
+          (typeof serial !== 'string' || serial.length < 1 || serial.length > 64)
+        ) {
+          return validationProblem('serialNumber', 'Must be 1 to 64 characters long, or null.');
+        }
+        device.serialNumber = serial;
+      }
+      if (body.passkeysEnabled !== undefined) {
+        if (typeof body.passkeysEnabled !== 'boolean') {
+          return validationProblem('passkeysEnabled', 'Must be true or false.');
+        }
+        // Like the real API: only a kiosk has a fingerprint sensor of its own.
+        if (body.passkeysEnabled && device.kind !== 'FACE_KIOSK') {
+          return validationProblem(
+            'passkeysEnabled',
+            'Only a face kiosk can use its own fingerprint sensor.',
+          );
+        }
+        device.passkeysEnabled = body.passkeysEnabled;
       }
       device.updatedAt = new Date().toISOString();
       return HttpResponse.json<Device>(device);
