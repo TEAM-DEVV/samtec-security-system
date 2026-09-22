@@ -25,7 +25,8 @@ TypeScript uses camelCase (`firstName`), and the database uses snake_case (`firs
 Phase 1  identity:   users, sessions, audit_logs
          workforce:  posts, shift_patterns, employment_periods
 Phase 2  attendance: devices, punch_events, work_segments, attendance_exceptions
-Phase 3  attendance: biometric_consents, biometric_credentials, device_passkeys, clock_in_attempts
+Phase 3  attendance: biometric_consents, biometric_credentials, biometric_exemptions,
+                     device_passkeys, clock_in_attempts
 Phase 4  payroll:    payroll_periods, payroll_runs, payroll_lines, tax_tables, payslips
 Phase 5  detection:  detection_rules, detection_alerts
 ```

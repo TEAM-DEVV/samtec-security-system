@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
 import { signInForTests } from '@/test/session';
-import { CONSENT_SHA256, CONSENT_TEXT, mockCollisions } from '../data/biometrics';
+import { CONSENT_SHA256, CONSENT_TEXT, mockBiometrics, mockCollisions } from '../data/biometrics';
 import { mockEmployees } from '../data/employees';
 import { resetMockBiometrics } from './biometrics';
 
@@ -63,29 +63,69 @@ describe('mock biometrics API', () => {
     expect(data?.passkeys.every((key) => key.revokedAt !== null)).toBe(true);
   });
 
-  it('turns a withdrawal into an exemption, so the worker keeps working', async () => {
+  it('keeps a working guard working after a withdrawal, and hides the note from supervisors', async () => {
     await signInForTests('hr@samtec.example');
+    const path = { params: { path: { employeeId: enrolled?.id ?? '' } } };
     const { data } = await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
-      params: { path: { employeeId: enrolled?.id ?? '' } },
+      ...path,
       body: { reason: 'Asked in writing.' },
     });
     expect(data?.consent.status).toBe('WITHDRAWN');
     expect(data?.face.status).toBe('REVOKED');
-    expect(data?.exemption).not.toBeNull();
+    expect(data?.exemption).toMatchObject({ status: 'APPROVED', reason: 'CONSENT_WITHDRAWN' });
+
+    await signInForTests('supervisor@samtec.example');
+    const seen = await fetchClient.GET('/employees/{employeeId}/biometrics', path);
+    expect(seen.data?.exemption?.reason).toBe('CONSENT_WITHDRAWN');
+    expect(seen.data?.exemption?.note).toBeNull();
+  });
+
+  it('never activates a pending worker by withdrawal, and voids their open review', async () => {
+    await signInForTests('hr@samtec.example');
+    const { data } = await fetchClient.POST('/employees/{employeeId}/biometric-consents/withdraw', {
+      params: { path: { employeeId: openCollision?.employee.id ?? '' } },
+      body: { reason: 'Asked in writing.' },
+    });
+    expect(data?.face.status).toBe('REVOKED');
+    expect(data?.exemption).toBeNull();
+
+    await signInForTests('admin@samtec.example');
+    const voided = await fetchClient.GET('/biometric-collisions', {
+      params: { query: { status: 'VOID' } },
+    });
+    expect(voided.data?.items.map((item) => item.credentialId)).toContain(
+      openCollision?.credentialId,
+    );
+    const decided = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
+      params: { path: { credentialId: openCollision?.credentialId ?? '' } },
+      body: { verdict: 'DIFFERENT_PEOPLE', note: 'Too late: the face is gone.' },
+    });
+    expect(decided.response.status).toBe(409);
   });
 
   it('never lets the enrolling ADMIN decide their own collision', async () => {
     await signInForTests('admin@samtec.example');
     const { data: list } = await fetchClient.GET('/biometric-collisions');
     expect(list?.items.map((item) => item.credentialId)).toContain(openCollision?.credentialId);
+    const path = { params: { path: { credentialId: openCollision?.credentialId ?? '' } } };
 
-    const decided = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
-      params: { path: { credentialId: openCollision?.credentialId ?? '' } },
+    // One person with two records: the reviewer must say which record is real.
+    const unsure = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
+      ...path,
       body: { verdict: 'SAME_PERSON', note: 'Same Ghana Card photo; one person enrolled twice.' },
     });
-    expect(decided.data?.resolution?.verdict).toBe('SAME_PERSON');
+    expect(unsure.error?.errors?.[0]?.path).toBe('keepEmployeeId');
+    const decided = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
+      ...path,
+      body: {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: openCollision?.lookedLike.id ?? '',
+        note: 'Same Ghana Card photo; one person enrolled twice.',
+      },
+    });
+    expect(decided.data?.resolution?.keptEmployeeId).toBe(openCollision?.lookedLike.id);
     const again = await fetchClient.POST('/biometric-collisions/{credentialId}/resolve', {
-      params: { path: { credentialId: openCollision?.credentialId ?? '' } },
+      ...path,
       body: { verdict: 'DIFFERENT_PEOPLE', note: 'Changed my mind.' },
     });
     expect(again.response.status).toBe(409);
@@ -93,6 +133,40 @@ describe('mock biometrics API', () => {
     await signInForTests('hr@samtec.example');
     const hr = await fetchClient.GET('/biometric-collisions');
     expect(hr.response.status).toBe(403);
+  });
+
+  it('needs a second ADMIN to approve an exemption', async () => {
+    await signInForTests('admin@samtec.example');
+    const refuser = mockBiometrics.find((row) => row.exemption?.status === 'REQUESTED');
+    const path = { params: { path: { employeeId: refuser?.employeeId ?? '' } } };
+
+    // Another ADMIN asked, so this one may decide: here, a rejection.
+    const rejected = await fetchClient.POST('/employees/{employeeId}/biometric-exemption/review', {
+      ...path,
+      body: { decision: 'REJECT', note: 'Try the kiosk once more first.' },
+    });
+    expect(rejected.data?.exemption?.status).toBe('REJECTED');
+
+    // Asking again makes this ADMIN the one who asked, so they may not approve it.
+    const asked = await fetchClient.POST('/employees/{employeeId}/biometric-exemption', {
+      ...path,
+      body: { reason: 'DECLINED', note: 'Declined again in writing.' },
+    });
+    expect(asked.data?.exemption?.status).toBe('REQUESTED');
+    const own = await fetchClient.POST('/employees/{employeeId}/biometric-exemption/review', {
+      ...path,
+      body: { decision: 'APPROVE', note: 'Approving my own request.' },
+    });
+    expect(own.response.status).toBe(403);
+  });
+
+  it('refuses an exemption while a duplicate review is open', async () => {
+    await signInForTests('admin@samtec.example');
+    const { response } = await fetchClient.POST('/employees/{employeeId}/biometric-exemption', {
+      params: { path: { employeeId: openCollision?.employee.id ?? '' } },
+      body: { reason: 'DECLINED', note: 'Would skip the duplicate check.' },
+    });
+    expect(response.status).toBe(409);
   });
 
   it('shows the live punch board newest first, scoped to a supervisor site', async () => {

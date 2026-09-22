@@ -87,19 +87,50 @@ if (suspect && lookalike) {
   }
 }
 
-// A worker who said no, and works with co-signed clock-ins.
+// A new starter who said no: one ADMIN asked for an exemption, and a second
+// ADMIN (the mock admin) still has to approve or reject it.
 const refuser = pending[1];
 if (refuser) {
   const record = mockBiometrics.find((row) => row.employeeId === refuser.id);
   if (record) {
     record.exemption = {
-      exemptAt: '2026-09-19T11:00:00Z',
-      reason: 'Declined biometrics for religious reasons; supervisor co-signs.',
+      status: 'REQUESTED',
+      reason: 'DECLINED',
+      note: 'Declined in writing at the kiosk on 19 September.',
+      requestedAt: '2026-09-19T11:00:00Z',
+      requestedByUserId: OTHER_ADMIN_ID,
+      reviewedAt: null,
+      reviewedByUserId: null,
     };
   }
 }
 
-/** The duplicate-enrollment queue: one open case, one already decided. */
+// A working guard who withdrew consent: the face is wiped, and the exemption
+// followed at once, because they had already passed the duplicate check.
+const withdrawer = enrolledPeople[5];
+if (withdrawer) {
+  const record = mockBiometrics.find((row) => row.employeeId === withdrawer.id);
+  if (record) {
+    record.consent = {
+      status: 'WITHDRAWN',
+      textVersion: CONSENT_VERSION,
+      at: '2026-09-18T10:00:00Z',
+    };
+    record.face = { ...record.face, status: 'REVOKED' };
+    record.passkeys = record.passkeys.map((key) => ({ ...key, revokedAt: '2026-09-18T10:00:00Z' }));
+    record.exemption = {
+      status: 'APPROVED',
+      reason: 'CONSENT_WITHDRAWN',
+      note: 'Withdrew consent in writing.',
+      requestedAt: '2026-09-18T10:00:00Z',
+      requestedByUserId: OTHER_ADMIN_ID,
+      reviewedAt: null,
+      reviewedByUserId: null,
+    };
+  }
+}
+
+/** The duplicate-enrollment queue: one open case, one already decided. Only ADMINs see it. */
 export const mockCollisions: BiometricCollision[] = [
   ...(suspect && lookalike
     ? [
@@ -129,6 +160,7 @@ export const mockCollisions: BiometricCollision[] = [
           deviceId: KIOSK_ID,
           resolution: {
             verdict: 'DIFFERENT_PEOPLE' as const,
+            keptEmployeeId: null,
             note: 'Brothers; both Ghana Cards checked in person.',
             resolvedAt: '2026-09-10T10:00:00Z',
             resolvedByUserId: '01927c3e-2222-7ccc-9ddd-000000000001',

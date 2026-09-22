@@ -22,6 +22,7 @@ import {
   validationProblem,
 } from '../helpers';
 import { userForRequest } from './auth';
+import { revokeMockPasskeysOn } from './biometrics';
 
 /**
  * The mock device registry (ADMIN only, like the real API). It keeps its own
@@ -151,42 +152,55 @@ export const deviceHandlers = [
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
       }
-      if (body.name !== undefined) {
-        const badName = nameProblem(body.name);
+      // Check every field first, like the real API: a refused request changes nothing.
+      const { name, status, serialNumber, passkeysEnabled } = body;
+      if (name !== undefined) {
+        const badName = nameProblem(name);
         if (badName) return badName;
-        if (devices.some((other) => other.name === body.name && other.id !== device.id)) {
+        if (devices.some((other) => other.name === name && other.id !== device.id)) {
           return conflict('A device with this name already exists.');
         }
-        device.name = body.name;
       }
-      if (body.status !== undefined) {
-        if (!isOneOf(STATUSES, body.status)) {
-          return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
+      if (status !== undefined && !isOneOf(STATUSES, status)) {
+        return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
+      }
+      if (serialNumber !== undefined && serialNumber !== null) {
+        if (typeof serialNumber !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(serialNumber)) {
+          return validationProblem(
+            'serialNumber',
+            'Use 1 to 64 letters, digits and dashes, or null.',
+          );
         }
-        device.status = body.status;
-      }
-      if (body.serialNumber !== undefined) {
-        const serial = body.serialNumber;
+        // Only a ZKTeco terminal has a serial number, which its gateway reports.
+        if (device.kind !== 'ZKTECO') {
+          return validationProblem('serialNumber', 'Only a ZKTeco terminal has a serial number.');
+        }
         if (
-          serial !== null &&
-          (typeof serial !== 'string' || serial.length < 1 || serial.length > 64)
+          devices.some((other) => other.serialNumber === serialNumber && other.id !== device.id)
         ) {
-          return validationProblem('serialNumber', 'Must be 1 to 64 characters long, or null.');
+          return conflict('Another device already has this serial number.');
         }
-        device.serialNumber = serial;
       }
-      if (body.passkeysEnabled !== undefined) {
-        if (typeof body.passkeysEnabled !== 'boolean') {
+      if (passkeysEnabled !== undefined) {
+        if (typeof passkeysEnabled !== 'boolean') {
           return validationProblem('passkeysEnabled', 'Must be true or false.');
         }
-        // Like the real API: only a kiosk has a fingerprint sensor of its own.
-        if (body.passkeysEnabled && device.kind !== 'FACE_KIOSK') {
+        // Only a kiosk has a fingerprint sensor of its own.
+        if (passkeysEnabled && device.kind !== 'FACE_KIOSK') {
           return validationProblem(
             'passkeysEnabled',
             'Only a face kiosk can use its own fingerprint sensor.',
           );
         }
-        device.passkeysEnabled = body.passkeysEnabled;
+      }
+
+      if (name !== undefined) device.name = name;
+      if (status !== undefined) device.status = status;
+      if (serialNumber !== undefined) device.serialNumber = serialNumber;
+      if (passkeysEnabled !== undefined) {
+        // Switching fingerprints off revokes every key saved on this device.
+        if (device.passkeysEnabled && !passkeysEnabled) revokeMockPasskeysOn(device.id);
+        device.passkeysEnabled = passkeysEnabled;
       }
       device.updatedAt = new Date().toISOString();
       return HttpResponse.json<Device>(device);

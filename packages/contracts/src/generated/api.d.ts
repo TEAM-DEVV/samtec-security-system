@@ -71,6 +71,17 @@ export interface paths {
          *       authentication yet. Call `POST /auth/2fa/setup`, show the QR code,
          *       then call `POST /auth/2fa/enable` with the first code.
          *
+         *     **Kiosk sign-in (Phase 3).** The refresh cookie is set only when the
+         *     request's `Origin` is one of the dashboard's addresses
+         *     (`CORS_ORIGINS`). A sign-in from anywhere else, such as the kiosk
+         *     app, is a kiosk sign-in. It never gets a refresh cookie, so a shared
+         *     device never stays signed in, and its access token works only for
+         *     what the kiosk screens need: `GET /auth/me`, `GET /sites`,
+         *     `GET /employees`, `POST /devices` (for a `FACE_KIOSK` only),
+         *     `GET /biometrics/consent-text` and the kiosk's ADMIN operations.
+         *     Everything else answers `403`. The same rule applies to
+         *     `POST /auth/2fa/verify` and `POST /auth/2fa/enable`.
+         *
          *     **Protection against password guessing:** repeated failures for the
          *     same email are slowed down, then answered with `429` for 15 minutes.
          *     This happens whether or not an account exists, so the answers never
@@ -854,14 +865,17 @@ export interface paths {
          *
          *     - `MATCHED`: the best match is at least the threshold **and** clearly
          *       ahead of the next person. The kiosk shows the name for 2 seconds
-         *       ("Not me" cancels), then calls `POST /kiosk/confirm`.
+         *       ("Not me" calls `POST /kiosk/not-me`), then calls
+         *       `POST /kiosk/confirm`.
          *     - `AMBIGUOUS`, `NOT_RECOGNISED`, `LOW_LIVENESS`: nothing is recorded
          *       except the attempt; try again. After 3 failed attempts the kiosk
          *       may offer the fingerprint fallback or a supervisor's co-sign.
          *
          *     No punch is made here. The answer never contains a score, so it
          *     cannot be used to probe the stored faces. `purpose: CO_SIGN` is a
-         *     site supervisor confirming a worker who cannot use the face path.
+         *     site supervisor confirming one named worker (their staff number is
+         *     in the request) who cannot use the face path; the answer names the
+         *     supervisor, and the attempt is bound to that worker and direction.
          */
         post: operations["kioskIdentify"];
         delete?: never;
@@ -902,6 +916,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kiosk/not-me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The worker says the kiosk named the wrong person
+         * @description **Signed by the same `FACE_KIOSK` device** that made the attempt (route name `kiosk/not-me`). Records a `NOT_ME` attempt: the matched attempt can no longer be confirmed, it counts as a failed attempt, and the pilot uses these counts to tune the face thresholds.
+         */
+        post: operations["kioskNotMe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kiosk/fingerprint-options": {
         parameters: {
             query?: never;
@@ -913,7 +947,7 @@ export interface paths {
         put?: never;
         /**
          * Fall back to staff number plus fingerprint
-         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/fingerprint-options`). Offered only after 3 failed face attempts on this device in the last 10 minutes, on a device with fingerprints switched on, for a worker who has a passkey on it. The answer carries the challenge for the device's fingerprint sensor; send the result to `POST /kiosk/confirm`. The punch is marked `STAFF_PASSKEY` and counted by the ghost rules, because any finger saved on the device can unlock any worker's key.
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/fingerprint-options`). Unlocked only by 3 failed face attempts in a row on this device (`AMBIGUOUS`, `NOT_RECOGNISED`, `LOW_LIVENESS` or `NOT_ME`), the last one less than 2 minutes ago, and each unlock allows one fallback. It works only on a device with fingerprints switched on, for an ACTIVE worker posted to this site who has a passkey on it. The answer carries the challenge for the device's fingerprint sensor; send the result to `POST /kiosk/confirm`. The punch is marked `STAFF_PASSKEY` and counted by the ghost rules, because any finger saved on the device can unlock any worker's key.
          */
         post: operations["kioskFingerprintOptions"];
         delete?: never;
@@ -933,7 +967,7 @@ export interface paths {
         put?: never;
         /**
          * Record a punch confirmed by a site supervisor's face
-         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker whose face and fingerprint both fail, or who is exempt from biometrics. The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN` (at most 60 seconds earlier). The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker whose face and fingerprint both fail, or who is exempt from biometrics. The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN`, that staff number and the direction (at most 60 seconds earlier). The worker must be ACTIVE and posted to this site. **A co-sign is used up by its first punch:** the punch's ID comes from the co-sign attempt, so sending it again answers `DUPLICATE` and can never make a second punch. The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
          */
         post: operations["kioskAssistedPunch"];
         delete?: never;
@@ -953,7 +987,7 @@ export interface paths {
         put?: never;
         /**
          * Record a worker's consent before enrollment
-         * @description **An ADMIN on a `FACE_KIOSK` device:** needs both the ADMIN's access token and the device's signature (route name `kiosk/consents`). The worker reads the consent text from `GET /biometrics/consent-text` on the kiosk and taps "I agree". The ADMIN first checks the worker's physical Ghana Card: the last 4 digits must match the employee record (a wrong answer is a `400` on `ghanaCardLast4` and is audited). The full number never reaches the kiosk. Consent must be freely given; a worker who refuses can be exempted instead.
+         * @description **An ADMIN on a `FACE_KIOSK` device:** needs both the ADMIN's access token and the device's signature (route name `kiosk/consents`). The worker reads the consent text from `GET /biometrics/consent-text` on the kiosk and taps "I agree". The ADMIN first checks the worker's physical Ghana Card: the last 4 digits must match the employee record (a wrong answer is a `400` on `ghanaCardLast4` and is audited). After 5 wrong answers for one worker within an hour, that worker waits for the rest of the hour (`429`). The full number never reaches the kiosk. This check catches mistakes (the wrong person in front of the kiosk); it cannot stop a dishonest ADMIN, who can read the full number on the dashboard, which is why every enrollment is audited and checked for duplicates. Consent must be freely given; a worker who refuses can be exempted instead.
          */
         post: operations["kioskRecordConsent"];
         delete?: never;
@@ -1024,7 +1058,7 @@ export interface paths {
         put?: never;
         /**
          * Save the worker's fingerprint key on this device
-         * @description **An ADMIN on a `FACE_KIOSK` device** (token and signature, route name `kiosk/passkeys`). Checks the ticket, the origin, that the key lives on this device itself (not a phone or security key held nearby) and that the finger was verified. It replaces any earlier key of this worker on this device. `synced` says whether the device may copy the key to its cloud account, which the report must mention.
+         * @description **An ADMIN on a `FACE_KIOSK` device** (token and signature, route name `kiosk/passkeys`). Checks the ticket, the origin, that the key lives on this device itself (not a phone or security key held nearby) and that the finger was verified. It replaces any earlier key of this worker on this device. `synced` says whether the device may copy the key to its cloud account, which the report must mention. The key's user name is the staff number only and its user ID is a random value, because a synced key can appear in the kiosk's cloud account. Without attestation, "on this device itself" is what the browser reports: a safety net, not a proof.
          */
         post: operations["kioskRegisterPasskey"];
         delete?: never;
@@ -1090,7 +1124,7 @@ export interface paths {
         put?: never;
         /**
          * Delete an employee's face and fingerprint keys
-         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` (unless terminated) and must be enrolled again. Audited with the reason; the history rows stay.
+         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` (unless terminated) and must be enrolled again. An open duplicate-enrollment review of this face closes as `VOID` (who it looked like stays on record, for the ghost rules). Audited with the reason; the history rows stay.
          */
         post: operations["revokeEmployeeBiometrics"];
         delete?: never;
@@ -1112,10 +1146,33 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Let a worker who refuses biometrics work without them
-         * @description **Roles:** ADMIN. Consent must be a free choice, so a worker may refuse. The worker becomes `ACTIVE` without a face and clocks in only with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work is flagged for review. Audited with the reason.
+         * Ask for a worker who refuses biometrics to work without them
+         * @description **Roles:** ADMIN. Consent must be a free choice, so a worker may refuse. Only for a worker still `PENDING_ENROLLMENT` with no open duplicate-enrollment review. This only **asks**: a second ADMIN checks the worker's Ghana Card in person and approves or rejects it (`POST /employees/{employeeId}/biometric-exemption/review`), so no single person can activate a worker without a face. Once approved, the worker is `ACTIVE` and clocks in only with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work is flagged for review. Audited.
          */
-        post: operations["exemptEmployeeFromBiometrics"];
+        post: operations["requestBiometricExemption"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometric-exemption/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a request to work without biometrics
+         * @description **Roles:** ADMIN, but **not the ADMIN who asked** (`403`). Check the worker's Ghana Card in person first. `APPROVE` makes the worker `ACTIVE`; `REJECT` leaves them `PENDING_ENROLLMENT` (they can still be enrolled, or asked for again). A note is required, and the decision is audited.
+         */
+        post: operations["reviewBiometricExemption"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1136,7 +1193,7 @@ export interface paths {
         put?: never;
         /**
          * Record that a worker withdrew their consent
-         * @description **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the fingerprint keys at once, as the law requires, then exempts the worker so they can keep working with co-signed clock-ins. Audited; the consent history stays.
+         * @description **Roles:** ADMIN, HR_PAYROLL. Wipes the face and switches off the fingerprint keys at once, as the law requires, and closes any open duplicate-enrollment review as `VOID`. A worker who was `ACTIVE` (and so already passed the duplicate check) stays `ACTIVE` and is exempted at once (`CONSENT_WITHDRAWN`), so they keep working with co-signed clock-ins. A worker still `PENDING_ENROLLMENT` stays pending: withdrawing never activates anyone. Audited; the consent history stays, and the worker may consent again later.
          */
         post: operations["withdrawBiometricConsent"];
         delete?: never;
@@ -1179,7 +1236,18 @@ export interface paths {
         put?: never;
         /**
          * Decide whether two faces are the same person
-         * @description **Roles:** ADMIN, but **not the ADMIN who did the enrollment** (`403`). Check both people's Ghana Cards in person first. `DIFFERENT_PEOPLE` clears the face and activates the worker; `SAME_PERSON` wipes the new face and leaves the worker pending for HR to investigate. A note is required, and everything is audited.
+         * @description **Roles:** ADMIN, but **not the ADMIN who did the enrollment**
+         *     (`403`). Check both people's Ghana Cards in person first.
+         *
+         *     - `DIFFERENT_PEOPLE`: two people who look alike. The new face is
+         *       cleared and the worker activated.
+         *     - `SAME_PERSON`: one person with two records. `keepEmployeeId` names
+         *       the record that belongs to the person whose card you checked; the
+         *       other record's face is wiped (`BLOCKED`) and HR investigates it.
+         *       If you keep the new record, its face is cleared and the worker
+         *       activated.
+         *
+         *     A note is required, and everything is audited.
          */
         post: operations["resolveBiometricCollision"];
         delete?: never;
@@ -1404,7 +1472,6 @@ export interface components {
             /** Format: email */
             email: string;
             password: string;
-            keepSignedIn?: components["schemas"]["KeepSignedIn"];
         };
         /** @description A finished sign-in, a request for a two-factor code, or a request to set up two-factor authentication. Check `status` to tell them apart. */
         LoginResponse: components["schemas"]["AuthenticatedSession"] | components["schemas"]["TwoFactorChallenge"] | components["schemas"]["TwoFactorSetupRequired"];
@@ -1450,13 +1517,7 @@ export interface components {
         VerifyTwoFactorRequest: {
             challengeToken: components["schemas"]["OneTimeToken"];
             code: components["schemas"]["TwoFactorCode"];
-            keepSignedIn?: components["schemas"]["KeepSignedIn"];
         };
-        /**
-         * @description `false` on a shared device such as a kiosk: the API then sets no refresh cookie, so the session ends with the 15-minute access token and the device never stays signed in.
-         * @default true
-         */
-        KeepSignedIn: boolean;
         TwoFactorSetupRequest: {
             setupToken: components["schemas"]["OneTimeToken"];
         };
@@ -1787,8 +1848,11 @@ export interface components {
             endTime?: components["schemas"]["ShiftTime"];
         };
         /**
-         * @description What sends the punches. Descriptive only: every kind signs its
-         *     requests the same way.
+         * @description What sends the punches. Every kind signs its requests the same way,
+         *     and each signed route accepts only some kinds (any other answers the
+         *     same `401`): `/ingest/punches` takes `ZKTECO`, and `MOCK` only where
+         *     the simulator is allowed (development and TEST); the `/kiosk` routes
+         *     take only `FACE_KIOSK`; `/ingest/heartbeat` takes every kind.
          *     - `MOCK` — the simulator, for development and the demo.
          *     - `ZKTECO` — a ZKTeco fingerprint or face terminal (through its gateway, Phase 3).
          *     - `FACE_KIOSK` — the SAMTEC face kiosk (Phase 3).
@@ -1820,9 +1884,9 @@ export interface components {
             failedSignatureCount: number;
             /** Format: date-time */
             lastFailedSignatureAt: string | null;
-            /** @description The terminal's serial number (ZKTeco terminals report it); `null` for kiosks. */
+            /** @description The terminal's serial number, which its gateway reports. Only `ZKTECO` devices have one, and it is unique in the company; `null` for every other device. */
             serialNumber: string | null;
-            /** @description Workers may save a fingerprint on this device's own sensor. Only for kiosks with a fingerprint sensor (an Android phone or a laptop with a fingerprint reader). */
+            /** @description Workers may save a fingerprint on this device's own sensor. Only for kiosks with a fingerprint sensor (an Android phone or a laptop with a fingerprint reader). Switching it off revokes every fingerprint key saved on the device. */
             passkeysEnabled: boolean;
             /** Format: date-time */
             createdAt: string;
@@ -1844,8 +1908,9 @@ export interface components {
         UpdateDeviceRequest: {
             name?: string;
             status?: components["schemas"]["DeviceStatus"];
+            /** @description Letters, digits and dashes, as printed on the terminal. Only for `ZKTECO` devices (any other kind answers `400`), and unique in the company (`409`). `null` removes it. */
             serialNumber?: string | null;
-            /** @description Only kiosks (`FACE_KIOSK`) can switch this on. */
+            /** @description Only kiosks (`FACE_KIOSK`) can switch this on. Switching it off revokes every fingerprint key saved on this device, so the change is always visible: it is audited, and the workers' clock-ins there become face-only (`FACE`) until their fingers are saved again. */
             passkeysEnabled?: boolean;
         };
         /** @description A device plus its secret, shown only in this one response. */
@@ -2118,7 +2183,7 @@ export interface components {
          * @enum {string}
          */
         IngestPunchMethod: "FINGERPRINT" | "FACE" | "PIN_FALLBACK";
-        /** @description What the kiosk's face model measured in one camera frame: numbers only, never an image. `real` (anti-spoofing) and `live` (liveness) are 0 to 1; higher means more likely a real, live person. */
+        /** @description What the kiosk's face model measured in one camera frame: numbers only, never an image. `real` (anti-spoofing) and `live` (liveness) are 0 to 1; higher means more likely a real, live person. The server checks them again, which catches a faulty kiosk but not a dishonest one: the kiosk app is trusted (docs/plan/13-biometrics-design.md `9). */
         FaceSample: {
             /**
              * @description The face model that made the numbers. Faces from different models can never be compared.
@@ -2130,19 +2195,38 @@ export interface components {
             live: number;
         };
         /**
-         * @description `CLOCK`: a worker clocking in or out. `CO_SIGN`: a site supervisor confirming someone else's punch.
+         * @description - `CLOCK`: a worker clocking in or out by face.
+         *     - `CO_SIGN`: a site supervisor confirming one named worker's punch.
+         *     - `STAFF_PASSKEY`: a worker using staff number plus fingerprint.
          * @enum {string}
          */
-        KioskPurpose: "CLOCK" | "CO_SIGN";
+        AttemptPurpose: "CLOCK" | "CO_SIGN" | "STAFF_PASSKEY";
         /**
          * @description Which button the worker pressed: Start shift (`IN`) or End shift (`OUT`).
          * @enum {string}
          */
         KioskDirection: "IN" | "OUT";
-        KioskIdentifyRequest: {
-            purpose: components["schemas"]["KioskPurpose"];
-            /** @description Required when `purpose` is `CLOCK`. */
-            direction?: components["schemas"]["KioskDirection"];
+        /** @description A worker clocking in or out (`CLOCK`), or a site supervisor confirming one named worker's clock-in or clock-out (`CO_SIGN`). */
+        KioskIdentifyRequest: components["schemas"]["KioskClockIdentifyRequest"] | components["schemas"]["KioskCoSignIdentifyRequest"];
+        KioskClockIdentifyRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "CLOCK";
+            direction: components["schemas"]["KioskDirection"];
+            sample: components["schemas"]["FaceSample"];
+        };
+        KioskCoSignIdentifyRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "CO_SIGN";
+            /** @description The worker the supervisor is confirming (typed on the kiosk). */
+            staffNumber: components["schemas"]["StaffNumber"];
+            direction: components["schemas"]["KioskDirection"];
+            /** @description The supervisor's face. */
             sample: components["schemas"]["FaceSample"];
         };
         /**
@@ -2151,9 +2235,11 @@ export interface components {
          *     - `NOT_RECOGNISED`: nobody scored high enough.
          *     - `LOW_LIVENESS`: the face did not look real or live enough.
          *     - `FINGERPRINT_REQUESTED`: the staff-number fallback asked for a fingerprint.
+         *     - `NOT_ME`: the worker pressed "Not me" because the kiosk named the
+         *       wrong person; the matched attempt can no longer be confirmed.
          * @enum {string}
          */
-        AttemptOutcome: "MATCHED" | "AMBIGUOUS" | "NOT_RECOGNISED" | "LOW_LIVENESS" | "FINGERPRINT_REQUESTED";
+        AttemptOutcome: "MATCHED" | "AMBIGUOUS" | "NOT_RECOGNISED" | "LOW_LIVENESS" | "FINGERPRINT_REQUESTED" | "NOT_ME";
         /** @description How the kiosk names a worker on a shared screen: first name and the initial of the last name, and the staff number. */
         KioskWorker: {
             /** @example Kwame A. */
@@ -2201,14 +2287,16 @@ export interface components {
             worker: components["schemas"]["KioskWorker"];
             options: components["schemas"]["PasskeyRequestOptions"];
         };
+        KioskNotMeRequest: {
+            /** Format: uuid */
+            attemptId: string;
+        };
         KioskAssistedPunchRequest: {
             /**
              * Format: uuid
-             * @description The supervisor's `CO_SIGN` attempt from `POST /kiosk/identify`.
+             * @description The supervisor's `CO_SIGN` attempt from `POST /kiosk/identify`. It already names the worker and the direction.
              */
             coSignAttemptId: string;
-            staffNumber: components["schemas"]["StaffNumber"];
-            direction: components["schemas"]["KioskDirection"];
             /** @description Why the worker could not use their face or fingerprint. Audited. */
             reason: string;
         };
@@ -2261,7 +2349,7 @@ export interface components {
          * @description The duplicate check at enrollment:
          *     - `PASSED`: looks like nobody else.
          *     - `COLLISION`: looks like someone already enrolled; an ADMIN must decide.
-         *     - `CLEARED`: was a collision, and an ADMIN confirmed two different people.
+         *     - `CLEARED`: was a collision, and a second ADMIN decided this face may be used.
          *     - `NOT_CHECKED`: enrolled on a terminal that keeps its own fingerprints.
          * @enum {string}
          */
@@ -2310,10 +2398,12 @@ export interface components {
         PasskeyAssertion: Record<string, never>;
         /**
          * @description - `NONE`: no face enrolled.
-         *     - `PENDING`: enrolled but waiting for a collision review.
+         *     - `PENDING`: enrolled but waiting for a second ADMIN's review.
          *     - `ACTIVE`: in use for clock-ins.
-         *     - `BLOCKED`: the review found the same person as someone else.
-         *     - `REVOKED`: wiped by an ADMIN, a withdrawal of consent, or after the retention period.
+         *     - `BLOCKED`: a second ADMIN found one person with two records, and
+         *       this record's face was wiped.
+         *     - `REVOKED`: wiped by an ADMIN, a withdrawal of consent, or after the
+         *       retention period.
          * @enum {string}
          */
         FaceStatus: "NONE" | "PENDING" | "ACTIVE" | "BLOCKED" | "REVOKED";
@@ -2336,20 +2426,59 @@ export interface components {
             };
             /** @description Fingerprint keys, one per device at most. */
             passkeys: components["schemas"]["DevicePasskey"][];
-            /** @description Set when an ADMIN let this worker work without biometrics. */
+            /** @description The latest request to let this worker work without biometrics, if any. */
             exemption: components["schemas"]["BiometricExemption"] | null;
         };
+        /**
+         * @description - `DECLINED`: the worker said no to biometrics.
+         *     - `CANNOT_ENROLL`: the kiosk cannot read the worker's face.
+         *     - `CONSENT_WITHDRAWN`: set by the API when an `ACTIVE` worker withdraws consent.
+         * @enum {string}
+         */
+        ExemptionReason: "DECLINED" | "CANNOT_ENROLL" | "CONSENT_WITHDRAWN";
+        /** @enum {string} */
+        ExemptionStatus: "REQUESTED" | "APPROVED" | "REJECTED";
         BiometricExemption: {
+            status: components["schemas"]["ExemptionStatus"];
+            reason: components["schemas"]["ExemptionReason"];
+            /** @description The free-text note; `null` for a SUPERVISOR, who sees only the reason code. */
+            note: string | null;
             /** Format: date-time */
-            exemptAt: string;
-            reason: string;
+            requestedAt: string;
+            /** Format: uuid */
+            requestedByUserId: string;
+            /** Format: date-time */
+            reviewedAt: string | null;
+            /**
+             * Format: uuid
+             * @description `null` while waiting, and for the automatic exemption after a withdrawal of consent (that worker already passed the duplicate check).
+             */
+            reviewedByUserId: string | null;
+        };
+        RequestExemptionRequest: {
+            /** @enum {string} */
+            reason: "DECLINED" | "CANNOT_ENROLL";
+            /** @description What happened, briefly and factually. Never write down religion or health details: the reason code is enough. */
+            note: string;
+        };
+        ReviewExemptionRequest: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            note: string;
         };
         BiometricReasonRequest: {
             /** @description Why. Kept with the audit record. */
             reason: string;
         };
-        /** @enum {string} */
-        CollisionStatus: "OPEN" | "RESOLVED";
+        /**
+         * @description - `OPEN`: waiting for a second ADMIN.
+         *     - `RESOLVED`: decided (see `resolution`).
+         *     - `VOID`: the face was wiped before anyone decided (a revoke, a
+         *       withdrawal of consent, or 90 days waiting). Who it looked like, and
+         *       how closely, stays on record for the ghost rules.
+         * @enum {string}
+         */
+        CollisionStatus: "OPEN" | "RESOLVED" | "VOID";
         /**
          * @description `DIFFERENT_PEOPLE`: two real people who look alike. `SAME_PERSON`: one person enrolled twice.
          * @enum {string}
@@ -2373,6 +2502,11 @@ export interface components {
         };
         CollisionResolution: {
             verdict: components["schemas"]["CollisionVerdict"];
+            /**
+             * Format: uuid
+             * @description The record kept for `SAME_PERSON`; `null` for `DIFFERENT_PEOPLE`.
+             */
+            keptEmployeeId: string | null;
             note: string;
             /** Format: date-time */
             resolvedAt: string;
@@ -2386,6 +2520,11 @@ export interface components {
         };
         ResolveCollisionRequest: {
             verdict: components["schemas"]["CollisionVerdict"];
+            /**
+             * Format: uuid
+             * @description Required for `SAME_PERSON` (`400` without it) and not allowed for `DIFFERENT_PEOPLE`: the collision's `employee.id` or `lookedLike.id`.
+             */
+            keepEmployeeId?: string;
             note: string;
         };
         PunchFeedItem: {
@@ -2418,8 +2557,7 @@ export interface components {
             /** Format: uuid */
             deviceId: string;
             deviceName: string;
-            /** @enum {string} */
-            purpose: "CLOCK" | "CO_SIGN" | "STAFF_PASSKEY";
+            purpose: components["schemas"]["AttemptPurpose"];
             outcome: components["schemas"]["AttemptOutcome"];
             employee: components["schemas"]["EmployeeRef"] | null;
             /** Format: date-time */
@@ -2591,7 +2729,6 @@ export type TwoFactorSetupRequired = components['schemas']['TwoFactorSetupRequir
 export type OneTimeToken = components['schemas']['OneTimeToken'];
 export type TwoFactorCode = components['schemas']['TwoFactorCode'];
 export type VerifyTwoFactorRequest = components['schemas']['VerifyTwoFactorRequest'];
-export type KeepSignedIn = components['schemas']['KeepSignedIn'];
 export type TwoFactorSetupRequest = components['schemas']['TwoFactorSetupRequest'];
 export type TwoFactorSetup = components['schemas']['TwoFactorSetup'];
 export type EnableTwoFactorRequest = components['schemas']['EnableTwoFactorRequest'];
@@ -2663,9 +2800,11 @@ export type VoidAllResolution = components['schemas']['VoidAllResolution'];
 export type ResolveExceptionRequest = components['schemas']['ResolveExceptionRequest'];
 export type IngestPunchMethod = components['schemas']['IngestPunchMethod'];
 export type FaceSample = components['schemas']['FaceSample'];
-export type KioskPurpose = components['schemas']['KioskPurpose'];
+export type AttemptPurpose = components['schemas']['AttemptPurpose'];
 export type KioskDirection = components['schemas']['KioskDirection'];
 export type KioskIdentifyRequest = components['schemas']['KioskIdentifyRequest'];
+export type KioskClockIdentifyRequest = components['schemas']['KioskClockIdentifyRequest'];
+export type KioskCoSignIdentifyRequest = components['schemas']['KioskCoSignIdentifyRequest'];
 export type AttemptOutcome = components['schemas']['AttemptOutcome'];
 export type KioskWorker = components['schemas']['KioskWorker'];
 export type KioskIdentifyResponse = components['schemas']['KioskIdentifyResponse'];
@@ -2674,6 +2813,7 @@ export type KioskConfirmRequest = components['schemas']['KioskConfirmRequest'];
 export type KioskPunchResponse = components['schemas']['KioskPunchResponse'];
 export type KioskFingerprintOptionsRequest = components['schemas']['KioskFingerprintOptionsRequest'];
 export type KioskFingerprintOptionsResponse = components['schemas']['KioskFingerprintOptionsResponse'];
+export type KioskNotMeRequest = components['schemas']['KioskNotMeRequest'];
 export type KioskAssistedPunchRequest = components['schemas']['KioskAssistedPunchRequest'];
 export type BiometricConsentText = components['schemas']['BiometricConsentText'];
 export type RecordConsentRequest = components['schemas']['RecordConsentRequest'];
@@ -2692,7 +2832,11 @@ export type PasskeyRequestOptions = components['schemas']['PasskeyRequestOptions
 export type PasskeyAssertion = components['schemas']['PasskeyAssertion'];
 export type FaceStatus = components['schemas']['FaceStatus'];
 export type EmployeeBiometrics = components['schemas']['EmployeeBiometrics'];
+export type ExemptionReason = components['schemas']['ExemptionReason'];
+export type ExemptionStatus = components['schemas']['ExemptionStatus'];
 export type BiometricExemption = components['schemas']['BiometricExemption'];
+export type RequestExemptionRequest = components['schemas']['RequestExemptionRequest'];
+export type ReviewExemptionRequest = components['schemas']['ReviewExemptionRequest'];
 export type BiometricReasonRequest = components['schemas']['BiometricReasonRequest'];
 export type CollisionStatus = components['schemas']['CollisionStatus'];
 export type CollisionVerdict = components['schemas']['CollisionVerdict'];
@@ -4025,7 +4169,48 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["DeviceNotTrusted"];
-            /** @description The attempt cannot be confirmed: it is not a match, it belongs to another device, it is older than 60 seconds, or its fingerprint check failed. Start again. */
+            /** @description The attempt cannot be confirmed: it is not a match, it belongs to another device, it is older than 60 seconds, the worker pressed "Not me", or its fingerprint check failed. Start again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    kioskNotMe: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KioskNotMeRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded. The kiosk starts again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            /** @description The attempt cannot be cancelled: it is not a match from this device in the last 60 seconds, or it was already confirmed or cancelled. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4035,7 +4220,6 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
-            503: components["responses"]["Busy"];
         };
     };
     kioskFingerprintOptions: {
@@ -4067,7 +4251,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["DeviceNotTrusted"];
-            /** @description The fallback is not available here: too few failed face attempts, fingerprints are off on this device, or this worker has no passkey on it. */
+            /** @description The fallback is not available. Every reason (not unlocked, fingerprints off, an unknown staff number, a worker with no passkey here or not posted here) gets this same answer, so the kiosk cannot be used to learn who works where. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4108,7 +4292,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["DeviceNotTrusted"];
-            /** @description The co-sign cannot be used: it is not a matched supervisor of this site, it is the worker themselves, or it is older than 60 seconds. */
+            /** @description The co-sign cannot be used: it is not a matched supervisor of this site, it names the supervisor themselves, the worker is not ACTIVE or not posted here, or it is older than 60 seconds. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4160,7 +4344,7 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The employee is terminated, or this consent version is already recorded. */
+            /** @description The employee is terminated, or already has a current consent to this text version. A worker who withdrew may consent again. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4169,6 +4353,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     kioskEnrollFace: {
@@ -4210,7 +4395,7 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description No current consent, or the employee is terminated. */
+            /** @description No current consent, the employee is terminated, or the worker has an open duplicate-enrollment review (a second ADMIN must decide it first, so nobody can retry until the check passes). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4220,6 +4405,7 @@ export interface operations {
                 };
             };
             413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["Busy"];
         };
     };
@@ -4271,6 +4457,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     kioskRegisterPasskey: {
@@ -4321,6 +4508,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getBiometricConsentText: {
@@ -4402,7 +4591,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    exemptEmployeeFromBiometrics: {
+    requestBiometricExemption: {
         parameters: {
             query?: never;
             header?: never;
@@ -4414,7 +4603,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BiometricReasonRequest"];
+                "application/json": components["schemas"]["RequestExemptionRequest"];
             };
         };
         responses: {
@@ -4431,7 +4620,47 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The employee is terminated or already exempt. */
+            /** @description The employee is not waiting for enrollment, has an open duplicate-enrollment review, or already has an exemption waiting or approved. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    reviewBiometricExemption: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewExemptionRequest"];
+            };
+        };
+        responses: {
+            /** @description The new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description There is no request waiting for a decision. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4541,7 +4770,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description This collision has already been decided. */
+            /** @description This collision is no longer open: it was decided, or it became `VOID` because the face was wiped. */
             409: {
                 headers: {
                     [name: string]: unknown;
