@@ -5,8 +5,10 @@ import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
 import { fetchClient } from '@/lib/api';
-import { clearSession } from '@/lib/session';
+import { clearSession, getSession, markSignedInOnThisBrowser } from '@/lib/session';
+import { MOCK_PASSWORD } from '@/mocks/data/users';
 import { resetMockUsers } from '@/mocks/handlers/users';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { SetPasswordPage } from './set-password-page';
@@ -92,6 +94,43 @@ describe('SetPasswordPage', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out and continue' }));
     await choose('a long enough sentence');
     expect(await screen.findByText('Your password is set')).toBeInTheDocument();
+  });
+
+  it('after a reload, checks for a signed-in user before ever showing the form', async () => {
+    const token = await newAccountLink();
+    // Signed in on the API's side only, like a browser after a reload: the
+    // refresh "cookie" and the signed-in note survive, the memory is empty.
+    await fetchClient.POST('/auth/login', {
+      body: { email: 'supervisor@samtec.example', password: MOCK_PASSWORD },
+    });
+    markSignedInOnThisBrowser(true);
+    expect(getSession()).toBeNull();
+
+    renderSetPasswordPage(`${routes.setPassword}#token=${token}`);
+
+    expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+    expect(await screen.findByText('You are signed in')).toBeInTheDocument();
+    expect(screen.getByText('Yaw Boateng')).toBeInTheDocument();
+  });
+
+  it('sends the password once, however fast the button is pressed', async () => {
+    const token = await newAccountLink();
+    let requests = 0;
+    const count = ({ request }: { request: Request }) => {
+      if (new URL(request.url).pathname.endsWith('/auth/set-password')) requests += 1;
+    };
+    server.events.on('request:start', count);
+    renderSetPasswordPage(`${routes.setPassword}#token=${token}`);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('New password'), 'a long enough sentence');
+    await user.type(screen.getByLabelText('Type it again'), 'a long enough sentence');
+    const button = screen.getByRole('button', { name: 'Set my password' });
+    await user.dblClick(button);
+
+    expect(await screen.findByText('Your password is set')).toBeInTheDocument();
+    server.events.removeListener('request:start', count);
+    expect(requests).toBe(1);
   });
 
   it('refuses a link that was already used, with the API message', async () => {
