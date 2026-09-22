@@ -1,19 +1,19 @@
 import type { GhanaRegion, SiteList, SiteStatus } from '@samtec/contracts';
 import { cn } from 'cn';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import { useState } from 'react';
+import { LoadErrorAlert } from '@/components/load-error-alert';
 import { PageHeader } from '@/components/page-header';
+import { PaginationNav } from '@/components/pagination-nav';
+import { SelectField } from '@/components/select-field';
 import {
   isSiteStatus,
   SITE_STATUSES,
   SiteStatusBadge,
   siteStatusLabels,
 } from '@/components/site-status-badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { TableEmptyRow, TableLoadingRows } from '@/components/table-states';
 import { Card } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -23,13 +23,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { $api } from '@/lib/api';
+import { useCursorPages } from '@/lib/cursor-pages';
 import { GHANA_REGIONS, isGhanaRegion, regionLabels } from '@/lib/ghana-regions';
 import { usePageTitle } from '@/lib/page-title';
-import { describeApiError } from '@/lib/problem';
 
 const PAGE_SIZE = 10;
 const COLUMN_COUNT = 6;
-const LOADING_ROW_KEYS = ['loading-1', 'loading-2', 'loading-3'];
 
 /**
  * Lists the client sites the signed-in user may see (the API limits a
@@ -40,39 +39,28 @@ export function SitesPage() {
   usePageTitle('Sites');
   const [status, setStatus] = useState<SiteStatus>();
   const [region, setRegion] = useState<GhanaRegion>();
-  // The cursor of every page visited so far. The last one is the current page.
-  const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
+  const pages = useCursorPages();
 
   const sites = $api.useQuery(
     'get',
     '/sites',
-    { params: { query: { limit: PAGE_SIZE, cursor: cursors.at(-1), status, region } } },
+    { params: { query: { limit: PAGE_SIZE, cursor: pages.cursor, status, region } } },
     // Keep showing the current page while the next one loads.
     { placeholderData: (previous) => previous },
   );
 
   const showingOldPage = sites.isPlaceholderData;
-  const nextCursor = sites.data?.nextCursor ?? null;
+  // No Next under an error alert: the kept placeholder data may still hold a bookmark.
+  const nextCursor = sites.error ? null : (sites.data?.nextCursor ?? null);
 
   function applyStatus(value: string) {
     setStatus(isSiteStatus(value) ? value : undefined);
-    setCursors([undefined]);
+    pages.reset();
   }
 
   function applyRegion(value: string) {
     setRegion(isGhanaRegion(value) ? value : undefined);
-    setCursors([undefined]);
-  }
-
-  function goToPreviousPage() {
-    setCursors((current) => (current.length > 1 ? current.slice(0, -1) : current));
-  }
-
-  function goToNextPage() {
-    // Ignore clicks while a page is loading, so one click never skips a page.
-    if (nextCursor !== null && !showingOldPage) {
-      setCursors((current) => [...current, nextCursor]);
-    }
+    pages.reset();
   }
 
   return (
@@ -80,43 +68,32 @@ export function SitesPage() {
       <PageHeader title="Sites" description="Client locations where guards are posted." />
 
       <div className="flex flex-wrap items-start gap-4">
-        <div className="grid gap-1.5">
-          <Label htmlFor="site-status">Status</Label>
-          <select
-            id="site-status"
-            value={status ?? ''}
-            onChange={(event) => applyStatus(event.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs"
-          >
-            <option value="">All statuses</option>
-            {SITE_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {siteStatusLabels[value]}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectField id="site-status" label="Status" value={status ?? ''} onChange={applyStatus}>
+          <option value="">All statuses</option>
+          {SITE_STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {siteStatusLabels[value]}
+            </option>
+          ))}
+        </SelectField>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="site-region">Region</Label>
-          <select
-            id="site-region"
-            value={region ?? ''}
-            onChange={(event) => applyRegion(event.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs"
-          >
-            <option value="">All regions</option>
-            {GHANA_REGIONS.map((value) => (
-              <option key={value} value={value}>
-                {regionLabels[value]}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectField id="site-region" label="Region" value={region ?? ''} onChange={applyRegion}>
+          <option value="">All regions</option>
+          {GHANA_REGIONS.map((value) => (
+            <option key={value} value={value}>
+              {regionLabels[value]}
+            </option>
+          ))}
+        </SelectField>
       </div>
 
       {sites.error ? (
-        <LoadError error={sites.error} onRetry={() => void sites.refetch()} />
+        <LoadErrorAlert
+          title="Sites could not be loaded"
+          error={sites.error}
+          retrying={sites.isFetching}
+          onRetry={() => void sites.refetch()}
+        />
       ) : (
         <Card
           aria-busy={showingOldPage}
@@ -124,7 +101,7 @@ export function SitesPage() {
         >
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead className="pl-4">Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Client</TableHead>
@@ -144,21 +121,7 @@ export function SitesPage() {
         </Card>
       )}
 
-      <nav aria-label="Pagination" className="flex items-center justify-end gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={cursors.length === 1}
-          onClick={goToPreviousPage}
-        >
-          <ChevronLeft aria-hidden="true" />
-          Previous
-        </Button>
-        <Button variant="outline" size="sm" disabled={nextCursor === null} onClick={goToNextPage}>
-          Next
-          <ChevronRight aria-hidden="true" />
-        </Button>
-      </nav>
+      <PaginationNav pages={pages} nextCursor={nextCursor} busy={showingOldPage} />
     </div>
   );
 }
@@ -172,24 +135,18 @@ interface SiteRowsProps {
 
 function SiteRows({ loading, page, filtered }: SiteRowsProps) {
   if (loading) {
-    return LOADING_ROW_KEYS.map((key, index) => (
-      <TableRow key={key}>
-        <TableCell colSpan={COLUMN_COUNT} className="px-4">
-          {index === 0 && <span className="sr-only">Loading sites…</span>}
-          <Skeleton aria-hidden="true" className="h-5 w-full" />
-        </TableCell>
-      </TableRow>
-    ));
+    return <TableLoadingRows colSpan={COLUMN_COUNT} label="Loading sites…" rows={3} />;
   }
 
   if (!page || page.items.length === 0) {
     return (
-      <TableRow>
-        <TableCell colSpan={COLUMN_COUNT} className="py-10 text-center text-muted-foreground">
-          {/* A supervisor with no posting sees no sites even with no filter set. */}
-          {filtered ? 'No sites match these filters.' : 'No sites to show yet.'}
-        </TableCell>
-      </TableRow>
+      <TableEmptyRow
+        colSpan={COLUMN_COUNT}
+        icon={MapPin}
+        // A supervisor with no posting sees no sites even with no filter set.
+        title={filtered ? 'No sites match these filters.' : 'No sites to show yet.'}
+        hint={filtered ? 'Clear a filter to see more.' : undefined}
+      />
     );
   }
 
@@ -209,20 +166,4 @@ function SiteRows({ loading, page, filtered }: SiteRowsProps) {
       <TableCell className="pr-4 text-right tabular-nums">{site.activeGuardCount}</TableCell>
     </TableRow>
   ));
-}
-
-function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const { message, traceId } = describeApiError(error);
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>Sites could not be loaded</AlertTitle>
-      <AlertDescription className="space-y-2">
-        <p>{message}</p>
-        {traceId && <p className="font-mono text-xs">Trace ID: {traceId}</p>}
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
-      </AlertDescription>
-    </Alert>
-  );
 }
