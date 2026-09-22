@@ -705,8 +705,10 @@ enum DedupeResult {
   NOT_CHECKED
 }
 
-/// PENDING waits for a collision review; BLOCKED (a proven duplicate) is final;
-/// REVOKED is wiped. Only PENDING and ACTIVE still hold a template.
+/// PENDING: a face waiting for a collision review. ACTIVE: a face that PASSED
+/// or that a second ADMIN CLEARED (a CHECK), or a terminal finger. BLOCKED (a
+/// proven duplicate, or a finger nobody asked for) is final; REVOKED is wiped.
+/// Only a live face (PENDING or ACTIVE) holds a template.
 enum BiometricCredentialStatus {
   PENDING
   ACTIVE

@@ -11,12 +11,12 @@ export const DB_TEST_AUTH_SECRET = 'db-test-auth-secret-at-least-32-chars!!!';
 /**
  * Starts the real application against a real PostgreSQL database — nothing is
  * faked. Used by `test/db.e2e-spec.ts`; see that file for how to run it.
- * `settings` changes optional settings for one test, such as switching
- * simulator devices off.
+ * `settings` changes a setting for one test, such as running in production
+ * mode or switching simulator devices off.
  */
 export async function createDbTestApp(
   databaseUrl: string,
-  settings: Pick<Partial<Env>, 'ALLOW_SIMULATOR_DEVICES'> = {},
+  settings: Pick<Partial<Env>, 'ALLOW_SIMULATOR_DEVICES' | 'NODE_ENV'> = {},
 ): Promise<NestExpressApplication> {
   const config = new AppConfig({
     NODE_ENV: 'test',

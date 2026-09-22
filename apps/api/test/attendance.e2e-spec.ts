@@ -398,23 +398,23 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       await signed('ingest/heartbeat', {}, kiosk).expect(200);
     });
 
-    it('refuses simulator punches where simulators are switched off', async () => {
+    it.each([
+      ['in production, where the setting is left out', { NODE_ENV: 'production' as const }],
+      ['wherever the setting says no', { ALLOW_SIMULATOR_DEVICES: 'no' as const }],
+    ])('refuses simulator punches %s', async (where, settings) => {
       const registered = await request(app.getHttpServer())
         .post('/api/v1/devices')
         .set(...bearer(adminToken))
-        .send({ name: 'Simulator in production', siteId: company.siteA, kind: 'MOCK' })
+        .send({ name: `Simulator ${where}`.slice(0, 60), siteId: company.siteA, kind: 'MOCK' })
         .expect(201);
       const simulator = { id: registered.body.device.id, secret: registered.body.secret };
-      const production = await createDbTestApp(databaseUrl as string, {
-        ALLOW_SIMULATOR_DEVICES: 'no',
-      });
+      const refusing = await createDbTestApp(databaseUrl as string, settings);
       try {
-        await signedPost(production, 'ingest/punches', { punches: [punch()] }, simulator).expect(
-          401,
-        );
-        await signedPost(production, 'ingest/heartbeat', {}, simulator).expect(200);
+        await signedPost(refusing, 'ingest/punches', { punches: [punch()] }, simulator).expect(401);
+        // It may still say it is alive.
+        await signedPost(refusing, 'ingest/heartbeat', {}, simulator).expect(200);
       } finally {
-        await production.close();
+        await refusing.close();
       }
     });
 

@@ -23,22 +23,26 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
   let prisma: PrismaClient;
   let company: AttendanceCompany;
   let kioskId = '';
+  let faceOnlyKioskId = '';
   let terminalId = '';
 
   beforeAll(async () => {
     prisma = openFixtureDb(databaseUrl as string);
     company = await createAttendanceCompany(prisma);
-    const device = (name: string, kind: 'FACE_KIOSK' | 'ZKTECO') =>
+    const device = (name: string, kind: 'FACE_KIOSK' | 'ZKTECO', passkeysEnabled = false) =>
       prisma.device.create({
         data: {
           companyId: company.companyId,
           siteId: company.siteA,
           name,
           kind,
+          passkeysEnabled,
           secretEncrypted: 'v1$not$a$secret',
         },
       });
-    kioskId = (await device('Rules kiosk', 'FACE_KIOSK')).id;
+    // Fingerprint keys may only be saved on a kiosk with fingerprints switched on.
+    kioskId = (await device('Rules kiosk', 'FACE_KIOSK', true)).id;
+    faceOnlyKioskId = (await device('Rules face-only kiosk', 'FACE_KIOSK')).id;
     terminalId = (await device('Rules terminal', 'ZKTECO')).id;
   }, 120_000);
 
@@ -242,16 +246,22 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       // Straight to ACTIVE, or marked CLEARED, with no verdict: both refused.
       await expect(
         prisma.biometricCredential.update({ where: { id: row.id }, data: { status: 'ACTIVE' } }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/biometric_credentials_status_valid/);
       await expect(
         prisma.biometricCredential.update({
           where: { id: row.id },
           data: { dedupe: 'CLEARED', status: 'ACTIVE' },
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/biometric_credentials_decision_valid/);
+      // Wiped while waiting (a withdrawal, say): the review stays open, and
+      // marking it CLEARED with no verdict is still refused.
+      await prisma.biometricCredential.update({
+        where: { id: row.id },
+        data: { ...wiped, status: 'REVOKED' },
+      });
       await expect(
         prisma.biometricCredential.update({ where: { id: row.id }, data: { dedupe: 'CLEARED' } }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/biometric_credentials_decision_valid/);
     });
 
     it('are never made by the ADMIN who enrolled the face', async () => {
@@ -339,8 +349,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       const ghostFace = await face(ghost.id);
       const guard = await newStarter();
       const guardFace = await collision(guard.id, ghost.id);
-
-      await prisma.biometricCredential.update({
+      const keepGuard = prisma.biometricCredential.update({
         where: { id: guardFace.id },
         data: {
           ...decision('SAME_PERSON'),
@@ -349,17 +358,154 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
           status: 'ACTIVE',
         },
       });
-      // The older record's face is blocked for good (its own row has no verdict).
-      await prisma.biometricCredential.update({
+      const blockGhost = prisma.biometricCredential.update({
         where: { id: ghostFace.id },
         data: { ...wiped, status: 'BLOCKED' },
       });
+
+      // The decision alone would leave the ghost clocking in; a block alone has no decision.
+      await expect(keepGuard).rejects.toThrow(/must block the other record/);
+      await expect(blockGhost).rejects.toThrow(/blocked only by a SAME_PERSON decision/);
+      // Together, in one transaction, both hold.
+      await prisma.$transaction([
+        prisma.biometricCredential.update({
+          where: { id: guardFace.id },
+          data: {
+            ...decision('SAME_PERSON'),
+            keptEmployeeId: guard.id,
+            dedupe: 'CLEARED',
+            status: 'ACTIVE',
+          },
+        }),
+        prisma.biometricCredential.update({
+          where: { id: ghostFace.id },
+          data: { ...wiped, status: 'BLOCKED' },
+        }),
+      ]);
       await expect(
         prisma.biometricCredential.update({
           where: { id: ghostFace.id },
           data: { status: 'ACTIVE' },
         }),
       ).rejects.toThrow(/can never become/);
+    });
+  });
+
+  describe('new rows', () => {
+    it('start with no decision', async () => {
+      const lookalike = await newStarter();
+      await face(lookalike.id);
+      await expect(
+        collision((await newStarter()).id, lookalike.id).then(() => undefined),
+      ).resolves.toBeUndefined();
+      // A face inserted already cleared, as if a second ADMIN had decided it.
+      await expect(
+        face((await newStarter()).id, {
+          dedupe: 'CLEARED',
+          collisionEmployeeId: lookalike.id,
+          collisionSimilarity: 0.9,
+          ...decision('DIFFERENT_PEOPLE'),
+        }),
+      ).rejects.toThrow(/starts with no decision/);
+      // An exemption inserted already approved.
+      await expect(
+        prisma.biometricExemption.create({
+          data: {
+            companyId: company.companyId,
+            employeeId: (await newStarter()).id,
+            reason: 'DECLINED',
+            requestedByUserId: ENROLLER,
+            status: 'APPROVED',
+            reviewedByUserId: REVIEWER,
+            reviewedAt: new Date(),
+            reviewNote: 'Ghana Card checked in person.',
+          },
+        }),
+      ).rejects.toThrow(/starts waiting/);
+    });
+
+    it('belong on the right kind of device', async () => {
+      await expect(face((await newStarter()).id, { deviceId: terminalId })).rejects.toThrow(
+        /enrolled on a face kiosk/,
+      );
+      const finger = (deviceId: string) =>
+        newStarter().then((worker) =>
+          prisma.biometricCredential.create({
+            data: {
+              companyId: company.companyId,
+              employeeId: worker.id,
+              kind: 'TERMINAL_FINGER',
+              deviceId,
+              dedupe: 'NOT_CHECKED',
+              status: 'ACTIVE',
+            },
+          }),
+        );
+      await expect(finger(kioskId)).rejects.toThrow(/never comes from a kiosk/);
+      await finger(terminalId);
+    });
+
+    it("use this worker's own consent, given and not withdrawn since", async () => {
+      const first = await newStarter();
+      const second = await newStarter();
+      const firstConsent = await consent(first.id);
+      await expect(face(second.id, { consentId: firstConsent.id })).rejects.toThrow(
+        /own, given and not withdrawn/,
+      );
+      await prisma.biometricConsent.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: first.id,
+          status: 'WITHDRAWN',
+          textVersion: 'bio-v1',
+          textSha256: SHA256,
+          recordedByUserId: ENROLLER,
+          recordedAt: new Date(firstConsent.recordedAt.getTime() + 1_000),
+        },
+      });
+      await expect(face(first.id, { consentId: firstConsent.id })).rejects.toThrow(
+        /own, given and not withdrawn/,
+      );
+    });
+
+    it('give nothing new to a record blocked as a duplicate', async () => {
+      // The leaver's record lost a SAME_PERSON decision above.
+      const blocked = company.leaver.id;
+      await expect(face(blocked)).rejects.toThrow(/can only be terminated/);
+      await expect(
+        prisma.biometricExemption.create({
+          data: {
+            companyId: company.companyId,
+            employeeId: blocked,
+            reason: 'DECLINED',
+            requestedByUserId: ENROLLER,
+          },
+        }),
+      ).rejects.toThrow(/can only be terminated/);
+      await expect(
+        prisma.devicePasskey.create({
+          data: {
+            companyId: company.companyId,
+            employeeId: blocked,
+            deviceId: kioskId,
+            credentialId: `blocked-key-${company.companyId}`,
+            publicKey: new Uint8Array([1]),
+            backedUp: false,
+            registeredByUserId: ENROLLER,
+          },
+        }),
+      ).rejects.toThrow(/can only be terminated/);
+      // A withdrawal of consent is still recorded, as the law requires.
+      await prisma.biometricConsent.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: blocked,
+          status: 'WITHDRAWN',
+          textVersion: 'bio-v1',
+          textSha256: SHA256,
+          recordedByUserId: ENROLLER,
+        },
+      });
     });
   });
 
@@ -432,6 +578,27 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         /never deleted/,
       );
     });
+
+    it('take a decision only on a waiting request, in one step', async () => {
+      // A request that ended undecided can never be given a decision afterwards...
+      const ended = await request((await newStarter()).id);
+      await prisma.biometricExemption.update({
+        where: { id: ended.id },
+        data: { status: 'ENDED', endedAt: new Date() },
+      });
+      const { status: _approved, ...decisionOnly } = review(REVIEWER);
+      await expect(
+        prisma.biometricExemption.update({ where: { id: ended.id }, data: decisionOnly }),
+      ).rejects.toThrow(/only on a waiting request/);
+      // ...and a waiting request cannot end with a decision attached.
+      const waiting = await request((await newStarter()).id);
+      await expect(
+        prisma.biometricExemption.update({
+          where: { id: waiting.id },
+          data: { ...review(REVIEWER), status: 'ENDED', endedAt: new Date() },
+        }),
+      ).rejects.toThrow(/only on a waiting request/);
+    });
   });
 
   describe('fingerprint keys', () => {
@@ -478,6 +645,42 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(prisma.devicePasskey.delete({ where: { id: row.id } })).rejects.toThrow(
         /never deleted/,
       );
+    });
+
+    it('are saved only on a kiosk with fingerprints switched on', async () => {
+      const worker = await newStarter();
+      const onDevice = (deviceId: string, name: string) =>
+        prisma.devicePasskey.create({
+          data: {
+            companyId: company.companyId,
+            employeeId: worker.id,
+            deviceId,
+            credentialId: `${name}-${company.companyId}`,
+            publicKey: new Uint8Array([1]),
+            backedUp: false,
+            registeredByUserId: ENROLLER,
+          },
+        });
+      await expect(onDevice(terminalId, 'key-terminal')).rejects.toThrow(/switched on/);
+      await expect(onDevice(faceOnlyKioskId, 'key-face-only')).rejects.toThrow(/switched on/);
+    });
+
+    it('may become synced but never hide it, and a revoked key is never used', async () => {
+      const row = await key((await newStarter()).id, 'key-c1');
+      await prisma.devicePasskey.update({ where: { id: row.id }, data: { backedUp: true } });
+      await expect(
+        prisma.devicePasskey.update({ where: { id: row.id }, data: { backedUp: false } }),
+      ).rejects.toThrow(/stays marked synced/);
+      await prisma.devicePasskey.update({
+        where: { id: row.id },
+        data: { revokedAt: new Date(), revokedByUserId: REVIEWER },
+      });
+      await expect(
+        prisma.devicePasskey.update({
+          where: { id: row.id },
+          data: { signCount: 1n, lastUsedAt: new Date() },
+        }),
+      ).rejects.toThrow(/never used/);
     });
   });
 
@@ -575,6 +778,15 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       ).rejects.toThrow();
       await prisma.device.update({ where: { id: terminalId }, data: { serialNumber: 'CKJ-1' } });
       await prisma.device.update({ where: { id: kioskId }, data: { passkeysEnabled: true } });
+    });
+
+    it('keep their company, site and kind for life (the routes a device may call depend on its kind)', async () => {
+      await expect(
+        prisma.device.update({ where: { id: faceOnlyKioskId }, data: { kind: 'ZKTECO' } }),
+      ).rejects.toThrow(/for life/);
+      await expect(
+        prisma.device.update({ where: { id: terminalId }, data: { siteId: company.siteB } }),
+      ).rejects.toThrow(/for life/);
     });
   });
 });

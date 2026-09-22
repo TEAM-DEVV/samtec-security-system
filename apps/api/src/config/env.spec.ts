@@ -76,21 +76,16 @@ describe('parseEnv', () => {
     );
   });
 
-  it('allows simulator devices in development and refuses them in production unless set', () => {
-    const production = {
-      ...minimalEnv,
-      NODE_ENV: 'production',
-      CORS_ORIGINS: 'https://dashboard.samtec.example',
-      AUTH_SECRET: 'a-production-secret-that-is-long-enough-1234',
-    };
+  it('allows simulator devices in development and tests, and refuses them in production unless set', () => {
     const allowed = (source: Record<string, string>) =>
       new AppConfig(parseEnv(source)).allowSimulatorDevices;
 
     expect(allowed(minimalEnv)).toBe(true);
+    expect(allowed({ ...minimalEnv, NODE_ENV: 'test' })).toBe(true);
     expect(allowed({ ...minimalEnv, ALLOW_SIMULATOR_DEVICES: 'no' })).toBe(false);
     // Production is safe by default; TEST opts in explicitly.
-    expect(allowed(production)).toBe(false);
-    expect(allowed({ ...production, ALLOW_SIMULATOR_DEVICES: 'yes' })).toBe(true);
+    expect(allowed(productionEnv)).toBe(false);
+    expect(allowed({ ...productionEnv, ALLOW_SIMULATOR_DEVICES: 'yes' })).toBe(true);
     expect(() => parseEnv({ ...minimalEnv, ALLOW_SIMULATOR_DEVICES: 'maybe' })).toThrow(
       /ALLOW_SIMULATOR_DEVICES/,
     );

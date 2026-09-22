@@ -108,7 +108,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 ## Phase 8 · Deploy and present (week 15 onwards)
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
-- Production settings: leave `ALLOW_SIMULATOR_DEVICES` unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
+- Production settings: `NODE_ENV=production` with `ALLOW_SIMULATOR_DEVICES` left unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
 - **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands

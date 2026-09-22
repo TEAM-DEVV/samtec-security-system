@@ -321,10 +321,11 @@ ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_templa
   ("template_sealed" IS NULL) = ("key_version" IS NULL)
   AND ("key_version" IS NULL OR "key_version" >= 1));
 
--- PENDING and ACTIVE are in use; BLOCKED and REVOKED are wiped, with the time.
--- A PENDING face is exactly one that waits for a collision review, and an
--- ACTIVE face is one that passed the check or that a second ADMIN cleared:
--- a face that collided can never come into use without a decision.
+-- PENDING and ACTIVE are live (not wiped); BLOCKED and REVOKED are wiped,
+-- with the time. A PENDING face is exactly one that waits for a collision
+-- review, and an ACTIVE face is one that passed the check or that a second
+-- ADMIN cleared: a face that collided can never become ACTIVE (matched at
+-- clock-in) without a decision.
 -- (Every CHECK here is written so that it is TRUE or FALSE, never NULL:
 -- PostgreSQL lets a row through when a CHECK comes out NULL.)
 ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_status_valid" CHECK (
@@ -363,7 +364,7 @@ ALTER TABLE "biometric_credentials" ADD CONSTRAINT "biometric_credentials_decisi
     OR COALESCE("verdict" = 'SAME_PERSON' AND "kept_employee_id" = "collision_employee_id"
       AND "status" = 'BLOCKED', false)));
 
--- At most one face in use (not wiped) per employee.
+-- At most one live (not wiped) face per employee: PENDING or ACTIVE.
 CREATE UNIQUE INDEX "biometric_credentials_one_live_face"
   ON "biometric_credentials" ("employee_id")
   WHERE "kind" = 'FACE' AND "wiped_at" IS NULL;
@@ -468,6 +469,13 @@ BEGIN
     OR (OLD.status = 'APPROVED' AND NEW.status = 'ENDED')) THEN
     RAISE EXCEPTION 'biometric_exemptions: status % can never become %', OLD.status, NEW.status;
   END IF;
+  -- A decision is made in one step only: a waiting request becomes APPROVED
+  -- or REJECTED. It is never added to an ended request, nor to a request
+  -- that ends without being decided.
+  IF OLD.reviewed_at IS NULL AND NEW.reviewed_at IS NOT NULL
+     AND NOT (OLD.status = 'REQUESTED' AND NEW.status IN ('APPROVED', 'REJECTED')) THEN
+    RAISE EXCEPTION 'biometric_exemptions: a decision is made only on a waiting request';
+  END IF;
   -- A decision is final, and so is an end.
   IF OLD.reviewed_at IS NOT NULL AND (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at
      OR NEW.reviewed_by_user_id IS DISTINCT FROM OLD.reviewed_by_user_id
@@ -514,14 +522,24 @@ LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN
   IF NEW.id <> OLD.id OR NEW.company_id <> OLD.company_id OR NEW.employee_id <> OLD.employee_id
      OR NEW.device_id <> OLD.device_id OR NEW.credential_id <> OLD.credential_id
-     OR NEW.public_key <> OLD.public_key OR NEW.backed_up <> OLD.backed_up
+     OR NEW.public_key <> OLD.public_key
      OR NEW.registered_by_user_id <> OLD.registered_by_user_id
      OR NEW.registered_at <> OLD.registered_at THEN
     RAISE EXCEPTION 'device_passkeys: a registered key never changes';
   END IF;
+  -- The "synced" flag may switch on later (the device may copy the key to
+  -- its cloud account after registration), but it is never hidden again.
+  IF OLD.backed_up AND NOT NEW.backed_up THEN
+    RAISE EXCEPTION 'device_passkeys: a key that was synced stays marked synced';
+  END IF;
   -- A counter that goes down means a cloned key.
   IF NEW.sign_count < OLD.sign_count THEN
     RAISE EXCEPTION 'device_passkeys: the signature counter may only go up';
+  END IF;
+  -- A revoked key is never used again.
+  IF OLD.revoked_at IS NOT NULL AND (NEW.sign_count <> OLD.sign_count
+     OR NEW.last_used_at IS DISTINCT FROM OLD.last_used_at) THEN
+    RAISE EXCEPTION 'device_passkeys: a revoked key is never used';
   END IF;
   IF OLD.revoked_at IS NOT NULL AND (NEW.revoked_at IS DISTINCT FROM OLD.revoked_at
      OR NEW.revoked_by_user_id IS DISTINCT FROM OLD.revoked_by_user_id) THEN
@@ -590,3 +608,183 @@ CREATE TRIGGER clock_in_attempts_no_delete
 CREATE TRIGGER clock_in_attempts_no_truncate
   BEFORE TRUNCATE ON "clock_in_attempts"
   FOR EACH STATEMENT EXECUTE FUNCTION public.biometric_rows_are_never_deleted();
+
+-- ---------------------------------------------------------------------------
+-- Rules across rows: a new row always starts at the beginning, a device keeps
+-- what it is, and a duplicate verdict really blocks the record that lost.
+-- ---------------------------------------------------------------------------
+
+-- A device keeps its company, site and kind for life: which routes it may
+-- call (kindMayUse) depends on its kind.
+CREATE FUNCTION public.devices_keep_their_identity() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.kind <> OLD.kind OR NEW.site_id <> OLD.site_id OR NEW.company_id <> OLD.company_id THEN
+    RAISE EXCEPTION 'devices: a device keeps its company, site and kind for life';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER devices_keep_their_identity
+  BEFORE UPDATE ON "devices"
+  FOR EACH ROW EXECUTE FUNCTION public.devices_keep_their_identity();
+
+-- A record blocked as a duplicate (one of its faces is BLOCKED) can only be
+-- terminated: nothing new may be given to it. A terminal finger blocked for
+-- an unexpected enrollment does not block the record.
+CREATE FUNCTION public.biometric_record_is_blocked(target uuid) RETURNS boolean
+LANGUAGE sql STABLE SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.biometric_credentials
+    WHERE employee_id = target AND kind = 'FACE' AND status = 'BLOCKED');
+$$;
+
+-- Consents: a consent is given on a kiosk, and never to a blocked record.
+CREATE FUNCTION public.biometric_consents_before_insert() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.status = 'GIVEN' THEN
+    IF public.biometric_record_is_blocked(NEW.employee_id) THEN
+      RAISE EXCEPTION 'biometric_consents: a record blocked as a duplicate can only be terminated';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.devices WHERE id = NEW.device_id AND kind = 'FACE_KIOSK') THEN
+      RAISE EXCEPTION 'biometric_consents: consent is given on a face kiosk';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER biometric_consents_before_insert
+  BEFORE INSERT ON "biometric_consents"
+  FOR EACH ROW EXECUTE FUNCTION public.biometric_consents_before_insert();
+
+-- Credentials: a new face or finger starts at the beginning (no decision, not
+-- cleared, not wiped), on the right kind of device, with this worker's own
+-- consent still standing, and never for a blocked record.
+CREATE FUNCTION public.biometric_credentials_before_insert() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.verdict IS NOT NULL OR NEW.kept_employee_id IS NOT NULL OR NEW.resolution_note IS NOT NULL
+     OR NEW.resolved_by_user_id IS NOT NULL OR NEW.resolved_at IS NOT NULL OR NEW.dedupe = 'CLEARED' THEN
+    RAISE EXCEPTION 'biometric_credentials: a new credential starts with no decision';
+  END IF;
+  IF public.biometric_record_is_blocked(NEW.employee_id) THEN
+    RAISE EXCEPTION 'biometric_credentials: a record blocked as a duplicate can only be terminated';
+  END IF;
+  IF NEW.kind = 'FACE' THEN
+    IF NEW.status NOT IN ('PENDING', 'ACTIVE') OR NEW.wiped_at IS NOT NULL THEN
+      RAISE EXCEPTION 'biometric_credentials: a new face starts live';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.devices WHERE id = NEW.device_id AND kind = 'FACE_KIOSK') THEN
+      RAISE EXCEPTION 'biometric_credentials: a face is enrolled on a face kiosk';
+    END IF;
+  ELSIF EXISTS (SELECT 1 FROM public.devices WHERE id = NEW.device_id AND kind = 'FACE_KIOSK') THEN
+    RAISE EXCEPTION 'biometric_credentials: a terminal finger never comes from a kiosk';
+  END IF;
+  -- The consent is this worker's own, was given, and has not been withdrawn since.
+  IF NEW.consent_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.biometric_consents c
+    WHERE c.id = NEW.consent_id AND c.employee_id = NEW.employee_id AND c.status = 'GIVEN'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.biometric_consents w
+        WHERE w.employee_id = NEW.employee_id AND w.status = 'WITHDRAWN'
+          AND w.recorded_at > c.recorded_at)) THEN
+    RAISE EXCEPTION 'biometric_credentials: the consent must be this worker''s own, given and not withdrawn';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER biometric_credentials_before_insert
+  BEFORE INSERT ON "biometric_credentials"
+  FOR EACH ROW EXECUTE FUNCTION public.biometric_credentials_before_insert();
+
+-- Exemptions: a new request is waiting, not yet decided or ended, and never
+-- for a blocked record.
+CREATE FUNCTION public.biometric_exemptions_before_insert() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.status <> 'REQUESTED' OR NEW.reviewed_at IS NOT NULL OR NEW.reviewed_by_user_id IS NOT NULL
+     OR NEW.review_note IS NOT NULL OR NEW.ended_at IS NOT NULL THEN
+    RAISE EXCEPTION 'biometric_exemptions: a new request starts waiting, with no decision';
+  END IF;
+  IF public.biometric_record_is_blocked(NEW.employee_id) THEN
+    RAISE EXCEPTION 'biometric_exemptions: a record blocked as a duplicate can only be terminated';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER biometric_exemptions_before_insert
+  BEFORE INSERT ON "biometric_exemptions"
+  FOR EACH ROW EXECUTE FUNCTION public.biometric_exemptions_before_insert();
+
+-- Fingerprint keys: only on a kiosk whose fingerprints are switched on, never
+-- already revoked, and never for a blocked record. FOR SHARE waits for an
+-- ADMIN who is switching the kiosk's fingerprints off at that moment, so a
+-- key can never slip in after that switch has revoked the others.
+CREATE FUNCTION public.device_passkeys_before_insert() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  PERFORM 1 FROM public.devices
+    WHERE id = NEW.device_id AND kind = 'FACE_KIOSK' AND passkeys_enabled
+    FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'device_passkeys: fingerprint keys are only saved on a kiosk with fingerprints switched on';
+  END IF;
+  IF NEW.revoked_at IS NOT NULL OR NEW.revoked_by_user_id IS NOT NULL THEN
+    RAISE EXCEPTION 'device_passkeys: a new key starts live';
+  END IF;
+  IF public.biometric_record_is_blocked(NEW.employee_id) THEN
+    RAISE EXCEPTION 'device_passkeys: a record blocked as a duplicate can only be terminated';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER device_passkeys_before_insert
+  BEFORE INSERT ON "device_passkeys"
+  FOR EACH ROW EXECUTE FUNCTION public.device_passkeys_before_insert();
+
+-- A SAME_PERSON decision and the block it causes, checked together when the
+-- transaction commits (DEFERRABLE INITIALLY DEFERRED), so the decision and
+-- the block may be written in either order within one transaction.
+-- 1. The record that lost has no live face, has a BLOCKED face, and has no
+--    live fingerprint key: the ghost can no longer clock in by any path.
+-- 2. A face becomes BLOCKED only as the losing record of such a decision.
+CREATE FUNCTION public.biometric_duplicate_decisions_hold() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+DECLARE
+  loser uuid;
+BEGIN
+  IF NEW.verdict = 'SAME_PERSON' AND (TG_OP = 'INSERT' OR OLD.verdict IS NULL) THEN
+    loser := CASE WHEN NEW.kept_employee_id = NEW.employee_id
+      THEN NEW.collision_employee_id ELSE NEW.employee_id END;
+    IF EXISTS (SELECT 1 FROM public.biometric_credentials
+               WHERE employee_id = loser AND kind = 'FACE' AND wiped_at IS NULL)
+       OR NOT EXISTS (SELECT 1 FROM public.biometric_credentials
+                      WHERE employee_id = loser AND kind = 'FACE' AND status = 'BLOCKED')
+       OR EXISTS (SELECT 1 FROM public.device_passkeys
+                  WHERE employee_id = loser AND revoked_at IS NULL) THEN
+      RAISE EXCEPTION 'biometric_credentials: a SAME_PERSON decision must block the other record (face wiped and blocked, keys revoked)';
+    END IF;
+  END IF;
+  IF NEW.kind = 'FACE' AND NEW.status = 'BLOCKED' AND (TG_OP = 'INSERT' OR OLD.status <> 'BLOCKED') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.biometric_credentials d
+      WHERE d.verdict = 'SAME_PERSON'
+        AND ((d.employee_id = NEW.employee_id AND d.kept_employee_id = d.collision_employee_id)
+          OR (d.collision_employee_id = NEW.employee_id AND d.kept_employee_id = d.employee_id))) THEN
+      RAISE EXCEPTION 'biometric_credentials: a face is blocked only by a SAME_PERSON decision against its record';
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER biometric_credentials_duplicate_decisions_hold
+  AFTER INSERT OR UPDATE ON "biometric_credentials"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.biometric_duplicate_decisions_hold();
