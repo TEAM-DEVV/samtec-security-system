@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { $api } from '@/lib/api';
 import { env } from '@/lib/env';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
 import { setPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
@@ -22,6 +23,7 @@ const PASSWORD_MAX_LENGTH = 128;
  * the user to the right next step for each.
  */
 export function LoginPage() {
+  usePageTitle('Sign in');
   const navigate = useNavigate();
   const session = useSession();
   const [email, setEmail] = useState('');

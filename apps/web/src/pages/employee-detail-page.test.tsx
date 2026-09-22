@@ -31,8 +31,9 @@ describe('EmployeeDetailPage', () => {
     renderDetailPage(KWAME);
 
     expect(await screen.findByRole('heading', { name: 'Kwame Kofi Mensah' })).toBeInTheDocument();
-    expect(screen.getByText('SMT-00001')).toBeInTheDocument();
-    expect(screen.getByText('Security Guard')).toBeInTheDocument();
+    // Staff number and position share one line under the name.
+    expect(screen.getByText('SMT-00001 · Security Guard')).toBeInTheDocument();
+    expect(screen.getByText('KM')).toBeInTheDocument();
     expect(screen.getByText('Ridge Towers Office Complex')).toBeInTheDocument();
     expect(screen.getByText('11 Mar 2024')).toBeInTheDocument();
     // A timestamp is shown in Ghana time, whatever zone the computer is in.

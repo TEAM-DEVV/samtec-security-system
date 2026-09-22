@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError, isWorthRetrying } from '@/lib/problem';
 import { getPendingTwoFactor, startSession, useSession } from '@/lib/session';
 
@@ -21,6 +22,7 @@ const QR_CODE_SIZE = 192;
  * to `POST /auth/2fa/enable`, which also signs the user in.
  */
 export function TwoFactorSetupPage() {
+  usePageTitle('Two-factor setup');
   const navigate = useNavigate();
   // Read once, when the page opens. Finishing the setup clears the pending
   // token, and reading it again on that re-render would wrongly send the

@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { routes } from '@/app/routes';
 
 export function NotFoundPage() {
   return (
@@ -7,8 +8,8 @@ export function NotFoundPage() {
       <p className="text-muted-foreground">
         This page does not exist yet. It may arrive in a later roadmap phase.
       </p>
-      <Link to="/" className="font-medium text-primary underline underline-offset-4">
-        Go to System status
+      <Link to={routes.home} className="font-medium text-primary underline underline-offset-4">
+        Back to the overview
       </Link>
     </div>
   );

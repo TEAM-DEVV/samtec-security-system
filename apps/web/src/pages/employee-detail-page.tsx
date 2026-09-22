@@ -5,11 +5,13 @@ import { routes } from '@/app/routes';
 import { DetailRow } from '@/components/detail-row';
 import { EmployeeStatusBadge } from '@/components/employee-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, initials } from '@/lib/format';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError, isProblemDetails, isWorthRetrying } from '@/lib/problem';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { useSession } from '@/lib/session';
@@ -24,6 +26,9 @@ export function EmployeeDetailPage() {
   const { employeeId = '' } = useParams<{ employeeId: string }>();
   const session = useSession();
   const employee = useEmployeeQuery(employeeId);
+  // The staff number, never the name: browser history on a shared computer
+  // must not reveal which people were looked up.
+  usePageTitle(employee.data ? employee.data.staffNumber : 'Employee');
   // A guard may open their own record but not the list, so no back link for them.
   const mayOpenList = session !== null && roleAllowed(pageRoles.employees, session.user.role);
 
@@ -73,10 +78,19 @@ function RecordState({ employee }: { employee: EmployeeQuery }) {
 function EmployeeRecord({ employee }: { employee: Employee }) {
   return (
     <>
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="font-semibold text-2xl tracking-tight">{employee.fullName}</h1>
-          <p className="font-mono text-muted-foreground text-sm">{employee.staffNumber}</p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Avatar aria-hidden="true" className="size-14 border">
+            <AvatarFallback className="bg-primary/10 font-semibold text-lg text-primary">
+              {initials(employee.fullName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="space-y-1">
+            <h1 className="font-semibold text-2xl tracking-tight">{employee.fullName}</h1>
+            <p className="font-mono text-muted-foreground text-sm">
+              {employee.staffNumber} · {employee.position}
+            </p>
+          </div>
         </div>
         <EmployeeStatusBadge status={employee.status} />
       </header>

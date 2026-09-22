@@ -9,6 +9,15 @@ export const roleLabels: Record<UserRole, string> = {
   GUARD: 'Guard',
 };
 
+/** One plain sentence per role, based on the contract's `UserRole` description, for the overview page. */
+export const roleDescriptions: Record<UserRole, string> = {
+  ADMIN: 'Full access, including user management and approving payroll runs.',
+  HR_PAYROLL:
+    'Manages employees and prepares payroll runs, but can never approve a run they prepared.',
+  SUPERVISOR: 'Manages attendance and rosters for the sites they are posted to.',
+  GUARD: 'Sees only their own record, attendance and payslips.',
+};
+
 /**
  * Which roles may open each page. Copied from the `@Roles(...)` rules on the
  * API's controllers, so the sidebar never offers a page the API would refuse

@@ -2,6 +2,7 @@ import type { GhanaRegion, SiteList, SiteStatus } from '@samtec/contracts';
 import { cn } from 'cn';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { PageHeader } from '@/components/page-header';
 import {
   isSiteStatus,
   SITE_STATUSES,
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { $api } from '@/lib/api';
 import { GHANA_REGIONS, isGhanaRegion, regionLabels } from '@/lib/ghana-regions';
+import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
 
 const PAGE_SIZE = 10;
@@ -35,6 +37,7 @@ const LOADING_ROW_KEYS = ['loading-1', 'loading-2', 'loading-3'];
  * pagination. Same shape as the Employees page.
  */
 export function SitesPage() {
+  usePageTitle('Sites');
   const [status, setStatus] = useState<SiteStatus>();
   const [region, setRegion] = useState<GhanaRegion>();
   // The cursor of every page visited so far. The last one is the current page.
@@ -74,10 +77,7 @@ export function SitesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <header className="space-y-1">
-        <h1 className="font-semibold text-2xl tracking-tight">Sites</h1>
-        <p className="text-muted-foreground text-sm">Client locations where guards are posted.</p>
-      </header>
+      <PageHeader title="Sites" description="Client locations where guards are posted." />
 
       <div className="flex flex-wrap items-start gap-4">
         <div className="grid gap-1.5">

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatCedis, formatDate, formatDateTime } from './format';
+import {
+  firstName,
+  formatCedis,
+  formatDate,
+  formatDateTime,
+  formatLongDate,
+  greetingForNow,
+  initials,
+} from './format';
 
 describe('the test environment', () => {
   it('runs far from Ghana, so time zone mistakes cannot hide', () => {
@@ -40,5 +48,42 @@ describe('formatDate', () => {
 describe('formatDateTime', () => {
   it('shows timestamps in Ghana time', () => {
     expect(formatDateTime('2026-09-15T08:30:00Z')).toMatch(/^15 Sept? 2026, 08:30$/);
+  });
+});
+
+describe('formatLongDate', () => {
+  it('spells the date out in Ghana time, whatever zone the computer is in', () => {
+    // 23:30 UTC on the 15th is still the 15th in Ghana (UTC+0), but the 16th further east.
+    expect(formatLongDate(new Date('2026-09-15T23:30:00Z'))).toMatch(
+      /^Tuesday,? 15 September 2026$/,
+    );
+  });
+});
+
+describe('greetingForNow', () => {
+  it('greets by the clock in Ghana, switching exactly at noon and 17:00', () => {
+    expect(greetingForNow(new Date('2026-09-15T00:00:00Z'))).toBe('Good morning');
+    expect(greetingForNow(new Date('2026-09-15T11:59:00Z'))).toBe('Good morning');
+    expect(greetingForNow(new Date('2026-09-15T12:00:00Z'))).toBe('Good afternoon');
+    expect(greetingForNow(new Date('2026-09-15T16:59:00Z'))).toBe('Good afternoon');
+    expect(greetingForNow(new Date('2026-09-15T17:00:00Z'))).toBe('Good evening');
+  });
+});
+
+describe('firstName', () => {
+  it('takes the first word, ignoring stray spaces', () => {
+    expect(firstName('Kwame Kofi Mensah')).toBe('Kwame');
+    expect(firstName('  Efua ')).toBe('Efua');
+  });
+});
+
+describe('initials', () => {
+  it('takes the first and last initials', () => {
+    expect(initials('Kwame Kofi Mensah')).toBe('KM');
+    expect(initials('Abena Owusu')).toBe('AO');
+  });
+
+  it('copes with a single name and stray spaces', () => {
+    expect(initials('  Efua ')).toBe('E');
   });
 });

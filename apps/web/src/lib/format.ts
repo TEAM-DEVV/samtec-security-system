@@ -65,3 +65,51 @@ const ghanaDateTime = new Intl.DateTimeFormat('en-GB', {
 export function formatDateTime(isoTimestamp: string): string {
   return ghanaDateTime.format(new Date(isoTimestamp));
 }
+
+const ghanaLongDate = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+/** A date in Ghana time, spelled out: "Monday, 21 September 2026". Defaults to now. */
+export function formatLongDate(date: Date = new Date()): string {
+  return ghanaLongDate.format(date);
+}
+
+const ghanaHour = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+
+/** "Good morning", "Good afternoon" or "Good evening", by the clock in Ghana. */
+export function greetingForNow(now: Date = new Date()): string {
+  const hour = Number(ghanaHour.format(now));
+  if (hour < 12) {
+    return 'Good morning';
+  }
+  if (hour < 17) {
+    return 'Good afternoon';
+  }
+  return 'Good evening';
+}
+
+function nameParts(fullName: string): string[] {
+  return fullName.trim().split(/\s+/).filter(Boolean);
+}
+
+/** The first name, for a greeting: "Kwame Kofi Mensah" → "Kwame". */
+export function firstName(fullName: string): string {
+  return nameParts(fullName)[0] ?? fullName;
+}
+
+/** Up to two initials for an avatar: "Kwame Kofi Mensah" → "KM". */
+export function initials(fullName: string): string {
+  const parts = nameParts(fullName);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  return `${first}${last}`.toUpperCase();
+}

@@ -10,7 +10,7 @@ export function ForbiddenPage() {
         Your role does not allow this action. Ask an administrator if you think you need it.
       </p>
       <Link to={routes.home} className="font-medium text-primary underline underline-offset-4">
-        Go to System status
+        Back to the overview
       </Link>
     </div>
   );
