@@ -15,8 +15,12 @@ import { mockEmployees } from './employees';
 const kiosk = mockDevices.find((device) => device.kind === 'FACE_KIOSK');
 const KIOSK_ID = kiosk?.id ?? '';
 const KIOSK_NAME = kiosk?.name ?? 'Kiosk';
-/** A second, fictional administrator did these enrollments, so the mock admin may review them. */
+/** A second, fictional administrator did most enrollments, so the mock admin may review them. */
 const OTHER_ADMIN_ID = '01927c3e-2222-7ccc-9ddd-000000000099';
+/** admin@samtec.example in data/users.ts. */
+const MOCK_ADMIN_ID = '01927c3e-2222-7ccc-9ddd-000000000001';
+/** SMT-00003, the ACC-01 supervisor (supervisor@samtec.example). */
+const SUPERVISOR_EMPLOYEE_ID = '01927c3e-5a4b-7c8d-9e0f-000000000003';
 
 export const CONSENT_TEXT = [
   'SAMTEC uses your face, and a fingerprint on this device if it has a sensor, only to record when you start and end your shifts, so that you are paid correctly.',
@@ -156,14 +160,15 @@ export const mockCollisions: BiometricCollision[] = [
           lookedLike: refOf(enrolledPeople[2].id),
           similarity: 0.62,
           enrolledAt: '2026-09-10T08:30:00Z',
-          enrolledByUserId: OTHER_ADMIN_ID,
+          // The mock admin enrolled this one, so another ADMIN decided it.
+          enrolledByUserId: MOCK_ADMIN_ID,
           deviceId: KIOSK_ID,
           resolution: {
             verdict: 'DIFFERENT_PEOPLE' as const,
             keptEmployeeId: null,
             note: 'Brothers; both Ghana Cards checked in person.',
             resolvedAt: '2026-09-10T10:00:00Z',
-            resolvedByUserId: '01927c3e-2222-7ccc-9ddd-000000000001',
+            resolvedByUserId: OTHER_ADMIN_ID,
           },
         },
       ]
@@ -202,42 +207,76 @@ export const mockPunches: PunchFeedItem[] = mockSegments
   })
   .sort((a, b) => b.serverTime.localeCompare(a.serverTime));
 
-/** Recent kiosk attempts: the matches behind the kiosk punches, and two failures. */
-export const mockAttempts: ClockInAttempt[] = mockPunches
-  .filter((punch) => punch.method === 'FACE_PASSKEY')
-  .slice(0, 6)
-  .map(
-    (punch, index): ClockInAttempt => ({
-      id: `01927c3e-9999-7aaa-8bbb-${String(index + 1).padStart(12, '0')}`,
-      deviceId: KIOSK_ID,
-      deviceName: KIOSK_NAME,
-      purpose: 'CLOCK',
-      outcome: 'MATCHED',
-      employee: punch.employee,
-      attemptedAt: punch.deviceTime,
-      punchId: punch.id,
-    }),
-  )
-  .concat([
-    {
-      id: '01927c3e-9999-7aaa-8bbb-000000000101',
-      deviceId: KIOSK_ID,
-      deviceName: KIOSK_NAME,
-      purpose: 'CLOCK',
-      outcome: 'LOW_LIVENESS',
-      employee: null,
-      attemptedAt: '2026-09-21T06:59:10Z',
-      punchId: null,
-    },
-    {
-      id: '01927c3e-9999-7aaa-8bbb-000000000102',
-      deviceId: KIOSK_ID,
-      deviceName: KIOSK_NAME,
-      purpose: 'CLOCK',
-      outcome: 'NOT_RECOGNISED',
-      employee: null,
-      attemptedAt: '2026-09-21T06:59:40Z',
-      punchId: null,
-    },
-  ])
-  .sort((a, b) => b.attemptedAt.localeCompare(a.attemptedAt));
+/** An attempt at the ACC-01 kiosk; the fields that most attempts leave empty default to null. */
+function attempt(
+  fields: Partial<ClockInAttempt> & Pick<ClockInAttempt, 'id' | 'outcome' | 'attemptedAt'>,
+): ClockInAttempt {
+  return {
+    deviceId: KIOSK_ID,
+    deviceName: KIOSK_NAME,
+    purpose: 'CLOCK',
+    direction: 'IN',
+    employee: null,
+    coSignFor: null,
+    cancelsAttemptId: null,
+    punchId: null,
+    ...fields,
+  };
+}
+
+const wrongMatch = enrolledPeople[0];
+
+/**
+ * Recent kiosk attempts: the matches behind the kiosk punches, two failures,
+ * a wrong match the worker cancelled with "Not me", and a supervisor's co-sign.
+ */
+export const mockAttempts: ClockInAttempt[] = [
+  ...mockPunches
+    .filter((punch) => punch.method === 'FACE_PASSKEY')
+    .slice(0, 6)
+    .map((punch, index) =>
+      attempt({
+        id: `01927c3e-9999-7aaa-8bbb-${String(index + 1).padStart(12, '0')}`,
+        direction: punch.direction === 'OUT' ? 'OUT' : 'IN',
+        outcome: 'MATCHED',
+        employee: punch.employee,
+        attemptedAt: punch.deviceTime,
+        punchId: punch.id,
+      }),
+    ),
+  attempt({
+    id: '01927c3e-9999-7aaa-8bbb-000000000101',
+    outcome: 'LOW_LIVENESS',
+    attemptedAt: '2026-09-21T06:59:10Z',
+  }),
+  attempt({
+    id: '01927c3e-9999-7aaa-8bbb-000000000102',
+    outcome: 'NOT_RECOGNISED',
+    attemptedAt: '2026-09-21T06:59:40Z',
+  }),
+  ...(wrongMatch
+    ? [
+        attempt({
+          id: '01927c3e-9999-7aaa-8bbb-000000000103',
+          outcome: 'MATCHED',
+          employee: refOf(wrongMatch.id),
+          attemptedAt: '2026-09-21T07:01:00Z',
+        }),
+        attempt({
+          id: '01927c3e-9999-7aaa-8bbb-000000000104',
+          outcome: 'NOT_ME',
+          employee: refOf(wrongMatch.id),
+          cancelsAttemptId: '01927c3e-9999-7aaa-8bbb-000000000103',
+          attemptedAt: '2026-09-21T07:01:02Z',
+        }),
+        attempt({
+          id: '01927c3e-9999-7aaa-8bbb-000000000105',
+          purpose: 'CO_SIGN',
+          outcome: 'MATCHED',
+          employee: refOf(SUPERVISOR_EMPLOYEE_ID),
+          coSignFor: refOf(wrongMatch.id),
+          attemptedAt: '2026-09-21T07:02:30Z',
+        }),
+      ]
+    : []),
+].sort((a, b) => b.attemptedAt.localeCompare(a.attemptedAt));

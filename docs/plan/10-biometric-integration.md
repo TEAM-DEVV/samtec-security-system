@@ -27,7 +27,7 @@ The device captures the fingerprint, stores the templates and matches on board. 
 - **Push (preferred):** switch the device to ADMS ("cloud server") mode. It then sends punch records over HTTP in real time to a small gateway on the client's network (`apps/gateway`), which signs them for our API, because the firmware cannot sign requests itself.
 - **Pull (fallback):** a scheduled job uses `zkteco-js` or `node-zklib` over TCP port 4370 to read attendance records and the user list. This works on the same local network.
 - **Enrollment:** happens at the terminal, inside a window an ADMIN opens for that worker. The gateway reports only that a finger was enrolled (the template is discarded) and keeps the terminal's user list in step with the site's roster. Our server cannot compare terminal fingerprints, so the duplicate check relies on the Ghana Card number and the face path.
-- **Hardware:** K40 (budget), F22, or SpeedFace (face and fingerprint). **Order in Phase 0.**
+- **Hardware:** K40 (budget), F22, or SpeedFace (face and fingerprint). **Bought when a client pays** (owner decision); until then the gateway is proven against a fake terminal.
 
 ## Path B: face kiosk in the browser (secondary, and the star of the demo)
 
@@ -51,13 +51,13 @@ The device captures the fingerprint, stores the templates and matches on board. 
 |---|---|---|---|
 | Resistance to spoofing | High (on the device) | Medium (liveness checks) | High |
 | Cost per site | About $70 to $200 per device | Almost nothing (existing tablet) | Reader plus licence per desk |
-| Works offline | Yes (device buffers) | Yes (browser queue) | Partly |
+| Works offline | Yes (device buffers) | No: the supervisor enters the time later | Partly |
 | Our integration effort | Low to medium | Medium | Medium |
 | Wow factor in a demo | Medium | **High** | Low |
 
 ## Offline and trust rules (all paths)
 
-- Devices and kiosks store punches locally when offline and sync later. The server records its own receive time and keeps the device time.
+- Terminals keep punches through an outage, and the gateway's outbox sends them later. The server records its own receive time and keeps the device time. The face kiosk needs the API for every clock-in; offline, the supervisor enters the time later.
 - Every punch is unique by `(device_id, device_event_id)`, so re-syncing is always safe.
 - Each device has its own HMAC secret. Punches from unknown devices are rejected and raise an alert.
 - Templates and embeddings are encrypted at rest and never logged. Consent is recorded at enrollment (Act 843).

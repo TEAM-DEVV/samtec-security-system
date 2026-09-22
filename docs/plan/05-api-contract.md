@@ -26,7 +26,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 - **Base path:** `/api/v1`. JSON only. IDs are UUID version 7.
 - **Money:** integer pesewas, with field names ending in `Pesewas`.
 - **Time:** timestamps in UTC (ISO 8601); calendar dates as `YYYY-MM-DD`.
-- **Errors:** Problem Details (RFC 9457) with `type`, `title`, `status`, `detail`, `traceId`, and `errors` for validation. Stack traces never leave the server.
+- **Errors:** Problem Details (RFC 9457) with `type`, `title`, `status`, `detail`, `traceId`, and `errors` for validation. Stack traces never leave the server. When several problems apply, the answer follows the order the API checks them: `401` (not signed in), `403` (wrong role), `400` (a bad ID or body), `404` (not found or not yours), `403` (a second-person rule), then `409` (a clash with the current state). The mock API follows the same order.
 - **Lists:** cursor pagination with `?cursor=&limit=` and a `nextCursor` in the response. Page numbers are not used.
 - **Sign-in:** `Authorization: Bearer <access token>`. The refresh token lives only in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie that the browser sends only to `/api/v1/auth`.
 - **Data minimisation:** responses include only what the role needs. `EmployeeListItem` has no Ghana Card number, and a full `Employee` record includes it only for ADMIN, HR_PAYROLL and the guard themselves.
@@ -57,7 +57,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 - **`GET /health`** is public, so it reports only status, time and database state. The API version and environment will come from an admin-only endpoint in Phase 1.
 - **Sign-in endpoints** (Phase 1) follow the two-factor and session rules in [Security and review gates](06-security-and-review-gates.md#security-controls): short-lived one-time tokens, a limit on wrong codes, rotating refresh cookies with reuse detection, and an `Origin` check on refresh and logout.
 - **`POST /ingest/punches`** (Phase 2) authenticates each device with its own secret (an HMAC signature), not a user token. It is rate-limited per device, limits body size, and ignores repeated punches.
-- **Kiosk endpoints** (Phase 3) accept only `FACE_KIOSK` devices, and `/ingest/punches` refuses them. The kiosk's enrollment endpoints need an ADMIN's access token **and** the kiosk's signature. A sign-in from outside the dashboard's own addresses (such as the kiosk) gets no refresh cookie and a token that works only for the kiosk screens. No answer ever contains a face template, and no kiosk answer contains a match score.
+- **Kiosk endpoints** (Phase 3) accept only `FACE_KIOSK` devices, and `/ingest/punches` refuses them. The kiosk's enrollment endpoints need an ADMIN's access token **and** the kiosk's signature. A sign-in from a kiosk address (`KIOSK_ORIGINS`) gets no refresh cookie and a token that works only for the kiosk screens; the kiosk's ADMIN routes accept only that token. No answer ever contains a face template, and no kiosk answer contains a match score.
 - **Approval endpoints** (Phase 4) enforce that the maker is not the checker inside the service, not only in the dashboard.
 - **Guard accounts** can read only their own attendance and payslips. Tests must prove that guard A cannot read guard B's records (OWASP API Security risk number 1).
 - **Records a user may not see return 404, not 403,** so nobody can discover which IDs exist.

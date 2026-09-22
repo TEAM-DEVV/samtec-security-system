@@ -53,8 +53,8 @@ Everything needed to recalculate a payslip is **copied into the line** when the 
 ### biometric_credentials
 
 - Stores **templates only**, never images: a face template is 1,024 numbers from the kiosk, encrypted with AES-256-GCM and bound to its own row. The key is derived from `AUTH_SECRET`, which is kept outside the database. A ZKTeco finger stays on the terminal; we store only the proof that it was enrolled.
-- Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (a second ADMIN checked: different people) or NOT_CHECKED (a terminal finger).
-- A COLLISION keeps the employee pending until an ADMIN other than the enroller decides, and Phase 5's rule R1 reads it. This is how the system catches ghost worker trick number one: one person enrolled under two names.
+- Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (a second ADMIN decided this face may be used) or NOT_CHECKED (a terminal finger).
+- A COLLISION keeps the employee pending until an ADMIN other than the enroller decides. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked for good. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
 - Consents and clock-in attempts are separate append-only tables, and fingerprint keys live in `device_passkeys`. The full design is in [Biometrics design](13-biometrics-design.md).
 
 ### Rehiring (decided for Phase 1)

@@ -5,6 +5,7 @@ import type {
   BiometricReasonRequest,
   ClockInAttemptList,
   CurrentUser,
+  Employee,
   EmployeeBiometrics,
   PunchFeedList,
   RequestExemptionRequest,
@@ -42,13 +43,18 @@ import { userForRequest } from './auth';
 /**
  * The mock Biometrics API and the live punch board, with the real API's
  * rules: statuses only (never an image, template or score, except the
- * collision similarity that ADMINs review), ADMIN-only changes, and two
- * people for every decision that lets a worker in without a clean face check:
- * the ADMIN who did an enrollment never decides its collision, and the ADMIN
+ * collision similarity that ADMINs review), ADMIN-only changes, and a second
+ * ADMIN for every decision that lets a worker in without a clean face check.
+ * The ADMIN who enrolled a face never decides its collision, and the ADMIN
  * who asked for an exemption never approves it.
  *
- * This mock keeps biometric statuses only. The real API also moves the
- * employee between PENDING_ENROLLMENT and ACTIVE; reload the employee to see it.
+ * Errors come in the real API's order: sign-in and role (401, 403), then a
+ * bad ID or body (400), then not found (404), then the second-person rule
+ * (403), then a clash with the current state (409).
+ *
+ * This mock keeps biometric statuses only: it never changes an employee's
+ * status, so a screen should reload the employee from the real API rather
+ * than rely on it. It does not know who created an employee record either.
  * Tests call `resetMockBiometrics()` to start fresh.
  */
 function freshCopies() {
@@ -74,7 +80,7 @@ export function revokeMockPasskeysOn(deviceId: string): void {
   }
 }
 
-const COLLISION_STATUSES = ['OPEN', 'RESOLVED', 'VOID'] as const;
+const COLLISION_STATUSES = ['OPEN', 'RESOLVED'] as const;
 const VERDICTS = ['DIFFERENT_PEOPLE', 'SAME_PERSON'] as const;
 const EXEMPTION_REASONS = ['DECLINED', 'CANNOT_ENROLL'] as const;
 const EXEMPTION_DECISIONS = ['APPROVE', 'REJECT'] as const;
@@ -88,6 +94,7 @@ const ATTEMPT_OUTCOMES = [
 ] as const;
 
 type Role = CurrentUser['role'];
+type Body = Record<string, unknown>;
 
 /** Signed in with one of these roles, or the matching 401/403. */
 function signedInAs(request: Request, roles: Role[]) {
@@ -97,21 +104,12 @@ function signedInAs(request: Request, roles: Role[]) {
   return { user };
 }
 
-/** The employee's record, if this caller may see them (404 otherwise, like the real API). */
-function visibleEmployee(user: CurrentUser, employeeId: string) {
-  if (!isUuid(employeeId)) {
-    return { problem: validationProblem('employeeId', 'Must be a valid ID.') };
-  }
-  const employee = mockEmployees.find((candidate) => candidate.id === employeeId);
-  const record = biometrics.find((row) => row.employeeId === employeeId);
-  if (!employee || !record || !canSeeSite(user, employee.currentSite?.id ?? null)) {
-    return { problem: notFound('No employee exists with this ID.') };
-  }
-  return { employee, record };
+function idProblem(id: string, path: string) {
+  return isUuid(id) ? undefined : validationProblem(path, 'Must be a valid ID.');
 }
 
 /** Like the real API's strict schemas: a field the contract does not list is a 400. */
-function unknownFieldProblem(body: object, fields: string[]) {
+function unknownFieldProblem(body: Body, fields: string[]) {
   const unknown = Object.keys(body).find((key) => !fields.includes(key));
   return unknown === undefined ? undefined : validationProblem(unknown, 'Unrecognized field.');
 }
@@ -123,8 +121,45 @@ function textProblem(value: unknown, path: string) {
     : validationProblem(path, 'Explain in 3 to 500 characters.');
 }
 
-function reasonProblem(body: Partial<BiometricReasonRequest>) {
+function choiceProblem(choices: readonly string[], value: unknown, path: string) {
+  return typeof value === 'string' && choices.includes(value)
+    ? undefined
+    : validationProblem(path, `Must be one of ${choices.join(', ')}.`);
+}
+
+function reasonProblem(body: Body) {
   return unknownFieldProblem(body, ['reason']) ?? textProblem(body.reason, 'reason');
+}
+
+/** The employee's record, if this caller may see them (404 otherwise, like the real API). */
+function visibleEmployee(user: CurrentUser, employeeId: string) {
+  const employee = mockEmployees.find((candidate) => candidate.id === employeeId);
+  const record = biometrics.find((row) => row.employeeId === employeeId);
+  if (!employee || !record || !canSeeSite(user, employee.currentSite?.id ?? null)) {
+    return { problem: notFound('No employee exists with this ID.') };
+  }
+  return { employee, record };
+}
+
+function openCollisionOf(employeeId: string) {
+  return collisions.find(
+    (collision) => collision.employee.id === employeeId && collision.status === 'OPEN',
+  );
+}
+
+/** Only a new starter with no face and no open review may work without biometrics. */
+function mayBeExempted(employee: Employee, record: EmployeeBiometrics) {
+  return (
+    employee.status === 'PENDING_ENROLLMENT' &&
+    !openCollisionOf(record.employeeId) &&
+    !['PENDING', 'ACTIVE', 'BLOCKED'].includes(record.face.status)
+  );
+}
+
+/** Supervisors see the reason code only: the note may hold sensitive details. */
+function forViewer(user: CurrentUser, record: EmployeeBiometrics): EmployeeBiometrics {
+  if (user.role !== 'SUPERVISOR' || !record.exemption) return record;
+  return { ...record, exemption: { ...record.exemption, note: null } };
 }
 
 /** Wipes the face and switches off every fingerprint key, keeping the history. */
@@ -136,22 +171,29 @@ function wipe(record: EmployeeBiometrics) {
   record.passkeys = record.passkeys.map((key) => ({ ...key, revokedAt: key.revokedAt ?? now }));
 }
 
-function openCollisionOf(employeeId: string) {
-  return collisions.find(
-    (collision) => collision.employee.id === employeeId && collision.status === 'OPEN',
-  );
+/** A second ADMIN cleared this face. A face wiped in the meantime stays wiped. */
+function clearFace(record: EmployeeBiometrics | undefined) {
+  if (!record) return;
+  const usable = record.face.status === 'PENDING';
+  record.face = {
+    ...record.face,
+    status: usable ? 'ACTIVE' : record.face.status,
+    dedupe: 'CLEARED',
+  };
+  // A face in use ends any exemption.
+  if (usable && record.exemption && record.exemption.status !== 'REJECTED') {
+    record.exemption = { ...record.exemption, status: 'ENDED' };
+  }
 }
 
-/** A face wiped before anyone decided: the review closes, but its evidence stays for the ghost rules. */
-function voidOpenCollision(employeeId: string) {
-  const open = openCollisionOf(employeeId);
-  if (open) open.status = 'VOID';
-}
-
-/** Supervisors see the reason code only: the note may hold sensitive details. */
-function forViewer(user: CurrentUser, record: EmployeeBiometrics): EmployeeBiometrics {
-  if (user.role !== 'SUPERVISOR' || !record.exemption) return record;
-  return { ...record, exemption: { ...record.exemption, note: null } };
+/** One person, two records: the other record is wiped for good and loses its exemption. */
+function blockRecord(record: EmployeeBiometrics | undefined) {
+  if (!record) return;
+  wipe(record);
+  record.face = { ...record.face, status: 'BLOCKED' };
+  if (record.exemption && record.exemption.status !== 'REJECTED') {
+    record.exemption = { ...record.exemption, status: 'ENDED' };
+  }
 }
 
 export const biometricHandlers = [
@@ -172,6 +214,8 @@ export const biometricHandlers = [
     ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR']);
       if (refused) return refused;
+      const badId = idProblem(params.employeeId, 'employeeId');
+      if (badId) return badId;
       const found = visibleEmployee(user, params.employeeId);
       return found.record
         ? HttpResponse.json<EmployeeBiometrics>(forViewer(user, found.record))
@@ -184,12 +228,16 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const body: Body = await request.json();
+      const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
+      if (bad) return bad;
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
-      const bad = reasonProblem(await request.json());
-      if (bad) return bad;
+      // A revoke can never wipe away a question that a second ADMIN must answer.
+      if (openCollisionOf(found.employee.id)) {
+        return conflict('This worker has an open duplicate-enrollment review. Decide it first.');
+      }
       wipe(found.record);
-      voidOpenCollision(found.employee.id);
       return HttpResponse.json<EmployeeBiometrics>(found.record);
     },
   ),
@@ -199,32 +247,28 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
-      const found = visibleEmployee(user, params.employeeId);
-      if (!found.record) return found.problem;
-      const body = await request.json();
+      const body: Body = await request.json();
       const bad =
+        idProblem(params.employeeId, 'employeeId') ??
         unknownFieldProblem(body, ['reason', 'note']) ??
-        (isOneOf(EXEMPTION_REASONS, body.reason ?? '')
-          ? undefined
-          : validationProblem('reason', `Must be one of ${EXEMPTION_REASONS.join(', ')}.`)) ??
+        choiceProblem(EXEMPTION_REASONS, body.reason, 'reason') ??
         textProblem(body.note, 'note');
       if (bad) return bad;
+      const found = visibleEmployee(user, params.employeeId);
+      if (!found.record) return found.problem;
+      const exemption = found.record.exemption;
       const waitingOrApproved =
-        found.record.exemption !== null && found.record.exemption.status !== 'REJECTED';
-      if (
-        found.employee.status !== 'PENDING_ENROLLMENT' ||
-        openCollisionOf(found.employee.id) ||
-        waitingOrApproved
-      ) {
+        exemption?.status === 'REQUESTED' || exemption?.status === 'APPROVED';
+      if (!mayBeExempted(found.employee, found.record) || waitingOrApproved) {
         return conflict(
-          'Only a worker waiting for enrollment, with no open review and no exemption yet, can be exempted.',
+          'Only a worker waiting for enrollment, with no face, no open question and no exemption yet, can be exempted.',
         );
       }
       // This only asks: a second ADMIN must approve it.
       found.record.exemption = {
         status: 'REQUESTED',
-        reason: body.reason,
-        note: body.note,
+        reason: body.reason as RequestExemptionRequest['reason'],
+        note: body.note as string,
         requestedAt: new Date().toISOString(),
         requestedByUserId: user.id,
         reviewedAt: null,
@@ -239,22 +283,29 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const body: Body = await request.json();
+      const bad =
+        idProblem(params.employeeId, 'employeeId') ??
+        unknownFieldProblem(body, ['decision', 'note']) ??
+        choiceProblem(EXEMPTION_DECISIONS, body.decision, 'decision') ??
+        textProblem(body.note, 'note');
+      if (bad) return bad;
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
       const exemption = found.record.exemption;
       if (exemption?.status !== 'REQUESTED') {
         return conflict('There is no request waiting for a decision.');
       }
-      // Maker–checker: whoever asked may never approve it themselves.
-      if (exemption.requestedByUserId === user.id) return forbidden();
-      const body = await request.json();
-      const bad =
-        unknownFieldProblem(body, ['decision', 'note']) ??
-        (isOneOf(EXEMPTION_DECISIONS, body.decision ?? '')
-          ? undefined
-          : validationProblem('decision', `Must be one of ${EXEMPTION_DECISIONS.join(', ')}.`)) ??
-        textProblem(body.note, 'note');
-      if (bad) return bad;
+      // Never someone who already handled this worker: the asker, or whoever enrolled a face.
+      const enrolledAFace = collisions.some(
+        (collision) =>
+          collision.employee.id === found.employee.id && collision.enrolledByUserId === user.id,
+      );
+      if (exemption.requestedByUserId === user.id || enrolledAFace) return forbidden();
+      // The rules are checked again now, not only when someone asked.
+      if (!mayBeExempted(found.employee, found.record)) {
+        return conflict('This worker no longer qualifies for an exemption.');
+      }
       found.record.exemption = {
         ...exemption,
         status: body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
@@ -270,31 +321,31 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
       if (refused) return refused;
+      const body: Body = await request.json();
+      const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
+      if (bad) return bad;
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
-      const body = await request.json();
-      const bad = reasonProblem(body);
-      if (bad) return bad;
       if (found.record.consent.status !== 'GIVEN') {
         return conflict('There is no consent to withdraw.');
       }
       const now = new Date().toISOString();
-      // An ACTIVE face already passed the duplicate check; a PENDING one never did.
+      // Only an ACTIVE face has passed the duplicate check.
       const passedCheck = found.record.face.status === 'ACTIVE';
       wipe(found.record);
-      voidOpenCollision(found.employee.id);
       found.record.consent = {
         status: 'WITHDRAWN',
         textVersion: found.record.consent.textVersion,
         at: now,
       };
-      // A working guard keeps working, with co-signed clock-ins. Withdrawing
-      // never activates a worker who is still waiting for enrollment.
-      if (passedCheck) {
+      // A verified guard keeps working with co-signed clock-ins. An open
+      // review stays open, and withdrawing never activates anyone.
+      const alreadyExempt = found.record.exemption?.status === 'APPROVED';
+      if (passedCheck && found.employee.status !== 'TERMINATED' && !alreadyExempt) {
         found.record.exemption = {
           status: 'APPROVED',
           reason: 'CONSENT_WITHDRAWN',
-          note: body.reason,
+          note: body.reason as string,
           requestedAt: now,
           requestedByUserId: user.id,
           reviewedAt: null,
@@ -334,58 +385,51 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
-      if (!isUuid(params.credentialId)) {
-        return validationProblem('credentialId', 'Must be a valid ID.');
-      }
-      const collision = collisions.find((row) => row.credentialId === params.credentialId);
-      if (!collision) return notFound('No collision exists with this ID.');
-      // Maker–checker: whoever enrolled the face may never clear it themselves.
-      if (collision.enrolledByUserId === user.id) return forbidden();
-      if (collision.status !== 'OPEN') {
-        return conflict('This collision is no longer open: it was decided, or the face was wiped.');
-      }
-      const body = await request.json();
+      const body: Body = await request.json();
+      const samePerson = body.verdict === 'SAME_PERSON';
       const bad =
-        unknownFieldProblem(body, ['verdict', 'note', 'keepEmployeeId']) ??
-        (isOneOf(VERDICTS, body.verdict ?? '')
-          ? undefined
-          : validationProblem('verdict', `Must be one of ${VERDICTS.join(', ')}.`)) ??
+        idProblem(params.credentialId, 'credentialId') ??
+        choiceProblem(VERDICTS, body.verdict, 'verdict') ??
+        // SAME_PERSON must name the record to keep; DIFFERENT_PEOPLE must not.
+        unknownFieldProblem(
+          body,
+          samePerson ? ['verdict', 'keepEmployeeId', 'note'] : ['verdict', 'note'],
+        ) ??
+        (samePerson ? idProblem(String(body.keepEmployeeId ?? ''), 'keepEmployeeId') : undefined) ??
         textProblem(body.note, 'note');
       if (bad) return bad;
-      const bothRecords = [collision.employee.id, collision.lookedLike.id];
-      const keep = body.keepEmployeeId;
-      if (body.verdict === 'SAME_PERSON' && !(keep && bothRecords.includes(keep))) {
+      const collision = collisions.find((row) => row.credentialId === params.credentialId);
+      if (!collision) return notFound('No collision exists with this ID.');
+      const keep = samePerson ? String(body.keepEmployeeId) : null;
+      if (keep !== null && keep !== collision.employee.id && keep !== collision.lookedLike.id) {
         return validationProblem(
           'keepEmployeeId',
-          'Say which of the two records belongs to the person you checked.',
+          'Must be one of the two records in this collision.',
         );
       }
-      if (body.verdict === 'DIFFERENT_PEOPLE' && keep !== undefined) {
-        return validationProblem('keepEmployeeId', 'Only for SAME_PERSON.');
-      }
+      // Maker–checker: whoever enrolled the face may never clear it themselves.
+      if (collision.enrolledByUserId === user.id) return forbidden();
+      if (collision.status !== 'OPEN') return conflict('This collision has already been decided.');
+
       collision.status = 'RESOLVED';
       collision.resolution = {
-        verdict: body.verdict,
-        keptEmployeeId: keep ?? null,
-        note: body.note,
+        verdict: samePerson ? 'SAME_PERSON' : 'DIFFERENT_PEOPLE',
+        keptEmployeeId: keep,
+        note: body.note as string,
         resolvedAt: new Date().toISOString(),
         resolvedByUserId: user.id,
       };
       const recordOf = (employeeId: string) =>
         biometrics.find((row) => row.employeeId === employeeId);
-      const clear = (record: EmployeeBiometrics | undefined) => {
-        if (record) record.face = { ...record.face, status: 'ACTIVE', dedupe: 'CLEARED' };
-      };
-      const block = (record: EmployeeBiometrics | undefined) => {
-        if (record) record.face = { ...record.face, status: 'BLOCKED' };
-      };
       const newRecord = recordOf(collision.employee.id);
-      if (body.verdict === 'DIFFERENT_PEOPLE' || keep === collision.employee.id) {
-        clear(newRecord);
-        // One person, and the new record is the real one: the old record's face goes.
-        if (body.verdict === 'SAME_PERSON') block(recordOf(collision.lookedLike.id));
+      if (!samePerson) {
+        clearFace(newRecord);
+      } else if (keep === collision.employee.id) {
+        // The new record is the real person: the older record is the duplicate.
+        clearFace(newRecord);
+        blockRecord(recordOf(collision.lookedLike.id));
       } else {
-        block(newRecord);
+        blockRecord(newRecord);
       }
       return HttpResponse.json<BiometricCollision>(collision);
     },
@@ -402,17 +446,18 @@ export const biometricHandlers = [
         return validationProblem('limit', 'Must be a whole number from 1 to 100.');
       }
       const siteId = query.get('siteId');
-      if (siteId !== null && !isUuid(siteId))
+      if (siteId !== null && !isUuid(siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
+      }
+      const since = query.get('since');
+      if (since !== null && Number.isNaN(Date.parse(since))) {
+        return validationProblem('since', 'Must be a date and time like 2026-09-22T06:00:00Z.');
+      }
       if (
         siteId !== null &&
         !(mockSites.some((site) => site.id === siteId) && canSeeSite(user, siteId))
       ) {
         return notFound('No site exists with this ID.');
-      }
-      const since = query.get('since');
-      if (since !== null && Number.isNaN(Date.parse(since))) {
-        return validationProblem('since', 'Must be a date and time like 2026-09-22T06:00:00Z.');
       }
       const matches = mockPunches
         .filter((punch) => canSeeSite(user, punch.siteId))

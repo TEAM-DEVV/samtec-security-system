@@ -142,56 +142,62 @@ export const deviceHandlers = [
     async ({ params, request }) => {
       const refused = adminOnly(request);
       if (refused) return refused;
-      const found = findDevice(params.deviceId);
-      if (!found.device) return found.problem;
-      const device = found.device;
+      // The real API's order: the shape of the request (400), then the device
+      // (404), then the rules for its kind (400), then clashes (409). A
+      // refused request changes nothing.
       const body = await request.json();
+      const { name, status, serialNumber, passkeysEnabled } = body;
       const fields = ['name', 'status', 'serialNumber', 'passkeysEnabled'];
       const unknown = Object.keys(body).find((key) => !fields.includes(key));
+      if (!isUuid(params.deviceId)) return validationProblem('deviceId', 'Must be a valid ID.');
       if (unknown !== undefined) return validationProblem(unknown, 'Unrecognized field.');
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
       }
-      // Check every field first, like the real API: a refused request changes nothing.
-      const { name, status, serialNumber, passkeysEnabled } = body;
-      if (name !== undefined) {
-        const badName = nameProblem(name);
-        if (badName) return badName;
-        if (devices.some((other) => other.name === name && other.id !== device.id)) {
-          return conflict('A device with this name already exists.');
-        }
-      }
+      const badName = name === undefined ? undefined : nameProblem(name);
+      if (badName) return badName;
       if (status !== undefined && !isOneOf(STATUSES, status)) {
         return validationProblem('status', `Must be one of ${STATUSES.join(', ')}.`);
       }
-      if (serialNumber !== undefined && serialNumber !== null) {
-        if (typeof serialNumber !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(serialNumber)) {
-          return validationProblem(
-            'serialNumber',
-            'Use 1 to 64 letters, digits and dashes, or null.',
-          );
-        }
-        // Only a ZKTeco terminal has a serial number, which its gateway reports.
-        if (device.kind !== 'ZKTECO') {
-          return validationProblem('serialNumber', 'Only a ZKTeco terminal has a serial number.');
-        }
-        if (
-          devices.some((other) => other.serialNumber === serialNumber && other.id !== device.id)
-        ) {
-          return conflict('Another device already has this serial number.');
-        }
+      if (
+        serialNumber !== undefined &&
+        serialNumber !== null &&
+        (typeof serialNumber !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(serialNumber))
+      ) {
+        return validationProblem(
+          'serialNumber',
+          'Use 1 to 64 letters, digits and dashes, or null.',
+        );
       }
-      if (passkeysEnabled !== undefined) {
-        if (typeof passkeysEnabled !== 'boolean') {
-          return validationProblem('passkeysEnabled', 'Must be true or false.');
-        }
-        // Only a kiosk has a fingerprint sensor of its own.
-        if (passkeysEnabled && device.kind !== 'FACE_KIOSK') {
-          return validationProblem(
-            'passkeysEnabled',
-            'Only a face kiosk can use its own fingerprint sensor.',
-          );
-        }
+      if (passkeysEnabled !== undefined && typeof passkeysEnabled !== 'boolean') {
+        return validationProblem('passkeysEnabled', 'Must be true or false.');
+      }
+
+      const found = findDevice(params.deviceId);
+      if (!found.device) return found.problem;
+      const device = found.device;
+      // Only a ZKTeco terminal has a serial number, typed from its label.
+      if (serialNumber && device.kind !== 'ZKTECO') {
+        return validationProblem('serialNumber', 'Only a ZKTeco terminal has a serial number.');
+      }
+      // Only a kiosk has a fingerprint sensor of its own.
+      if (passkeysEnabled && device.kind !== 'FACE_KIOSK') {
+        return validationProblem(
+          'passkeysEnabled',
+          'Only a face kiosk can use its own fingerprint sensor.',
+        );
+      }
+      if (
+        name !== undefined &&
+        devices.some((other) => other.name === name && other.id !== device.id)
+      ) {
+        return conflict('A device with this name already exists.');
+      }
+      if (
+        serialNumber &&
+        devices.some((other) => other.serialNumber === serialNumber && other.id !== device.id)
+      ) {
+        return conflict('Another device already has this serial number.');
       }
 
       if (name !== undefined) device.name = name;

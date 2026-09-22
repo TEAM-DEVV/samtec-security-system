@@ -18,7 +18,7 @@ Break any link and the system flags it. That removes ghost workers by design, an
 
 - **Employee life cycle:** register, enroll biometrics, post to a site and shift, suspend, terminate.
 - **Sites and rosters:** sites, posts, and shift patterns including 12-hour day and night rotations that cross midnight.
-- **Biometric attendance** on company devices at each site: a face-recognition kiosk on any phone, tablet or laptop (confirmed by the device's own fingerprint sensor where it has one), and fingerprint terminals (ZKTeco) for production, with offline sync.
+- **Biometric attendance** on company devices at each site: a face-recognition kiosk on any phone, tablet or laptop (confirmed by the device's own fingerprint sensor where it has one), and fingerprint terminals (ZKTeco) for production, which keep punches through an outage.
 - **Attendance processing:** pair clock-ins and clock-outs, calculate hours, lateness and absence, and queue exceptions for a supervisor.
 - **Payroll:** Ghana PAYE and SSNIT, overtime, allowances and deductions, locked payroll runs with maker–checker approval, and payslips.
 - **Ghost detection:** a rules engine with a review queue and an audit trail.
