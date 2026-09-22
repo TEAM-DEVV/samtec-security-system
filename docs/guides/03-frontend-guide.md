@@ -26,10 +26,15 @@ apps/web/
 │   ├── components/
 │   │   ├── layout/              the app shell (sidebar, phone menu, top bar), the sign-in layout and navigation items
 │   │   ├── page-header.tsx      the heading every page starts with (title, description, actions)
+│   │   ├── pagination-nav.tsx   the Previous/Next bar for lists
+│   │   ├── load-error-alert.tsx the error state every data screen shows
+│   │   ├── table-states.tsx     skeleton rows and the friendly empty state
+│   │   ├── select-field.tsx     a labelled drop-down for filters
 │   │   ├── require-session.tsx  wraps the shell: restores the session after a reload, or sends you to /login
 │   │   ├── require-role.tsx     wraps a page: shows the "not for your role" page to roles the API would refuse
 │   │   └── ui/                  shadcn/ui components (button, card, table…)
 │   ├── lib/
+│   │   ├── cursor-pages.ts      Previous/Next bookkeeping for cursor pagination
 │   │   ├── api.ts               $api: the typed API client
 │   │   ├── env.ts               dashboard settings
 │   │   ├── format.ts            money and dates for display
@@ -117,81 +122,93 @@ Since the sign-in screens work against the real API, `src/app/router.tsx` serves
 
 ## Adding a page, step by step
 
-Example: the **Sites** page (Phase 1). The endpoint `GET /sites` is already in the contract, and the mock API already answers it.
+Every list page uses the shared toolkit, so it only has to say what its columns and filters are. Before you start, the endpoint must exist in `openapi.yaml` and the mock API must answer it (rule 1: contract first).
 
 ### 1. Create the page
 
-This is the smallest version that works. The finished page in `src/pages/sites-page.tsx` adds status and region filters and pagination, following the Employees page.
+This is the whole shape. **`/things` is a made-up endpoint so the shape is easy to read** — swap in a real path from the contract and the types light up (TypeScript underlines `/things` because it does not exist). The finished `src/pages/sites-page.tsx` is a real, full version with two filters:
 
 ```tsx
-// src/pages/sites-page.tsx
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+// src/pages/things-page.tsx
+import { MapPin } from 'lucide-react';
+import { LoadErrorAlert } from '@/components/load-error-alert';
+import { PageHeader } from '@/components/page-header';
+import { PaginationNav } from '@/components/pagination-nav';
+import { TableEmptyRow, TableLoadingRows } from '@/components/table-states';
 import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { $api } from '@/lib/api';
-import { describeApiError } from '@/lib/problem';
+import { useCursorPages } from '@/lib/cursor-pages';
+import { usePageTitle } from '@/lib/page-title';
 
-export function SitesPage() {
-  const sites = $api.useQuery('get', '/sites', { params: { query: { limit: 25 } } });
+const PAGE_SIZE = 10;
+const COLUMN_COUNT = 2;
 
-  if (sites.isPending) {
-    return <Skeleton className="h-40 w-full" />;
-  }
-  if (sites.isError) {
-    // A clear message, the trace ID and a way to try again.
-    const { message, traceId } = describeApiError(sites.error);
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Sites could not be loaded</AlertTitle>
-        <AlertDescription>
-          <p>{message}</p>
-          {traceId && <p className="font-mono text-xs">Trace ID: {traceId}</p>}
-          <Button variant="outline" size="sm" onClick={() => void sites.refetch()}>
-            Try again
-          </Button>
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  if (sites.data.items.length === 0) {
-    return <p className="text-muted-foreground">No sites yet.</p>;
-  }
+export function ThingsPage() {
+  usePageTitle('Things');
+  const pages = useCursorPages();
+  const things = $api.useQuery(
+    'get',
+    '/things',
+    { params: { query: { limit: PAGE_SIZE, cursor: pages.cursor } } },
+    { placeholderData: (previous) => previous },
+  );
+  const busy = things.isPlaceholderData;
 
   return (
-    <Card className="overflow-hidden py-0">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Code</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>City</TableHead>
-            <TableHead>Guards on post</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sites.data.items.map((site) => (
-            <TableRow key={site.id}>
-              <TableCell className="font-mono text-xs">{site.code}</TableCell>
-              <TableCell>{site.name}</TableCell>
-              <TableCell>{site.city}</TableCell>
-              <TableCell className="tabular-nums">{site.activeGuardCount}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Card>
+    <div className="mx-auto flex max-w-6xl flex-col gap-6">
+      <PageHeader title="Things" description="One line about what this page lists." />
+
+      {things.error ? (
+        <LoadErrorAlert
+          title="Things could not be loaded"
+          error={things.error}
+          retrying={things.isFetching}
+          onRetry={() => void things.refetch()}
+        />
+      ) : (
+        <Card aria-busy={busy} className="overflow-hidden py-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-4">Code</TableHead>
+                <TableHead>Name</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {things.isPending ? (
+                <TableLoadingRows colSpan={COLUMN_COUNT} label="Loading things…" />
+              ) : !things.data || things.data.items.length === 0 ? (
+                <TableEmptyRow colSpan={COLUMN_COUNT} icon={MapPin} title="No things to show yet." />
+              ) : (
+                things.data.items.map((thing) => (
+                  <TableRow key={thing.id}>
+                    <TableCell className="pl-4 font-mono text-xs">{thing.code}</TableCell>
+                    <TableCell>{thing.name}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      <PaginationNav pages={pages} nextCursor={things.data?.nextCursor ?? null} busy={busy} />
+    </div>
   );
 }
 ```
+
+The toolkit pieces, all small enough to read in a minute:
+
+| Piece | What it gives you |
+|---|---|
+| `useCursorPages()` (`src/lib/cursor-pages.ts`) | Previous/Next bookkeeping for the API's `nextCursor`; call `pages.reset()` when a filter changes |
+| `<PaginationNav>` | The Previous/Next bar, already wired to the hook |
+| `<LoadErrorAlert>` | The API's message, the trace ID, and Try again (only when retrying can help) |
+| `<TableLoadingRows>` / `<TableEmptyRow>` | Skeleton rows and the friendly empty state |
+| `<SelectField>` | A labelled drop-down for filters, styled once |
+| `<PageHeader>` | The title every page starts with |
 
 ### 2. Give it a web address
 

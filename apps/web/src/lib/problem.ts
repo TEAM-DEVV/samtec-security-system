@@ -29,12 +29,13 @@ export function describeApiError(error: unknown): { message: string; traceId?: s
 
 /**
  * True when sending a failed request again might work: the API could not be
- * reached at all, or it answered with a server error (500 or higher). A client
- * error such as 400 or 404 would only fail the same way again.
+ * reached at all, it answered with a server error (500 or higher), or it asked
+ * for a pause (429, worth retrying after the wait). A client error such as
+ * 400 or 404 would only fail the same way again.
  */
 export function isWorthRetrying(error: unknown): boolean {
   if (isProblemDetails(error)) {
-    return error.status >= 500;
+    return error.status >= 500 || error.status === 429;
   }
   return true;
 }
