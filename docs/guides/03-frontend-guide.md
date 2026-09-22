@@ -24,7 +24,8 @@ apps/web/
 │   │   └── mock-api-start-error.tsx   shown if mock mode cannot start
 │   ├── pages/                   one file per page, plus its test
 │   ├── components/
-│   │   ├── layout/              the app shell (sidebar, top bar), the sign-in card and navigation items
+│   │   ├── layout/              the app shell (sidebar, phone menu, top bar), the sign-in layout and navigation items
+│   │   ├── page-header.tsx      the heading every page starts with (title, description, actions)
 │   │   ├── require-session.tsx  wraps the shell: restores the session after a reload, or sends you to /login
 │   │   ├── require-role.tsx     wraps a page: shows the "not for your role" page to roles the API would refuse
 │   │   └── ui/                  shadcn/ui components (button, card, table…)
@@ -35,7 +36,9 @@ apps/web/
 │   │   ├── problem.ts           turns API errors into messages
 │   │   ├── session.ts           the signed-in user and access token (memory only)
 │   │   ├── auth.ts              restore a session after a reload, and sign out
-│   │   └── roles.ts             role labels, and which roles may open each page
+│   │   ├── roles.ts             role labels, and which roles may open each page
+│   │   ├── theme.ts             light, dark or system colours (a per-browser choice)
+│   │   └── page-title.ts        puts the page's name in the browser tab
 │   ├── mocks/
 │   │   ├── handlers/            the mock API, one file per area (system, auth, employees, sites)
 │   │   ├── data/                fictional employees, sites and sign-in accounts

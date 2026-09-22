@@ -3,6 +3,7 @@ import {
   Activity,
   Clock,
   FileText,
+  Home,
   type LucideIcon,
   MapPin,
   ShieldAlert,
@@ -14,6 +15,8 @@ import { pageRoles, roleAllowed } from '@/lib/roles';
 
 export interface NavItem {
   label: string;
+  /** One line for the overview page's cards. */
+  description: string;
   to: string;
   icon: LucideIcon;
   /** The roadmap phase that builds this page (docs/plan/07-roadmap.md). */
@@ -25,9 +28,17 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
-  { label: 'System status', to: '/', icon: Activity, phase: 0, available: true },
+  {
+    label: 'Overview',
+    description: 'Where to start.',
+    to: routes.home,
+    icon: Home,
+    phase: 1,
+    available: true,
+  },
   {
     label: 'Employees',
+    description: 'Guards and staff on the payroll, with their posting and enrolment.',
     to: routes.employees,
     icon: Users,
     phase: 1,
@@ -36,16 +47,53 @@ export const navItems: NavItem[] = [
   },
   {
     label: 'Sites',
+    description: 'Client locations, who is on post, and which sites are active.',
     to: routes.sites,
     icon: MapPin,
     phase: 1,
     available: true,
     roles: pageRoles.sites,
   },
-  { label: 'Attendance', to: '/attendance', icon: Clock, phase: 2, available: false },
-  { label: 'Payroll', to: '/payroll', icon: Wallet, phase: 4, available: false },
-  { label: 'Ghost detection', to: '/detection', icon: ShieldAlert, phase: 5, available: false },
-  { label: 'Reports', to: '/reports', icon: FileText, phase: 6, available: false },
+  {
+    label: 'Attendance',
+    description: 'Clock-ins paired into hours, with an exception queue.',
+    to: '/attendance',
+    icon: Clock,
+    phase: 2,
+    available: false,
+  },
+  {
+    label: 'Payroll',
+    description: 'Locked, audited pay runs with PAYE and SSNIT.',
+    to: '/payroll',
+    icon: Wallet,
+    phase: 4,
+    available: false,
+  },
+  {
+    label: 'Ghost detection',
+    description: 'Rules that catch pay without presence.',
+    to: '/detection',
+    icon: ShieldAlert,
+    phase: 5,
+    available: false,
+  },
+  {
+    label: 'Reports',
+    description: 'CSV and PDF exports.',
+    to: '/reports',
+    icon: FileText,
+    phase: 6,
+    available: false,
+  },
+  {
+    label: 'System status',
+    description: 'Whether the dashboard can reach the API and the API its database.',
+    to: routes.status,
+    icon: Activity,
+    phase: 0,
+    available: true,
+  },
 ];
 
 /** The sidebar items this role may see. With no role (nobody signed in), only the pages open to everyone. */

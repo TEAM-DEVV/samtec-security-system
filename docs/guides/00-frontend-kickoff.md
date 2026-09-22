@@ -16,7 +16,7 @@ claude
 
 1. **Check the tools.** `git --version`, `node --version` (24.x), `pnpm --version` (12.x). Install anything missing per [the setup guide](02-setup-on-windows.md).
 2. **Install and verify.** `pnpm install`, then `pnpm check` — everything must be green before writing any code.
-3. **See it run.** `pnpm dev:web`, open http://localhost:5173 in Chrome, Edge or Firefox. Look at the System Status page and the Employees page: search, filter, page through. This is all **mock data** — the badge in the top bar says so.
+3. **See it run.** `pnpm dev:web`, open http://localhost:5173 in Chrome, Edge or Firefox. Look at the System status page (in the sidebar) and the Employees page: search, filter, page through. This is all **mock data** — the badge in the top bar says so.
 4. **Understand the map.** Open [the build map](../build-map.html) in a browser for the picture, then read [How the system works](01-how-the-system-works.md). Claude explains anything unclear, in plain words.
 5. **Learn the reference page.** Walk through `apps/web/src/pages/employees-page.tsx` top to bottom: the query hook, the four states (loading / error / empty / data), pagination, and its test file. Every future page copies this shape.
 6. **Start Task 1.** The task list lives in `apps/web/CLAUDE.md` (Claude loads it automatically when working in that folder). Task 1 is the sign-in page. Build it on a branch, test it, run `pnpm check`, run `/lens-review`, open a pull request. Francis reviews it.
