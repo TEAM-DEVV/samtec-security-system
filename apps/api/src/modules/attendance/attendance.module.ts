@@ -12,6 +12,7 @@ import {
 import { DeviceSignatureGuard } from './device-signature.guard.js';
 import { DevicesController } from './devices.controller.js';
 import { DevicesService } from './devices.service.js';
+import { FaceProvider } from './face-provider.js';
 import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
 import { PairingService } from './pairing.service.js';
@@ -31,6 +32,9 @@ import { PairingService } from './pairing.service.js';
     IngestService,
     PairingService,
     DeviceSignatureGuard,
+    // Faces do not go through BIOMETRIC_PROVIDER: the kiosk's model makes the
+    // numbers, and this server only compares them (docs/plan/13 section 3).
+    FaceProvider,
     {
       // The BIOMETRIC_PROVIDER setting picks the provider. Phase 3 adds a case
       // per real provider; TypeScript then insists every setting is handled.
@@ -44,6 +48,6 @@ import { PairingService } from './pairing.service.js';
       },
     },
   ],
-  exports: [BIOMETRIC_PROVIDER],
+  exports: [BIOMETRIC_PROVIDER, FaceProvider],
 })
 export class AttendanceModule {}

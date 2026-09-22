@@ -56,7 +56,8 @@ The attendance module owns every new table. Each table has row-level security, U
 - The key is `deriveKey(AUTH_SECRET, 'face-template')` from `secret-box.ts`, so the project keeps **one master secret**. A separate biometric secret was considered and dropped. Both would be kept in the same place (the hosting provider's settings), so a leak of one would almost always be a leak of both. `AUTH_SECRET` already protects the device secrets and the two-factor secrets, and one secret is easier to keep safe. TEST and production never share it.
 - The encryption is bound to `companyId|employeeId|credentialId|keyVersion` (GCM "associated data"). A template copied onto another person's row fails to decrypt.
 - A `key_version` column is stored next to each template. Changing the key is a Phase 7 hardening task: a script re-encrypts every template while the old and the new secret are both configured, so nobody has to enroll again.
-- Only the matcher decrypts templates. A test spies on the logger to prove an embedding never reaches a log.
+- The sealed bytes are `[1 byte format][12 bytes IV][16 bytes tag][the numbers]`, each number 8 bytes, exactly as it arrived. Two seals of the same face never look alike, and damaged bytes fail to open instead of opening wrong.
+- Only the matcher decrypts templates (`face-provider.ts`, built). A test spies on the logger to prove an embedding never reaches a log.
 - **Back up `AUTH_SECRET` offline.** Losing it means registering every device again, setting up two-factor again and enrolling every face again.
 
 **Deletion (Act 843).** A withdrawal of consent or an ADMIN revoke wipes the face at once and switches off the worker's fingerprint keys. Leavers are handled by a **retention sweep that rides on the device heartbeat**, exactly like the overdue clock-out check in [Attendance design](12-attendance-design.md):
