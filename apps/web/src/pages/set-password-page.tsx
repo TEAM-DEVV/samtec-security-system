@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { $api } from '@/lib/api';
+import { signOut } from '@/lib/auth';
 import { describeApiError } from '@/lib/problem';
+import { useSession } from '@/lib/session';
 
 // The contract's rule for a new password (`NewPassword`).
 const PASSWORD_MIN_LENGTH = 12;
@@ -21,6 +23,9 @@ const PASSWORD_MAX_LENGTH = 128;
  * The token sits after the `#`, a part of the address that browsers never
  * send to any server, so it never lands in server logs. The page reads it
  * once, keeps it in memory, and removes it from the address bar.
+ *
+ * Someone already signed in on this browser is asked to sign out first, so a
+ * link can never quietly set another person's password on their screen.
  */
 export function SetPasswordPage() {
   const location = useLocation();
@@ -29,14 +34,22 @@ export function SetPasswordPage() {
   const [password, setPassword] = useState('');
   const [repeated, setRepeated] = useState('');
   const [mistake, setMistake] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const session = useSession();
 
   useEffect(() => {
     if (location.hash !== '') {
-      navigate({ hash: '' }, { replace: true });
+      navigate({ search: location.search, hash: '' }, { replace: true });
     }
-  }, [location.hash, navigate]);
+  }, [location.hash, location.search, navigate]);
 
-  const setPasswordRequest = $api.useMutation('post', '/auth/set-password');
+  const setPasswordRequest = $api.useMutation('post', '/auth/set-password', {
+    // The password is saved: forget what was typed.
+    onSuccess: () => {
+      setPassword('');
+      setRepeated('');
+    },
+  });
 
   if (token === '') {
     return (
@@ -70,6 +83,33 @@ export function SetPasswordPage() {
     );
   }
 
+  if (session !== null) {
+    return (
+      <AuthLayout title="You are signed in" description="Choose your SAMTEC password">
+        <div className="grid gap-4 text-sm">
+          <p>
+            You are signed in as <strong>{session.user.fullName}</strong> ({session.user.email}).
+            This link chooses the password of the person it was sent to, so sign out first.
+          </p>
+          <Button
+            className="w-full"
+            disabled={signingOut}
+            onClick={async () => {
+              setSigningOut(true);
+              await signOut();
+              setSigningOut(false);
+            }}
+          >
+            {signingOut ? 'Signing out…' : 'Sign out and continue'}
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link to={routes.home}>Back to the dashboard</Link>
+          </Button>
+        </div>
+      </AuthLayout>
+    );
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // Ignore a second submit while the first one is still running.
@@ -95,7 +135,13 @@ export function SetPasswordPage() {
       title="Choose your password"
       description="Only you will know it. Nobody at SAMTEC can see it."
     >
-      <form onSubmit={submit} aria-busy={setPasswordRequest.isPending} className="grid gap-4">
+      {/* noValidate: the page's own checks below give clearer messages than the browser's. */}
+      <form
+        noValidate
+        onSubmit={submit}
+        aria-busy={setPasswordRequest.isPending}
+        className="grid gap-4"
+      >
         <div className="grid gap-1.5">
           <Label htmlFor="new-password">New password</Label>
           <Input

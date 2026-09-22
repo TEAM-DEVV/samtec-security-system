@@ -1,5 +1,6 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
@@ -18,8 +19,8 @@ function AddressBar() {
   return <output aria-label="Address">{`${location.pathname}${location.hash}`}</output>;
 }
 
-function renderSetPasswordPage(address: string) {
-  return renderWithProviders(
+function renderSetPasswordPage(address: string, { strict = false } = {}) {
+  const pages = (
     <Routes>
       <Route
         path={routes.setPassword}
@@ -31,9 +32,12 @@ function renderSetPasswordPage(address: string) {
         }
       />
       <Route path={routes.login} element={<p>Sign-in page</p>} />
-    </Routes>,
-    { route: address },
+    </Routes>
   );
+  // The real app runs in StrictMode, which runs every effect twice in development.
+  return renderWithProviders(strict ? <StrictMode>{pages}</StrictMode> : pages, {
+    route: address,
+  });
 }
 
 /** A real one-time link from the mock API, the way an administrator makes one. */
@@ -66,12 +70,26 @@ describe('SetPasswordPage', () => {
     expect(await screen.findByText('Sign-in page')).toBeInTheDocument();
   });
 
-  it('removes the token from the address bar as soon as it has read it', async () => {
+  it('removes the token from the address bar as soon as it has read it, even in StrictMode', async () => {
     const token = await newAccountLink();
-    renderSetPasswordPage(`${routes.setPassword}#token=${token}`);
+    renderSetPasswordPage(`${routes.setPassword}#token=${token}`, { strict: true });
 
     expect(await screen.findByLabelText('Address')).toHaveTextContent(/^\/set-password$/);
     // The page still has the token, in memory.
+    await choose('a long enough sentence');
+    expect(await screen.findByText('Your password is set')).toBeInTheDocument();
+  });
+
+  it('asks someone already signed in to sign out first, then continues with the same link', async () => {
+    const token = await newAccountLink();
+    await signInForTests('supervisor@samtec.example');
+    renderSetPasswordPage(`${routes.setPassword}#token=${token}`);
+
+    expect(await screen.findByText('You are signed in')).toBeInTheDocument();
+    expect(screen.getByText('Yaw Boateng')).toBeInTheDocument();
+    expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out and continue' }));
     await choose('a long enough sentence');
     expect(await screen.findByText('Your password is set')).toBeInTheDocument();
   });
