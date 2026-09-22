@@ -16,17 +16,32 @@ import { getSession, mayHaveSession, useSession } from '@/lib/session';
 const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 128;
 
+type Screen = 'incomplete' | 'checking' | 'unsure' | 'signed-in' | 'form' | 'done';
+type Field = 'new-password' | 'repeat-password';
+
+/** The token in `#token=…`, or '' when there is none. */
+function tokenFrom(hash: string): string {
+  return new URLSearchParams(hash.slice(1)).get('token') ?? '';
+}
+
+/** After a reload the session is not in memory yet; ask the API only if this browser signed in before. */
+function needsSignInCheck(): boolean {
+  return getSession() === null && mayHaveSession();
+}
+
 /**
  * The public page behind a one-time password link. An administrator never
  * sees or chooses anyone's password: they send the person a link like
  * `/set-password#token=…`, and the person picks their own password here.
  *
  * - The token sits after the `#`, a part of the address that browsers never
- *   send to any server, so it never lands in server logs. The page reads it
- *   once, keeps it in memory, and removes it from the address bar.
- * - Someone already signed in on this browser is asked to sign out first.
- *   The link itself is the proof, so this is not a security check; it stops
- *   a person setting someone else's password while they think it is theirs.
+ *   send to any server, so it never lands in server logs. The page keeps it
+ *   in memory and removes it from the address bar. A new link pasted into the
+ *   same tab replaces it and starts again.
+ * - Someone already signed in on this browser is asked to sign out first, and
+ *   when that cannot be checked the form stays hidden. The link itself is the
+ *   proof, so this is not a security check; it stops a person setting someone
+ *   else's password while they think it is their own.
  * - The request goes straight through `fetchClient`, not a cached query, so
  *   no data cache ever holds the password.
  */
@@ -34,46 +49,149 @@ export function SetPasswordPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const session = useSession();
-  const [token] = useState(() => new URLSearchParams(location.hash.slice(1)).get('token') ?? '');
-  // After a reload the session is not in memory yet: ask the API first, as
-  // the signed-in part of the dashboard does, but only if this browser signed in before.
-  const [checking, setChecking] = useState(() => getSession() === null && mayHaveSession());
+  const [token, setToken] = useState(() => tokenFrom(location.hash));
+  const [checking, setChecking] = useState(needsSignInCheck);
+  // The check got no clear answer (the API was slow or unreachable).
+  const [unsure, setUnsure] = useState(false);
   const [password, setPassword] = useState('');
   const [repeated, setRepeated] = useState('');
-  const [mistake, setMistake] = useState<string | null>(null);
+  const [mistake, setMistake] = useState<{ field: Field; text: string; count: number } | null>(
+    null,
+  );
   const [problem, setProblem] = useState<{ message: string; traceId?: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   // Set straight away on submit, so a quick double click can never send twice.
   const inFlight = useRef(false);
+  const newPasswordInput = useRef<HTMLInputElement>(null);
+  const repeatInput = useRef<HTMLInputElement>(null);
+  // Where keyboard focus goes when the page changes to another screen.
+  const screenStart = useRef<HTMLElement | null>(null);
 
+  let screen: Screen = 'form';
+  if (token === '') screen = 'incomplete';
+  else if (done) screen = 'done';
+  else if (checking) screen = 'checking';
+  else if (unsure) screen = 'unsure';
+  else if (session !== null) screen = 'signed-in';
+
+  // Read the token, then take it out of the address bar. A different link
+  // pasted into this tab later arrives here too, and starts everything again.
   useEffect(() => {
-    if (location.hash !== '') {
-      navigate({ search: location.search, hash: '' }, { replace: true });
+    if (location.hash === '') {
+      return;
     }
-  }, [location.hash, location.search, navigate]);
+    const fresh = tokenFrom(location.hash);
+    if (fresh !== '' && fresh !== token) {
+      setToken(fresh);
+      setPassword('');
+      setRepeated('');
+      setMistake(null);
+      setProblem(null);
+      setDone(false);
+      setUnsure(false);
+      setChecking(needsSignInCheck());
+    }
+    navigate({ search: location.search, hash: '' }, { replace: true });
+  }, [location.hash, location.search, navigate, token]);
 
   useEffect(() => {
     if (!checking) {
       return;
     }
     let cancelled = false;
-    void restoreSession().finally(() => {
-      if (!cancelled) {
+    void restoreSession()
+      .catch(() => false)
+      .then((restored) => {
+        if (cancelled) {
+          return;
+        }
+        // A definite "not signed in" (401) also wipes the signed-in note. If
+        // the note is still there, the API never answered: do not guess.
+        setUnsure(!restored && mayHaveSession());
         setChecking(false);
-      }
-    });
+      });
     return () => {
       cancelled = true;
     };
   }, [checking]);
 
-  if (token === '') {
+  // Move focus to the new screen, so keyboard and screen-reader users follow
+  // along. The first screen keeps the browser's normal focus.
+  const shownScreen = useRef(screen);
+  useEffect(() => {
+    if (shownScreen.current !== screen) {
+      shownScreen.current = screen;
+      screenStart.current?.focus();
+    }
+  }, [screen]);
+
+  async function signOutAndContinue() {
+    setSigningOut(true);
+    await signOut();
+    setSigningOut(false);
+    setUnsure(false);
+  }
+
+  function complain(field: Field, text: string) {
+    setMistake((previous) => ({ field, text, count: (previous?.count ?? 0) + 1 }));
+    (field === 'new-password' ? newPasswordInput : repeatInput).current?.focus();
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (inFlight.current) {
+      return;
+    }
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      complain(
+        'new-password',
+        `Use at least ${PASSWORD_MIN_LENGTH} characters. A short sentence works well.`,
+      );
+      return;
+    }
+    if (password.length > PASSWORD_MAX_LENGTH) {
+      complain('new-password', `Use at most ${PASSWORD_MAX_LENGTH} characters.`);
+      return;
+    }
+    if (password !== repeated) {
+      complain('repeat-password', 'The two passwords are not the same. Type them again.');
+      return;
+    }
+    setMistake(null);
+    setProblem(null);
+    inFlight.current = true;
+    setSending(true);
+    try {
+      const { error, response } = await fetchClient.POST('/auth/set-password', {
+        body: { token, newPassword: password },
+      });
+      // Judge by the status: an error from a proxy may come with no body at all.
+      if (!response.ok) {
+        setProblem(describeApiError(error));
+        return;
+      }
+      // The password is saved: forget what was typed.
+      setPassword('');
+      setRepeated('');
+      setDone(true);
+    } catch (failure) {
+      setProblem(describeApiError(failure));
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
+  }
+
+  // Text that receives focus when a screen appears needs no focus ring.
+  const focusable = 'outline-none';
+
+  if (screen === 'incomplete') {
     return (
       <AuthLayout title="This link is incomplete" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p>
+          <p ref={screenStart} tabIndex={-1} className={focusable}>
             Open the whole link from your administrator's message, or ask them for a new one. The
             link works once, for 72 hours.
           </p>
@@ -85,11 +203,11 @@ export function SetPasswordPage() {
     );
   }
 
-  if (done) {
+  if (screen === 'done') {
     return (
       <AuthLayout title="Your password is set" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p>
+          <p ref={screenStart} tabIndex={-1} className={focusable}>
             Sign in with your email and the password you just chose. Administrators and HR then set
             up two-factor authentication with an authenticator app.
           </p>
@@ -101,7 +219,7 @@ export function SetPasswordPage() {
     );
   }
 
-  if (checking) {
+  if (screen === 'checking') {
     return (
       <AuthLayout title="Choose your password" description="Checking this browser first…">
         <p role="status" className="sr-only">
@@ -112,21 +230,45 @@ export function SetPasswordPage() {
     );
   }
 
-  if (session !== null) {
+  if (screen === 'unsure') {
+    return (
+      <AuthLayout title="Could not check this browser" description="Choose your SAMTEC password">
+        <div className="grid gap-4 text-sm">
+          <p ref={screenStart} tabIndex={-1} className={focusable}>
+            Someone may be signed in here, and SAMTEC did not answer in time. Try again, or sign out
+            to continue with this link.
+          </p>
+          <Button className="w-full" onClick={() => setChecking(true)}>
+            Try again
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            aria-disabled={signingOut}
+            onClick={() => {
+              if (!signingOut) void signOutAndContinue();
+            }}
+          >
+            {signingOut ? 'Signing out…' : 'Sign out and continue'}
+          </Button>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  if (screen === 'signed-in' && session !== null) {
     return (
       <AuthLayout title="You are signed in" description="Choose your SAMTEC password">
         <div className="grid gap-4 text-sm">
-          <p>
+          <p ref={screenStart} tabIndex={-1} className={focusable}>
             You are signed in as <strong>{session.user.fullName}</strong> ({session.user.email}).
             This link chooses the password of the person it was sent to, so sign out first.
           </p>
           <Button
             className="w-full"
-            disabled={signingOut}
-            onClick={async () => {
-              setSigningOut(true);
-              await signOut();
-              setSigningOut(false);
+            aria-disabled={signingOut}
+            onClick={() => {
+              if (!signingOut) void signOutAndContinue();
             }}
           >
             {signingOut ? 'Signing out…' : 'Sign out and continue'}
@@ -139,42 +281,10 @@ export function SetPasswordPage() {
     );
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (inFlight.current) {
-      return;
-    }
-    if (password.length < PASSWORD_MIN_LENGTH) {
-      setMistake(`Use at least ${PASSWORD_MIN_LENGTH} characters. A short sentence works well.`);
-      return;
-    }
-    if (password !== repeated) {
-      setMistake('The two passwords are not the same. Type them again.');
-      return;
-    }
-    setMistake(null);
-    setProblem(null);
-    inFlight.current = true;
-    setSending(true);
-    try {
-      const { error } = await fetchClient.POST('/auth/set-password', {
-        body: { token, newPassword: password },
-      });
-      if (error) {
-        setProblem(describeApiError(error));
-      } else {
-        // The password is saved: forget what was typed.
-        setPassword('');
-        setRepeated('');
-        setDone(true);
-      }
-    } catch (failure) {
-      setProblem(describeApiError(failure));
-    } finally {
-      inFlight.current = false;
-      setSending(false);
-    }
-  }
+  const describedBy = (field: Field, own?: string) =>
+    [own, mistake?.field === field ? 'set-password-mistake' : undefined]
+      .filter(Boolean)
+      .join(' ') || undefined;
 
   return (
     <AuthLayout
@@ -186,13 +296,18 @@ export function SetPasswordPage() {
         <div className="grid gap-1.5">
           <Label htmlFor="new-password">New password</Label>
           <Input
+            ref={(element) => {
+              newPasswordInput.current = element;
+              screenStart.current = element;
+            }}
             id="new-password"
             type="password"
             autoComplete="new-password"
             required
             minLength={PASSWORD_MIN_LENGTH}
             maxLength={PASSWORD_MAX_LENGTH}
-            aria-describedby="new-password-rule"
+            aria-invalid={mistake?.field === 'new-password' || undefined}
+            aria-describedby={describedBy('new-password', 'new-password-rule')}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
@@ -204,19 +319,23 @@ export function SetPasswordPage() {
         <div className="grid gap-1.5">
           <Label htmlFor="repeat-password">Type it again</Label>
           <Input
+            ref={repeatInput}
             id="repeat-password"
             type="password"
             autoComplete="new-password"
             required
             maxLength={PASSWORD_MAX_LENGTH}
+            aria-invalid={mistake?.field === 'repeat-password' || undefined}
+            aria-describedby={describedBy('repeat-password')}
             value={repeated}
             onChange={(event) => setRepeated(event.target.value)}
           />
         </div>
 
         {mistake && (
-          <Alert variant="destructive">
-            <AlertDescription>{mistake}</AlertDescription>
+          // A new key for every mistake, so the same message is announced again.
+          <Alert key={mistake.count} id="set-password-mistake" variant="destructive">
+            <AlertDescription>{mistake.text}</AlertDescription>
           </Alert>
         )}
 
@@ -230,7 +349,8 @@ export function SetPasswordPage() {
           </Alert>
         )}
 
-        <Button type="submit" className="w-full" disabled={sending}>
+        {/* aria-disabled, not disabled: a disabled button would drop the keyboard focus. */}
+        <Button type="submit" className="w-full" aria-disabled={sending}>
           {sending ? 'Saving…' : 'Set my password'}
         </Button>
       </form>
