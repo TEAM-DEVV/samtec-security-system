@@ -8,10 +8,13 @@ import { AttendancePage } from '@/pages/attendance-page';
 import { ChangePasswordPage } from '@/pages/change-password-page';
 import { DeviceDetailPage } from '@/pages/device-detail-page';
 import { DevicesPage } from '@/pages/devices-page';
+import { DuplicateFacesPage } from '@/pages/duplicate-faces-page';
 import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { ExceptionDetailPage } from '@/pages/exception-detail-page';
 import { ExceptionsPage } from '@/pages/exceptions-page';
+import { KioskAttemptsPage } from '@/pages/kiosk-attempts-page';
+import { LiveBoardPage } from '@/pages/live-board-page';
 import { LoginPage } from '@/pages/login-page';
 import { MyAttendancePage } from '@/pages/my-attendance-page';
 import { NewDevicePage } from '@/pages/new-device-page';
@@ -117,6 +120,22 @@ export const router = createBrowserRouter([
       // No RequireRole: every signed-in person may look at their own shifts.
       { path: 'attendance/me', element: <MyAttendancePage /> },
       {
+        path: 'attendance/live',
+        element: (
+          <RequireRole roles={pageRoles.liveBoard}>
+            <LiveBoardPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'biometrics/duplicates',
+        element: (
+          <RequireRole roles={pageRoles.duplicateFaces}>
+            <DuplicateFacesPage />
+          </RequireRole>
+        ),
+      },
+      {
         path: 'attendance/exceptions',
         element: (
           <RequireRole roles={pageRoles.exceptions}>
@@ -145,6 +164,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.devices}>
             <NewDevicePage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'devices/attempts',
+        element: (
+          <RequireRole roles={pageRoles.kioskAttempts}>
+            <KioskAttemptsPage />
           </RequireRole>
         ),
       },

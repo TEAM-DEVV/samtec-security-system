@@ -71,7 +71,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
-- [ ] **Samuel:** dashboard — live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, and kiosk attempts per device. The mock API already supports them. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
+- [x] **Samuel:** dashboard — live clock-ins board (`/attendance/live`), the employee Biometrics panel, the duplicate-enrollment queue (`/biometrics/duplicates`), and kiosk attempts per device (`/devices/attempts`). Built against the mock API. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel

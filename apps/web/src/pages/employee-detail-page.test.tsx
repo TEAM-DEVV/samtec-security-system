@@ -169,6 +169,131 @@ describe('EmployeeDetailPage', () => {
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });
 
+  it('shows an administrator the Biometrics panel with consent, face and keys', async () => {
+    await signInForTests('admin@samtec.example');
+
+    renderDetailPage(KWAME);
+
+    expect(await screen.findByText('Consent')).toBeInTheDocument();
+    expect(await screen.findByText('In use')).toBeInTheDocument();
+    expect(screen.getByText(/^Given/)).toBeInTheDocument();
+    expect(screen.getByText('Looks like nobody else')).toBeInTheDocument();
+    // Kwame saved a finger on the ACC-01 kiosk.
+    expect(screen.getByText(/· in use/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Wipe the face and keys' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Record a withdrawal of consent' }),
+    ).toBeInTheDocument();
+  });
+
+  it('lets a second administrator approve an exemption another one asked for', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000010'); // Selorm Agbeko, declined biometrics
+    await screen.findByRole('heading', { name: 'Selorm Agbeko' });
+
+    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Decide the exemption' }));
+    await user.click(screen.getByRole('radio', { name: /Approve/ }));
+    await user.type(screen.getByLabelText('Note'), 'Ghana Card checked in person; approved.');
+    await user.click(screen.getByRole('button', { name: 'Record the decision' }));
+
+    expect(await screen.findByText('Approved')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Decide the exemption' })).not.toBeInTheDocument();
+  });
+
+  it('wipes a face with a reason', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderDetailPage(KWAME);
+    await screen.findByText('In use');
+
+    await user.click(screen.getByRole('button', { name: 'Wipe the face and keys' }));
+    await user.type(screen.getByLabelText('Reason'), 'Enrolled against the wrong record.');
+    await user.click(screen.getByRole('button', { name: 'Confirm the wipe' }));
+
+    expect(await screen.findByText('Wiped')).toBeInTheDocument();
+    expect(screen.getByText(/switched off/)).toBeInTheDocument();
+    expect(screen.queryByText(/· in use/)).not.toBeInTheDocument();
+  });
+
+  it('records a withdrawal of consent, which wipes the face and files an exemption request', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderDetailPage(KWAME);
+    await screen.findByText('In use');
+
+    await user.click(screen.getByRole('button', { name: 'Record a withdrawal of consent' }));
+    await user.type(screen.getByLabelText('Reason'), 'Withdrew consent in writing today.');
+    await user.click(screen.getByRole('button', { name: 'Record the withdrawal' }));
+
+    expect(await screen.findByText(/^Withdrawn/)).toBeInTheDocument();
+    expect(screen.getByText('Wiped')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for a second administrator')).toBeInTheDocument();
+    // The recording administrator asked for the exemption, so they may not decide it.
+    expect(screen.getByText(/You asked for this exemption/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Decide the exemption' })).not.toBeInTheDocument();
+  });
+
+  it('lets an administrator ask for an exemption, then leaves the decision to another', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000010'); // Selorm Agbeko, request waiting
+    await screen.findByText('Waiting for a second administrator');
+
+    // Reject the request another administrator made; Selorm is then free to be asked for again.
+    await user.click(screen.getByRole('button', { name: 'Decide the exemption' }));
+    await user.click(screen.getByRole('radio', { name: /Reject/ }));
+    await user.type(screen.getByLabelText('Note'), 'The worker will try the kiosk once more.');
+    await user.click(screen.getByRole('button', { name: 'Record the decision' }));
+    expect(await screen.findByText('Rejected')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Ask for an exemption' }));
+    await user.selectOptions(screen.getByLabelText('Reason'), 'CANNOT_ENROLL');
+    await user.type(screen.getByLabelText('Note'), 'The kiosk cannot read the face; three tries.');
+    await user.click(screen.getByRole('button', { name: 'Send the request' }));
+
+    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    expect(screen.getByText('The kiosk cannot read their face')).toBeInTheDocument();
+    expect(screen.getByText(/You asked for this exemption/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Decide the exemption' })).not.toBeInTheDocument();
+  });
+
+  it('offers no wipe while a duplicate review is open', async () => {
+    await signInForTests('admin@samtec.example');
+
+    renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000002'); // Abena Owusu, face under review
+
+    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    expect(screen.getByText('Looks like someone already enrolled')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Wipe the face and keys' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ask for an exemption' })).not.toBeInTheDocument();
+  });
+
+  it('shows a supervisor the panel without any action', async () => {
+    await signInForTests('supervisor@samtec.example');
+
+    renderDetailPage(KWAME);
+
+    expect(await screen.findByText('In use')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Wipe the face and keys' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a guard no Biometrics panel at all', async () => {
+    await signInForTests('guard@samtec.example');
+
+    renderDetailPage(KWAME);
+
+    expect(await screen.findByRole('heading', { name: 'Kwame Kofi Mensah' })).toBeInTheDocument();
+    // The panel's own rows never appear (the API would refuse a guard anyway).
+    expect(screen.queryByText('Consent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fingerprint keys')).not.toBeInTheDocument();
+  });
+
   it('links back to the employee list', async () => {
     await signInForTests('admin@samtec.example');
     renderDetailPage(KWAME);

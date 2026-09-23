@@ -41,6 +41,16 @@ export const pageRoles = {
   devices: ['ADMIN'],
   /** `POST /attendance/exceptions/{id}/resolve`. The API also refuses your own attendance and other sites. */
   resolveExceptions: ['ADMIN', 'SUPERVISOR'],
+  /** `GET /attendance/punches`: the live board. A supervisor sees their own sites only. */
+  liveBoard: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** `GET /employees/{id}/biometrics`: the Biometrics panel on an employee's page. */
+  biometrics: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** Every biometric change: wipe a face, record a withdrawal, ask for or decide an exemption. */
+  biometricChanges: ['ADMIN'],
+  /** `GET /biometric-collisions` and deciding one: the duplicate-enrollment queue. */
+  duplicateFaces: ['ADMIN'],
+  /** `GET /attendance/clock-in-attempts`: every attempt at the kiosks. */
+  kioskAttempts: ['ADMIN'],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 /** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */
