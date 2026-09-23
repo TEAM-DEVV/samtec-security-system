@@ -57,6 +57,20 @@ export class BiometricsService {
     private readonly faces: FaceProvider,
   ) {}
 
+  /**
+   * One worker at a time, with the same budget and lock timeout as every
+   * other attendance write. A kiosk that arrives while the heartbeat's
+   * retention sweep holds this worker's row is told to send the request
+   * again in a few seconds, which is always safe here.
+   */
+  private async oneWorkerAtATime<T>(run: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(run, BIOMETRIC_TRANSACTION_OPTIONS);
+    } catch (error) {
+      throw isLockTimeout(error) ? new BiometricsBusyException() : error;
+    }
+  }
+
   /** The one official wording, so the kiosk and the dashboard always agree. */
   consentText(): BiometricConsentText {
     return { version: CONSENT_TEXT_VERSION, text: CONSENT_TEXT, sha256: CONSENT_TEXT_SHA256 };
@@ -91,7 +105,7 @@ export class BiometricsService {
     // Everything below happens one worker at a time (docs/plan/13 section 2):
     // two kiosks recording the same worker at the same moment would otherwise
     // both find no consent and both write one.
-    const consent = await this.prisma.$transaction(async (tx) => {
+    const consent = await this.oneWorkerAtATime(async (tx) => {
       await lockWorker(tx, body.employeeId);
       await this.assertNoOpenQuestion(tx, caller.companyId, body.employeeId);
       const current = await this.currentConsent(caller.companyId, body.employeeId, tx);
@@ -492,6 +506,10 @@ export class BiometricsUnavailableException extends HttpException {
  * worker waits, so two kiosks can never both decide there is no consent yet.
  */
 async function lockWorker(tx: TransactionClient, employeeId: string): Promise<void> {
+  // Capped, like every other lock in attendance: the heartbeat's retention
+  // sweep holds these rows for a moment, and a kiosk that arrives just then
+  // is told to try again rather than left waiting with no answer.
+  await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
   await tx.$queryRaw`SELECT 1 FROM employees WHERE id = ${employeeId}::uuid FOR NO KEY UPDATE`;
 }
 

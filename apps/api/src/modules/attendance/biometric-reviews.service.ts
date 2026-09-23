@@ -25,7 +25,12 @@ import type {
   ResolveCollisionBody,
   ReviewExemptionBody,
 } from './attendance.schemas.js';
-import { isDeadlock } from './attendance-lock.js';
+import {
+  ATTENDANCE_TRANSACTION_OPTIONS,
+  AttendanceBusyException,
+  isDeadlock,
+  isLockTimeout,
+} from './attendance-lock.js';
 import { blockedRecord, openReview } from './biometric-questions.js';
 
 /** What the face and the fingerprint keys of one worker look like from the dashboard. */
@@ -48,6 +53,32 @@ export class BiometricReviewsService {
     private readonly employees: EmployeesService,
   ) {}
 
+  /**
+   * Every write in this service changes several rows for one or two
+   * workers, so they all run the same way: one transaction, with the same
+   * budget and the same lock timeout as the rest of attendance.
+   *
+   * Contention is answered, not dropped. Waiting too long for a worker's
+   * row is a 503 with a Retry-After, and a deadlock — which PostgreSQL
+   * resolves by cancelling one side, so this request changed nothing — is a
+   * 409 telling the ADMIN to send it again (docs/plan/13 section 2).
+   */
+  private async onTheseWorkers<T>(run: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(run, ATTENDANCE_TRANSACTION_OPTIONS);
+    } catch (error) {
+      if (isLockTimeout(error)) {
+        throw new AttendanceBusyException();
+      }
+      if (isDeadlock(error)) {
+        throw new ConflictException(
+          'Another ADMIN was working on one of these workers at the same moment. Try again.',
+        );
+      }
+      throw error;
+    }
+  }
+
   /** The Biometrics panel: status only, never a template, an embedding or a score. */
   async employeeBiometrics(viewer: SignedInUser, employeeId: string): Promise<EmployeeBiometrics> {
     // Reuses the workforce rules, so a supervisor sees only their own sites.
@@ -66,7 +97,7 @@ export class BiometricReviewsService {
     body: BiometricReasonBody,
   ): Promise<EmployeeBiometrics> {
     await this.employees.forBiometrics(viewer, employeeId);
-    return this.prisma.$transaction(async (tx) => {
+    return this.onTheseWorkers(async (tx) => {
       await lockWorker(tx, employeeId);
       await this.assertNothingOpen(tx, viewer.companyId, employeeId);
       const face = await liveFace(tx, viewer.companyId, employeeId);
@@ -104,7 +135,7 @@ export class BiometricReviewsService {
     body: BiometricReasonBody,
   ): Promise<EmployeeBiometrics> {
     await this.employees.forBiometrics(viewer, employeeId);
-    return this.prisma.$transaction(async (tx) => {
+    return this.onTheseWorkers(async (tx) => {
       await lockWorker(tx, employeeId);
       const consent = await currentConsent(tx, viewer.companyId, employeeId);
       if (!consent) {
@@ -159,7 +190,7 @@ export class BiometricReviewsService {
     body: RequestExemptionBody,
   ): Promise<EmployeeBiometrics> {
     await this.employees.forBiometrics(viewer, employeeId);
-    return this.prisma.$transaction(async (tx) => {
+    return this.onTheseWorkers(async (tx) => {
       await lockWorker(tx, employeeId);
       // Read the status again under the lock: an enrollment a moment ago may
       // have made this worker ACTIVE since the check above.
@@ -230,7 +261,7 @@ export class BiometricReviewsService {
     body: ReviewExemptionBody,
   ): Promise<EmployeeBiometrics> {
     await this.employees.forBiometrics(viewer, employeeId);
-    return this.prisma.$transaction(async (tx) => {
+    return this.onTheseWorkers(async (tx) => {
       await lockWorker(tx, employeeId);
       const waiting = await tx.biometricExemption.findFirst({
         where: { companyId: viewer.companyId, employeeId, status: 'REQUESTED' },
@@ -349,26 +380,7 @@ export class BiometricReviewsService {
     credentialId: string,
     body: ResolveCollisionBody,
   ): Promise<BiometricCollision> {
-    try {
-      return await this.decide(viewer, credentialId, body);
-    } catch (error) {
-      if (isDeadlock(error)) {
-        // Two decisions crossed over the same people. This one did nothing
-        // at all, so sending it again is safe, and the answer says so.
-        throw new ConflictException(
-          'Another ADMIN was deciding about one of these workers at the same moment. Try again.',
-        );
-      }
-      throw error;
-    }
-  }
-
-  private async decide(
-    viewer: SignedInUser,
-    credentialId: string,
-    body: ResolveCollisionBody,
-  ): Promise<BiometricCollision> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.onTheseWorkers(async (tx) => {
       const found = await tx.biometricCredential.findFirst({
         where: { id: credentialId, companyId: viewer.companyId, kind: 'FACE' },
         select: { employeeId: true, collisionEmployeeId: true },
@@ -915,9 +927,17 @@ async function lockWorker(tx: TransactionClient, employeeId: string): Promise<vo
   await lockWorkers(tx, [employeeId]);
 }
 
-/** Takes several workers' rows, always in the same order, so nobody deadlocks. */
+/**
+ * Takes several workers' rows, always in the same order, so nobody deadlocks.
+ *
+ * Waiting is capped, like every other lock in attendance: the heartbeat's
+ * retention sweep holds these same rows for a moment, and an ADMIN who
+ * arrives in that moment should be told to try again rather than sit there
+ * until something further up gives way with no explanation.
+ */
 async function lockWorkers(tx: TransactionClient, employeeIds: string[]): Promise<void> {
   const ids = [...new Set(employeeIds)].sort();
+  await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
   await tx.$queryRaw`SELECT 1 FROM employees WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR NO KEY UPDATE`;
 }
 
