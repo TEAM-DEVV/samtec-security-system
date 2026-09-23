@@ -14,6 +14,8 @@ import { BiometricReviewsController } from './biometric-reviews.controller.js';
 import { BiometricReviewsService } from './biometric-reviews.service.js';
 import { BiometricsController } from './biometrics.controller.js';
 import { BiometricsService } from './biometrics.service.js';
+import { ClockInController } from './clock-in.controller.js';
+import { ClockInService } from './clock-in.service.js';
 import { DeviceSignatureGuard } from './device-signature.guard.js';
 import { DevicesController } from './devices.controller.js';
 import { DevicesService } from './devices.service.js';
@@ -37,12 +39,14 @@ import { PairingService } from './pairing.service.js';
     AttendanceController,
     BiometricsController,
     BiometricReviewsController,
+    ClockInController,
   ],
   providers: [
     AttendanceService,
     BiometricsService,
     BiometricReviewsService,
     BiometricRetentionService,
+    ClockInService,
     DevicesService,
     IngestService,
     PairingService,

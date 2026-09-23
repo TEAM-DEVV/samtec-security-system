@@ -452,7 +452,7 @@ export class BiometricsService {
 type TransactionClient = Prisma.TransactionClient;
 
 /** The rows the matcher needs, straight from the database. */
-function asSealedFaces(
+export function asSealedFaces(
   rows: Array<{
     id: string;
     companyId: string;
