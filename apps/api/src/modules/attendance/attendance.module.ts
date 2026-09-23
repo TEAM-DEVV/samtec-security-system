@@ -9,6 +9,9 @@ import {
   type BiometricProvider,
   MockBiometricProvider,
 } from './biometric-provider.js';
+import { BiometricRetentionService } from './biometric-retention.service.js';
+import { BiometricReviewsController } from './biometric-reviews.controller.js';
+import { BiometricReviewsService } from './biometric-reviews.service.js';
 import { BiometricsController } from './biometrics.controller.js';
 import { BiometricsService } from './biometrics.service.js';
 import { DeviceSignatureGuard } from './device-signature.guard.js';
@@ -28,10 +31,18 @@ import { PairingService } from './pairing.service.js';
  */
 @Module({
   imports: [IdentityModule, WorkforceModule],
-  controllers: [DevicesController, IngestController, AttendanceController, BiometricsController],
+  controllers: [
+    DevicesController,
+    IngestController,
+    AttendanceController,
+    BiometricsController,
+    BiometricReviewsController,
+  ],
   providers: [
     AttendanceService,
     BiometricsService,
+    BiometricReviewsService,
+    BiometricRetentionService,
     DevicesService,
     IngestService,
     PairingService,

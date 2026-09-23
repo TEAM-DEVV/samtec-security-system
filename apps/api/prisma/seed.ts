@@ -382,13 +382,17 @@ async function seedDevices(companyId: string, sites: Site[]): Promise<void> {
 }
 
 /**
- * Three sign-in accounts for local development, one per kind of first
+ * Four sign-in accounts for local development, one per kind of first
  * sign-in. Every password is `demo-password` — fine here, because the seed
  * only ever runs against a database on this computer.
  *
  * - supervisor@samtec.example signs straight in.
- * - admin@ and hr@ must set up two-factor authentication on first sign-in,
- *   with any authenticator app (the codes really work).
+ * - admin@, admin2@ and hr@ must set up two-factor authentication on first
+ *   sign-in, with any authenticator app (the codes really work).
+ *
+ * There are **two** ADMIN accounts on purpose: biometrics are built so that
+ * nobody decides on their own action, so a duplicate-enrollment review and an
+ * exemption both need a second ADMIN (docs/plan/13-biometrics-design.md §2).
  */
 async function seedUsers(companyId: string): Promise<void> {
   // Hash once and share it: scrypt is deliberately slow.
@@ -408,6 +412,12 @@ async function seedUsers(companyId: string): Promise<void> {
     {
       email: 'admin@samtec.example',
       fullName: 'Efua Mensah',
+      role: UserRole.ADMIN,
+      employeeId: null,
+    },
+    {
+      email: 'admin2@samtec.example',
+      fullName: 'Abena Owusu',
       role: UserRole.ADMIN,
       employeeId: null,
     },

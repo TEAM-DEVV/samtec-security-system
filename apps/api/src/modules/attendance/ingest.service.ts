@@ -12,6 +12,7 @@ import {
   isLockTimeout,
   lockCompanyAttendance,
 } from './attendance-lock.js';
+import { BiometricRetentionService } from './biometric-retention.service.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import { PairingService } from './pairing.service.js';
 import {
@@ -46,6 +47,7 @@ export class IngestService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly pairing: PairingService,
+    private readonly retention: BiometricRetentionService,
   ) {}
 
   async ingestPunches(
@@ -187,6 +189,9 @@ export class IngestService {
     }
     // The only way a forgotten clock-out is noticed when nothing else happens.
     await this.pairing.repairOverdueClockIns(device.companyId, serverTime);
+    // And the only thing that deletes biometrics on time, for the same
+    // reason: there is no scheduled job (docs/plan/13 §2).
+    await this.retention.sweep(device.companyId, serverTime);
     return { serverTime: serverTime.toISOString() };
   }
 

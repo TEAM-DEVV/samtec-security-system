@@ -8,7 +8,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  */
 
 /** The routes a device may call. Signing the route name (not the URL) means hosting rewrites can never break a signature, and a signature can never be moved to another endpoint. */
-export type SignedRoute = 'ingest/punches' | 'ingest/heartbeat' | 'kiosk/consents';
+export type SignedRoute =
+  | 'ingest/punches'
+  | 'ingest/heartbeat'
+  | 'kiosk/consents'
+  | 'kiosk/face-enrollments';
 
 export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
 
@@ -34,6 +38,7 @@ export function kindMayUse(
     case 'ingest/heartbeat':
       return true;
     case 'kiosk/consents':
+    case 'kiosk/face-enrollments':
       return kind === 'FACE_KIOSK';
   }
 }

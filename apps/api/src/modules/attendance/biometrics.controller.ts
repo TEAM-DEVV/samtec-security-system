@@ -1,8 +1,17 @@
 import { Body, Controller, Get, Post, Res } from '@nestjs/common';
-import type { BiometricConsent, BiometricConsentText } from '@samtec/contracts';
+import type {
+  BiometricConsent,
+  BiometricConsentText,
+  FaceEnrollmentResult,
+} from '@samtec/contracts';
 import type { Response } from 'express';
 import { Caller, OnKiosk, type SignedInUser } from '../../common/auth.decorators.js';
-import { type RecordConsentBody, recordConsentSchema } from './attendance.schemas.js';
+import {
+  type EnrollFaceBody,
+  enrollFaceSchema,
+  type RecordConsentBody,
+  recordConsentSchema,
+} from './attendance.schemas.js';
 import { BiometricsService } from './biometrics.service.js';
 import { CurrentDevice, type SignedDevice } from './device-signature.guard.js';
 import { KioskOperator } from './kiosk-operator.guard.js';
@@ -34,5 +43,15 @@ export class BiometricsController {
     // 201 for a new consent, 200 for the one this worker already gave.
     response.status(created ? 201 : 200);
     return consent;
+  }
+
+  @KioskOperator('kiosk/face-enrollments')
+  @Post('kiosk/face-enrollments')
+  enrollFace(
+    @Caller() caller: SignedInUser,
+    @CurrentDevice() device: SignedDevice,
+    @Body({ schema: enrollFaceSchema }) body: EnrollFaceBody,
+  ): Promise<FaceEnrollmentResult> {
+    return this.biometrics.enrollFace(caller, device, body);
   }
 }

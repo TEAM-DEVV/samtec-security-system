@@ -64,7 +64,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Migration: consents, credentials, exemptions, fingerprint keys and clock-in attempts, with the rules the database enforces itself; device kinds checked on every signed route; the basis rule for the kiosk methods; `PATCH /devices` sets a serial number and switches fingerprints
 - [x] Face matching on the server with Human's formula, templates encrypted and bound to their row
 - [x] The kiosk door: a sign-in on a kiosk (`KIOSK_ORIGINS`) gets no refresh cookie and a token that only works on the kiosk screens; the kiosk ADMIN routes need that token **and** the kiosk's signature; the consent text, and consent with the Ghana Card check
-- [ ] Enrollment on the kiosk by an ADMIN: 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep
+- [x] Enrollment on the kiosk by an ADMIN: 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep on the heartbeat
 - [ ] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, and the live clock-ins board
 - [ ] The kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens
 - [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)

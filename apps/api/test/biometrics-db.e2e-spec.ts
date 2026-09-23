@@ -205,6 +205,33 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
     });
   };
 
+  /**
+   * TRUNCATE takes the whole table for itself, so while the other test files
+   * are writing to the same database it can lose a deadlock to one of them
+   * and be cancelled before the trigger ever speaks. The trigger's refusal is
+   * what this test is about, so a cancellation is worth another try; anything
+   * else is a real failure. (It can never actually succeed — that is the
+   * point — so no other test's rows are ever in danger.)
+   */
+  const expectTruncateRefused = async () => {
+    let last = 'the database did not refuse the TRUNCATE at all';
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await prisma.$executeRawUnsafe('TRUNCATE biometric_consents CASCADE');
+      } catch (error) {
+        last = String(error);
+        if (/biometric_consents is append-only/.test(last)) {
+          return;
+        }
+        if (!/deadlock|lock|cancel/i.test(last)) {
+          throw error;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error(`the append-only trigger never refused the TRUNCATE: ${last}`);
+  };
+
   describe('consents', () => {
     it('are append-only: a withdrawal is a new row', async () => {
       const row = await consent(company.active.id);
@@ -216,9 +243,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       );
       // CASCADE also reaches the faces that point at consents; the message
       // shows it was the consents' own trigger that refused.
-      await expect(prisma.$executeRawUnsafe('TRUNCATE biometric_consents CASCADE')).rejects.toThrow(
-        /biometric_consents is append-only/,
-      );
+      await expectTruncateRefused();
     });
 
     it("are given on one of the company's kiosks, and record the SHA-256 of the exact text", async () => {

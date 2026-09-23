@@ -25,6 +25,21 @@ export async function lockCompanyAttendance(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`attendance:${companyId}`}, 0))`;
 }
 
+/**
+ * Enrollment takes its own lock, so a duplicate check never waits behind a
+ * batch of punches and punches never wait behind an enrollment. Two
+ * enrollments in the same company still take turns, which is the point: both
+ * must see the other's face (docs/plan/13 section 2).
+ */
+export async function lockCompanyBiometrics(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+): Promise<void> {
+  await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
+  await tx.$executeRaw`SET LOCAL idle_in_transaction_session_timeout = '30s'`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`biometrics:${companyId}`}, 0))`;
+}
+
 /** How long a transaction that holds the lock may run in total, safely below Vercel's 30 s. */
 export const ATTENDANCE_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 25_000 } as const;
 
@@ -43,4 +58,14 @@ export class AttendanceBusyException extends HttpException {
 /** True for PostgreSQL's "could not get the lock in time" (SQLSTATE 55P03). */
 export function isLockTimeout(error: unknown): boolean {
   return hasDatabaseCode(error, '55P03');
+}
+
+/**
+ * True for PostgreSQL's "these two transactions were each waiting for the
+ * other" (SQLSTATE 40P01). One of them is cancelled, and the work it was
+ * doing never happened, so sending the same request again is always safe —
+ * which is what the caller should be told, rather than "something broke".
+ */
+export function isDeadlock(error: unknown): boolean {
+  return hasDatabaseCode(error, '40P01');
 }
