@@ -27,6 +27,8 @@ import type {
   RegisterDeviceBody,
   UpdateDeviceBody,
 } from './attendance.schemas.js';
+import { lockCompanyBiometrics } from './attendance-lock.js';
+import { blockedRecord } from './biometric-questions.js';
 import { deviceSecretKey, newDeviceSecret } from './device-secret.js';
 
 /**
@@ -247,10 +249,26 @@ export class DevicesService {
     if (consent?.status !== 'GIVEN') {
       throw new ConflictException('This worker has not agreed to biometrics.');
     }
+    const blocked = await this.prisma.biometricCredential.findFirst({
+      where: blockedRecord(viewer.companyId, worker.id),
+      select: { id: true },
+    });
+    if (blocked) {
+      // The database refuses this too; saying so here makes it a plain
+      // refusal instead of a 500 an ADMIN cannot act on.
+      throw new ConflictException(
+        'This record was blocked as a duplicate, so it can only be terminated.',
+      );
+    }
 
     const opensAt = new Date();
     const expiresAt = new Date(opensAt.getTime() + FINGER_WINDOW_MINUTES * 60 * 1000);
     const window = await this.prisma.$transaction(async (tx) => {
+      // This worker's biometric rows, one request at a time, like every other
+      // biometric write (docs/plan/13 §2). Without it two ADMINs tapping at
+      // once would each close the other's window and then open their own,
+      // leaving two open instead of one.
+      await lockCompanyBiometrics(tx, viewer.companyId);
       // Close anything still open for this worker on this terminal, so two
       // taps never leave two windows behind.
       await tx.fingerEnrollmentWindow.updateMany({

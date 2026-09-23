@@ -107,7 +107,8 @@ export class GatewayService {
         // the terminal reports. A terminal with a wound-back clock must not
         // be able to claim it enrolled somebody inside a window that has
         // since closed.
-        const open = worker ? await this.openWindow(tx, device, worker.id, new Date()) : null;
+        const now = new Date();
+        const open = worker ? await this.spendWindow(tx, device, worker.id, now) : null;
         if (!open) {
           await tx.terminalEnrollmentReport.create({
             data: {
@@ -171,11 +172,6 @@ export class GatewayService {
           },
           select: { id: true },
         });
-        // The window is spent: one window, one finger.
-        await tx.fingerEnrollmentWindow.update({
-          where: { id: open.id },
-          data: { expiresAt: new Date() },
-        });
         await this.audit.record(
           {
             companyId: device.companyId,
@@ -200,24 +196,47 @@ export class GatewayService {
     }
   }
 
-  /** The window an ADMIN opened for this worker on this terminal, if one is open now. */
-  private async openWindow(
+  /**
+   * Takes the window an ADMIN opened for this worker on this terminal, and
+   * closes it in the same breath. Answers `null` when there was none.
+   *
+   * **One window makes one finger**, and that has to survive two reports
+   * arriving at once. Reading "is it open?" and writing "it is closed now"
+   * as two statements would let both reports read it open before either
+   * closed it, and a single window would mint two fingers. So the closing
+   * update carries the same condition as the question: PostgreSQL makes the
+   * second one wait for the first to commit, then re-checks its WHERE
+   * against the row the first left behind and matches nothing. First to
+   * close it wins, decided by the database rather than by timing.
+   */
+  private async spendWindow(
     tx: Prisma.TransactionClient,
     device: SignedDevice,
     employeeId: string,
     now: Date,
   ) {
-    return tx.fingerEnrollmentWindow.findFirst({
-      where: {
-        companyId: device.companyId,
-        deviceId: device.id,
-        employeeId,
-        opensAt: { lte: now },
-        expiresAt: { gt: now },
-      },
+    const stillOpen = {
+      companyId: device.companyId,
+      deviceId: device.id,
+      employeeId,
+      opensAt: { lte: now },
+      expiresAt: { gt: now },
+    };
+    const open = await tx.fingerEnrollmentWindow.findFirst({
+      where: stillOpen,
       orderBy: { opensAt: 'desc' },
       select: { id: true, employeeId: true, openedByUserId: true },
     });
+    if (!open) {
+      return null;
+    }
+    const closed = await tx.fingerEnrollmentWindow.updateMany({
+      where: { id: open.id, ...stillOpen },
+      data: { expiresAt: now },
+    });
+    // Another report closed it while this one waited: it was that one's
+    // window, not this one's.
+    return closed.count === 1 ? open : null;
   }
 
   /**

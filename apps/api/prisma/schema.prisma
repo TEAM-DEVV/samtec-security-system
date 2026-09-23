@@ -825,6 +825,8 @@ model BiometricCredential {
 
   @@index([employeeId])
   @@index([collisionEmployeeId])
+  terminalReports TerminalEnrollmentReport[]
+
   @@index([companyId, dedupe])
   @@map("biometric_credentials")
 }
@@ -948,6 +950,7 @@ model FingerEnrollmentWindow {
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   device   Device   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  reports  TerminalEnrollmentReport[]
 
   @@index([deviceId, expiresAt])
   @@index([employeeId])
@@ -976,9 +979,11 @@ model TerminalEnrollmentReport {
   windowId      String?  @map("window_id") @db.Uuid
   reportedAt    DateTime @default(now()) @map("reported_at") @db.Timestamptz(3)
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  device   Device    @relation(fields: [deviceId], references: [id], onDelete: Restrict)
-  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  company    Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device     Device                  @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employee   Employee?               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  credential BiometricCredential?    @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  window     FingerEnrollmentWindow? @relation(fields: [windowId], references: [id], onDelete: Restrict)
 
   @@unique([deviceId, deviceUserRef, enrolledAt])
   @@index([companyId, reportedAt])

@@ -154,3 +154,8 @@ ALTER TABLE "attendance_exceptions" ADD CONSTRAINT "attendance_exceptions_eviden
   OR ("type" = 'UNEXPECTED_DEVICE_ENROLLMENT'
       AND "punch_id" IS NULL AND "segment_id" IS NULL AND "second_segment_id" IS NULL)
   OR ("type" NOT IN ('OVERLAP', 'UNEXPECTED_DEVICE_ENROLLMENT') AND "punch_id" IS NOT NULL));
+
+-- A report points at what it made and at what allowed it, and neither can
+-- vanish underneath it: both tables refuse deletion anyway.
+ALTER TABLE "terminal_enrollment_reports" ADD CONSTRAINT "terminal_enrollment_reports_credential_id_fkey" FOREIGN KEY ("credential_id") REFERENCES "biometric_credentials"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "terminal_enrollment_reports" ADD CONSTRAINT "terminal_enrollment_reports_window_id_fkey" FOREIGN KEY ("window_id") REFERENCES "finger_enrollment_windows"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

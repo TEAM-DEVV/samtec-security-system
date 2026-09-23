@@ -303,6 +303,35 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
       expect(written.accepted).toBe(false);
     });
 
+    it('makes one finger from one window, even from two reports at once', async () => {
+      const terminal = await registerTerminal('Racing terminal');
+      const worker = await newWorker();
+      await openWindow(terminal, worker.id).expect(201);
+
+      // Two reports the unique key cannot separate — same worker, same open
+      // window, different moments — sent together. Asking "is it open?" and
+      // writing "it is closed now" as two steps would let both through.
+      const both = await Promise.all([
+        report(terminal, [
+          { deviceUserRef: worker.staffNumber, enrolledAt: new Date().toISOString() },
+        ]).then((answer) => answer),
+        report(terminal, [
+          {
+            deviceUserRef: worker.staffNumber,
+            enrolledAt: new Date(Date.now() + 2000).toISOString(),
+          },
+        ]).then((answer) => answer),
+      ]);
+
+      const outcomes = both.map((answer) => answer.body.results[0].status).sort();
+      expect(outcomes).toEqual(['ACCEPTED', 'REFUSED']);
+      expect(
+        await prisma.biometricCredential.count({
+          where: { employeeId: worker.id, kind: 'TERMINAL_FINGER' },
+        }),
+      ).toBe(1);
+    });
+
     it('answers DUPLICATE when the gateway resends a batch', async () => {
       const terminal = await registerTerminal('Resending terminal');
       const worker = await newWorker();
