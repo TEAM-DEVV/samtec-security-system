@@ -330,7 +330,7 @@ export class ClockInService {
       // its own commit, under the company's attendance lock — including the
       // worker's status, read again rather than reused, because a
       // termination may have committed while this request waited.
-      const status = await this.employees.statusOf(device.companyId, worker.id, tx);
+      const status = await this.statusHere(device, worker.id, tx);
       await this.assertMayBeCoSigned(device, worker.id, status, tx, attempt);
       await this.audit.record(
         {
@@ -596,6 +596,24 @@ export class ClockInService {
     return moments.length === 0
       ? null
       : new Date(Math.max(...moments.map((moment) => moment.getTime())));
+  }
+
+  /**
+   * This worker's status, read through whichever client is in hand. A worker
+   * the workforce module cannot find at all answers the kiosk's one refusal
+   * like everything else, never a 404: a kiosk must not be usable to learn
+   * who exists.
+   */
+  private async statusHere(
+    device: SignedDevice,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    try {
+      return await this.employees.statusOf(device.companyId, employeeId, tx);
+    } catch {
+      throw new ConflictException(CANNOT_PUNCH);
+    }
   }
 
   /** Everyone in a kiosk clock-in must be posted to the site the kiosk stands on. */
