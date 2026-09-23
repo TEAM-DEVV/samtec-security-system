@@ -5,6 +5,7 @@ import { clearSession } from '@/lib/session';
 import { resetMockSession } from '@/mocks/handlers/auth';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
 import { resetMockRosters } from '@/mocks/handlers/rosters';
+import { resetMockUsers } from '@/mocks/handlers/users';
 import { server } from '@/mocks/node';
 
 // Every test talks to the mock API. A request with no mock handler fails the
@@ -18,6 +19,7 @@ afterEach(() => {
   resetMockSession();
   resetMockEmployees();
   resetMockRosters();
+  resetMockUsers();
   clearSession();
   cleanup();
 });

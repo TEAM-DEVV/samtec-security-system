@@ -7,6 +7,7 @@ import {
   type LucideIcon,
   MapPin,
   ShieldAlert,
+  UserCog,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -85,6 +86,15 @@ export const navItems: NavItem[] = [
     icon: FileText,
     phase: 6,
     available: false,
+  },
+  {
+    label: 'Users',
+    description: 'Sign-in accounts: who can open the dashboard, and with which role.',
+    to: routes.users,
+    icon: UserCog,
+    phase: 1,
+    available: true,
+    roles: pageRoles.users,
   },
   {
     label: 'System status',
