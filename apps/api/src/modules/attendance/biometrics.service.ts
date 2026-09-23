@@ -369,22 +369,29 @@ export class BiometricsService {
    * exemption request in the moment between the check and the new row.
    */
   private async assertNoOpenQuestion(tx: TransactionClient, employeeId: string): Promise<void> {
-    const [face, exemption] = await Promise.all([
+    const [blocked, review, exemption] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', status: { in: ['PENDING', 'BLOCKED'] } },
-        select: { status: true },
+        where: { employeeId, kind: 'FACE', status: 'BLOCKED' },
+        select: { id: true },
+      }),
+      // A review is open while it has no verdict — **not** while the face is
+      // PENDING. After 90 days the retention sweep wipes such a face, which
+      // makes it REVOKED, and the question it asks is still unanswered.
+      tx.biometricCredential.findFirst({
+        where: { employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        select: { id: true },
       }),
       tx.biometricExemption.findFirst({
         where: { employeeId, status: 'REQUESTED' },
         select: { id: true },
       }),
     ]);
-    if (face?.status === 'BLOCKED') {
+    if (blocked) {
       throw new ConflictException(
         'This record was blocked as a duplicate, so nothing new can be recorded for it.',
       );
     }
-    if (face?.status === 'PENDING') {
+    if (review) {
       throw new ConflictException(
         'A second ADMIN has to finish the duplicate review for this worker first.',
       );

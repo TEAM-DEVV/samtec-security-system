@@ -205,6 +205,12 @@ export class BiometricRetentionService {
    *
    * `REVOKED`, never `BLOCKED`: only a SAME_PERSON decision blocks a record,
    * and a blocked one is already wiped, so the sweep passes it by.
+   *
+   * A leaver loses **every** credential, the face and any terminal finger,
+   * so nothing of theirs can match anywhere ever again. A terminal finger
+   * holds no numbers here — the ZKTeco device holds those, and the roster
+   * (pull request 9) takes it off the device — so for it this is only the
+   * record being switched off.
    */
   private async wipeFaces(
     tx: Prisma.TransactionClient,

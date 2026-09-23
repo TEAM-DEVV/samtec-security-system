@@ -149,9 +149,15 @@ export class BiometricReviewsService {
     employeeId: string,
     body: RequestExemptionBody,
   ): Promise<EmployeeBiometrics> {
-    const employee = await this.employees.forBiometrics(viewer, employeeId);
+    await this.employees.forBiometrics(viewer, employeeId);
     return this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, employeeId);
+      // Read the status again under the lock: an enrollment a moment ago may
+      // have made this worker ACTIVE since the check above.
+      const employee = await tx.employee.findUniqueOrThrow({
+        where: { id: employeeId },
+        select: { status: true },
+      });
       if (employee.status !== 'PENDING_ENROLLMENT') {
         throw new ConflictException('Only a worker still waiting to be enrolled can be exempted.');
       }
@@ -212,6 +218,18 @@ export class BiometricReviewsService {
       if (waiting.requestedByUserId === viewer.userId) {
         throw new ForbiddenException('The ADMIN who asked cannot decide their own request.');
       }
+      // Whoever enrolled a face for this worker is out too: approving means
+      // "this worker really cannot be enrolled", which is a judgement on the
+      // enroller's own attempt (docs/plan/13 §2).
+      const enrolled = await tx.biometricCredential.findFirst({
+        where: { employeeId, kind: 'FACE', enrolledByUserId: viewer.userId },
+        select: { id: true },
+      });
+      if (enrolled) {
+        throw new ForbiddenException(
+          'You enrolled a face for this worker, so somebody else has to decide this.',
+        );
+      }
       await this.assertHandsOff(tx, viewer, [employeeId]);
 
       if (body.decision === 'REJECT') {
@@ -220,7 +238,12 @@ export class BiometricReviewsService {
           data: this.decisionOf(viewer, 'REJECTED', body.note),
         });
       } else {
-        const employee = await this.employees.forBiometrics(viewer, employeeId);
+        // Inside the transaction, and under this worker's lock: approving is
+        // what puts somebody to work, so it reads the newest status.
+        const employee = await tx.employee.findUniqueOrThrow({
+          where: { id: employeeId },
+          select: { status: true },
+        });
         if (employee.status !== 'PENDING_ENROLLMENT') {
           throw new ConflictException(
             'This worker is no longer waiting to be enrolled, so the request cannot be approved.',
@@ -287,20 +310,26 @@ export class BiometricReviewsService {
     body: ResolveCollisionBody,
   ): Promise<BiometricCollision> {
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.biometricCredential.findFirst({
+      const found = await tx.biometricCredential.findFirst({
+        where: { id: credentialId, companyId: viewer.companyId, kind: 'FACE' },
+        select: { employeeId: true, collisionEmployeeId: true },
+      });
+      if (!found || found.collisionEmployeeId === null) {
+        throw new NotFoundException('No duplicate-enrollment review exists with this ID.');
+      }
+      const lookalikeId = found.collisionEmployeeId;
+      // Both people's rows, in a fixed order, so two ADMINs deciding at the
+      // same moment take turns instead of deadlocking (docs/plan/13 §2).
+      await lockWorkers(tx, [found.employeeId, lookalikeId]);
+      // Read it again now that the workers are ours: the other ADMIN may have
+      // decided this very review while this request waited for the lock.
+      const row = await tx.biometricCredential.findFirstOrThrow({
         where: { id: credentialId, companyId: viewer.companyId, kind: 'FACE' },
         include: { employee: true, lookalike: true },
       });
-      if (!row || row.collisionEmployeeId === null) {
-        throw new NotFoundException('No duplicate-enrollment review exists with this ID.');
-      }
       if (row.verdict !== null) {
         throw new ConflictException('This review has already been decided.');
       }
-      const lookalikeId = row.collisionEmployeeId;
-      // Both people's rows, in a fixed order, so two ADMINs deciding at the
-      // same moment take turns instead of deadlocking (docs/plan/13 §2).
-      await lockWorkers(tx, [row.employeeId, lookalikeId]);
       if (row.enrolledByUserId === viewer.userId) {
         throw new ForbiddenException('The ADMIN who enrolled this face cannot decide its review.');
       }
@@ -390,19 +419,25 @@ export class BiometricReviewsService {
 
   /** Nothing new happens while a second ADMIN owes an answer. */
   private async assertNothingOpen(tx: TransactionClient, employeeId: string): Promise<void> {
-    const [face, exemption] = await Promise.all([
+    const [blocked, review, exemption] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', status: { in: ['PENDING', 'BLOCKED'] } },
-        select: { status: true },
+        where: { employeeId, kind: 'FACE', status: 'BLOCKED' },
+        select: { id: true },
+      }),
+      // Open means "no verdict yet", not "the face is PENDING": the retention
+      // sweep wipes a face that waited 90 days, and the question stays.
+      tx.biometricCredential.findFirst({
+        where: { employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        select: { id: true },
       }),
       tx.biometricExemption.findFirst({ where: { employeeId, status: 'REQUESTED' } }),
     ]);
-    if (face?.status === 'BLOCKED') {
+    if (blocked) {
       throw new ConflictException(
         'This record was blocked as a duplicate, so it can only be terminated.',
       );
     }
-    if (face?.status === 'PENDING') {
+    if (review) {
       throw new ConflictException(
         'A second ADMIN has to finish the duplicate review for this worker first.',
       );

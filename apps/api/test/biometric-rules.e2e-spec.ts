@@ -495,6 +495,35 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       );
     });
 
+    it('is never decided by the ADMIN who enrolled a face for this worker', async () => {
+      const worker = await newStarter();
+      // The enroller tried a face first; the second ADMIN took it off again.
+      await enroll(worker.id, anotherFace());
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(reviewer))
+        .send({ reason: 'The camera never reads this worker.' })
+        .expect(200);
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(reviewer))
+        .send({ reason: 'CANNOT_ENROLL', note: 'Three visits, no usable capture.' })
+        .expect(200);
+
+      // Approving means "this worker cannot be enrolled", which is a verdict
+      // on the enroller's own attempt, so the enroller may not give it.
+      const refused = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(enroller))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(403);
+
+      expect(refused.body.detail).toMatch(/enrolled a face/);
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+    });
+
     it('ends when the worker enrols a face after all', async () => {
       const worker = await newStarter();
       await api()
@@ -578,9 +607,18 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       });
 
     beforeAll(async () => {
+      // This block enrolls a great many people, so it takes a kiosk of its
+      // own: the per-device limit of 60 signed calls a minute is then never
+      // in the way. It is the last block in the file, so the swap is safe.
+      const registered = await api()
+        .post('/api/v1/devices')
+        .set(...bearer(enroller))
+        .send({ name: 'Retention kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
+        .expect(201);
+      kiosk = { id: registered.body.device.id, secret: registered.body.secret };
       // Fingerprint keys are only saved on a kiosk that has them switched on.
       await prisma.device.update({ where: { id: kiosk.id }, data: { passkeysEnabled: true } });
-    });
+    }, 60_000);
 
     it('wipes a leaver’s face and everything that described them, 90 days on', async () => {
       const gone = await newStarter();
@@ -667,6 +705,40 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       // The worker it matched keeps their own face: only the waiting one goes.
       const kept = await faceOf(first.id);
       expect(kept.status).toBe('ACTIVE');
+    });
+
+    it('keeps the worker shut out while that wiped review is still open', async () => {
+      const level = anotherFace();
+      const first = await newStarter();
+      await enroll(first.id, level);
+      const twin = await newStarter();
+      await enroll(twin.id, level);
+      const waiting = await faceOf(twin.id);
+      await dueAgain();
+      await sweeper().sweep(company.companyId, inDays(91));
+      expect((await faceOf(twin.id)).status).toBe('REVOKED');
+
+      // The face is gone, so the row is no longer PENDING — but the question
+      // is still unanswered, so nothing new may be recorded for this worker.
+      expect((await enroll(twin.id, anotherFace())).status).toBe(409);
+      const exemption = await api()
+        .post(`/api/v1/employees/${twin.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'CANNOT_ENROLL', note: 'Nobody ever answered the review.' });
+      expect(exemption.status).toBe(409);
+      const revoked = await api()
+        .post(`/api/v1/employees/${twin.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Tidying up.' });
+      expect(revoked.status).toBe(409);
+
+      // Deciding it opens the worker up again.
+      await resolve(reviewer, waiting.id, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Two brothers, two Ghana Cards, two different people.',
+      }).expect(200);
+
+      expect((await enroll(twin.id, anotherFace())).status).toBe(201);
     });
 
     it('leaves a record blocked as a duplicate exactly as it is', async () => {
