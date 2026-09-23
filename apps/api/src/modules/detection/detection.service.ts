@@ -29,7 +29,10 @@ import type {
 } from './detection.schemas.js';
 import {
   bilocation,
+  duplicateEnrollment,
   type Finding,
+  fallbackAbuse,
+  identityCollision,
   neverSeen,
   orphanPunches,
   RECURRENCE_CAP,
@@ -397,6 +400,37 @@ export class DetectionService {
         new Date(now.getTime() - days * DAY_MS),
       );
       return bilocation(counts, { overlaps: thresholds.overlaps ?? 3, days }, now);
+    }
+    if (code === 'R1') {
+      const collisions = await this.attendance.openFaceCollisions(companyId);
+      return duplicateEnrollment(collisions, thresholds, now);
+    }
+    if (code === 'R2') {
+      const shared = await this.employees.sharedPhoneNumbers(companyId);
+      return identityCollision(
+        shared.map((row) => ({ kind: 'phone' as const, ...row })),
+        { sharedBy: thresholds.sharedBy ?? 2 },
+        now,
+      );
+    }
+    if (code === 'R7') {
+      const days = thresholds.days ?? 30;
+      const from = new Date(now.getTime() - days * DAY_MS);
+      const [workers, supervisors] = await Promise.all([
+        this.attendance.clockInMethodsPerEmployee(companyId, from),
+        this.attendance.coSignsPerSupervisor(companyId, from),
+      ]);
+      return fallbackAbuse(
+        workers,
+        supervisors,
+        {
+          sharePercent: thresholds.sharePercent ?? 40,
+          days,
+          minimumClockIns: thresholds.minimumClockIns ?? 5,
+          supervisorCoSigns: thresholds.supervisorCoSigns ?? 20,
+        },
+        now,
+      );
     }
     if (code === 'R10') {
       const days = thresholds.days ?? 7;

@@ -21,7 +21,7 @@ review queue. Rules never punish anyone automatically; they surface and score.
 | # | Rule | Signal | Severity |
 |---|---|---|---|
 | R1 | **Duplicate enrollment** | A new biometric template matches an existing employee above the threshold at enrollment (1:N comparison); while the review is open, both records are shown to the payroll checker | CRITICAL: blocks activation |
-| R2 | **Identity collision** | A shared phone number, bank account or mobile money number across employees (the Ghana Card number is already a hard database constraint) | HIGH |
+| R2 | **Identity collision** | A shared phone number, bank account or mobile money number across employees (the Ghana Card number is already a hard database constraint). Version 1 checks the phone; the other two join it when payroll stores them | HIGH |
 | R3 | **Paid without presence** | A payroll line pays more hours than the recorded shifts support, beyond a tolerance | CRITICAL: blocks run submission until resolved |
 | R4 | **Bilocation** | One employee repeatedly has overlapping work segments at two sites | HIGH |
 | R5 | **Never seen** | ACTIVE for more than N days with no punches at all | HIGH: the classic ghost |

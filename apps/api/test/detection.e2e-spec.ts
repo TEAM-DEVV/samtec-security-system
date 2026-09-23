@@ -324,7 +324,14 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(rules.body.items).toHaveLength(11);
       const built = rules.body.items.filter((rule: { enabled: boolean }) => rule.enabled);
       // A rule that is not built must never read as a clean bill of health.
-      expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual(['R10', 'R4', 'R5']);
+      expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual([
+        'R1',
+        'R10',
+        'R2',
+        'R4',
+        'R5',
+        'R7',
+      ]);
     });
 
     it('refuses a threshold the rule does not have', async () => {
