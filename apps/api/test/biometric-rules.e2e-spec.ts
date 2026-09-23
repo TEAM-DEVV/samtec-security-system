@@ -33,7 +33,6 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
   let reviewer = '';
   /** A third ADMIN, for when the second one has touched a face themselves. */
   let secondReviewer = '';
-  let thirdAdminUserId = '';
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
@@ -170,7 +169,6 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         twoFactorSecretEncrypted: second.twoFactorSecretEncrypted,
       },
     });
-    thirdAdminUserId = third.id;
     secondReviewer = await sign(third.id, false);
 
     const registered = await api()

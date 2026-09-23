@@ -1,9 +1,15 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
-import type { KioskIdentifyResponse, KioskPunchResponse } from '@samtec/contracts';
+import type {
+  KioskFingerprintOptionsResponse,
+  KioskIdentifyResponse,
+  KioskPunchResponse,
+} from '@samtec/contracts';
 import type { Request } from 'express';
 import {
   type AssistedPunchBody,
   assistedPunchSchema,
+  type FingerprintOptionsBody,
+  fingerprintOptionsSchema,
   type KioskConfirmBody,
   type KioskIdentifyBody,
   type KioskNotMeBody,
@@ -19,7 +25,7 @@ import { CurrentDevice, DeviceSigned, type SignedDevice } from './device-signatu
  * `/api/v1/kiosk/*`: clocking in at the gate. Contract: the `Kiosk`
  * operations.
  *
- * These four are signed by the **device alone** — no user token — because
+ * These five are signed by the **device alone** — no user token — because
  * the person in front of the kiosk is a guard with no account of their own.
  * The kiosk set-up routes (consent, enrollment) are the other way round:
  * they also need an ADMIN signed in on that kiosk.
@@ -58,6 +64,17 @@ export class ClockInController {
     @Body({ schema: kioskConfirmSchema }) body: KioskConfirmBody,
   ): Promise<KioskPunchResponse> {
     return this.clockIn.confirm(device, body);
+  }
+
+  @Post('fingerprint-options')
+  @HttpCode(200)
+  @DeviceSigned('kiosk/fingerprint-options')
+  fingerprintOptions(
+    @CurrentDevice() device: SignedDevice,
+    @Body({ schema: fingerprintOptionsSchema }) body: FingerprintOptionsBody,
+    @Req() request: Request,
+  ): Promise<KioskFingerprintOptionsResponse> {
+    return this.clockIn.fingerprintOptions(device, body, clientAddress(request));
   }
 
   @Post('assisted-punches')

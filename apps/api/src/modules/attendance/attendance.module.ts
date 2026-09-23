@@ -24,6 +24,7 @@ import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
 import { KioskOperatorGuard } from './kiosk-operator.guard.js';
 import { PairingService } from './pairing.service.js';
+import { PasskeysService } from './passkeys.service.js';
 
 /**
  * The attendance module: devices, punches, work segments and the exception
@@ -50,6 +51,7 @@ import { PairingService } from './pairing.service.js';
     DevicesService,
     IngestService,
     PairingService,
+    PasskeysService,
     DeviceSignatureGuard,
     KioskOperatorGuard,
     // Faces do not go through BIOMETRIC_PROVIDER: the kiosk's model makes the

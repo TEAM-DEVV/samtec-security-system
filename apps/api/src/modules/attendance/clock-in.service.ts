@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import type {
+  KioskFingerprintOptionsResponse,
   KioskIdentifyResponse,
   KioskPunchResponse,
   KioskWorker,
@@ -7,19 +8,34 @@ import type {
 } from '@samtec/contracts';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { AttemptOutcome, PunchDirection } from '../../generated/prisma/enums.js';
+import type {
+  AttemptOutcome,
+  AttemptPurpose,
+  PunchDirection,
+} from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   AssistedPunchBody,
+  FingerprintOptionsBody,
   KioskConfirmBody,
   KioskIdentifyBody,
   KioskNotMeBody,
 } from './attendance.schemas.js';
+import {
+  ATTENDANCE_TRANSACTION_OPTIONS,
+  AttendanceBusyException,
+  isLockTimeout,
+  lockCompanyAttendance,
+} from './attendance-lock.js';
 import { asSealedFaces, BiometricsUnavailableException } from './biometrics.service.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import { FaceProvider } from './face-provider.js';
 import { IngestService } from './ingest.service.js';
+import { PasskeysService } from './passkeys.service.js';
+
+/** WebAuthn's own options, as the contract carries them through. */
+type FingerprintOptions = NonNullable<KioskIdentifyResponse['fingerprint']>['options'];
 
 /**
  * Either the plain client or one inside a transaction. The eligibility
@@ -48,6 +64,20 @@ export const FAILURES_BEFORE_FALLBACK = 3;
 export const CANNOT_PUNCH = 'This cannot be recorded here. Ask your supervisor.';
 
 /**
+ * What a usable attempt looks like, per kind. A face attempt is a `MATCHED`
+ * one; the staff-number fallback never matches a face at all, so its own
+ * outcome is `FINGERPRINT_REQUESTED` (a database CHECK insists on exactly
+ * this pairing).
+ */
+const ATTEMPT_KINDS = {
+  CLOCK: { purpose: 'CLOCK', outcome: 'MATCHED' },
+  CO_SIGN: { purpose: 'CO_SIGN', outcome: 'MATCHED' },
+  STAFF_PASSKEY: { purpose: 'STAFF_PASSKEY', outcome: 'FINGERPRINT_REQUESTED' },
+} as const satisfies Record<string, { purpose: AttemptPurpose; outcome: AttemptOutcome }>;
+
+type AttemptKind = keyof typeof ATTEMPT_KINDS;
+
+/**
  * The clock-in itself (docs/plan/13-biometrics-design.md section 3).
  *
  * Three steps, so nothing is ever recorded on a guess: **identify** says who
@@ -71,6 +101,7 @@ export class ClockInService {
     private readonly employees: EmployeesService,
     private readonly faces: FaceProvider,
     private readonly ingest: IngestService,
+    private readonly passkeys: PasskeysService,
   ) {}
 
   /**
@@ -121,6 +152,12 @@ export class ClockInService {
     // A co-sign names the supervisor, not the worker: it is the supervisor
     // who stood in front of the camera.
     const person = matched ? await this.workerOf(device.companyId, matched.employeeId) : null;
+    // Once a worker's finger is saved on a kiosk, that kiosk always asks for
+    // it: the face says who, the finger confirms. The challenge is written
+    // on the attempt, so the answer can only be for this one clock-in.
+    const fingerprint = matched
+      ? await this.passkeys.challengeFor(device, matched.employeeId)
+      : null;
     const attempt = await this.prisma.clockInAttempt.create({
       data: {
         companyId: device.companyId,
@@ -144,6 +181,7 @@ export class ClockInService {
         realScore: body.sample.real,
         liveScore: body.sample.live,
         thresholdVersion: this.faces.thresholdVersion,
+        fingerprintChallenge: fingerprint?.challenge ?? null,
         clientAddress: address,
       },
       select: { id: true },
@@ -152,8 +190,7 @@ export class ClockInService {
       attemptId: attempt.id,
       outcome: outcomeOf(found.outcome),
       worker: person,
-      // Fingerprints arrive with the passkeys in pull request 7.
-      fingerprint: null,
+      fingerprint: fingerprint ? { options: fingerprint as unknown as FingerprintOptions } : null,
     };
   }
 
@@ -202,7 +239,10 @@ export class ClockInService {
    * anything the kiosk sends now.
    */
   async confirm(device: SignedDevice, body: KioskConfirmBody): Promise<KioskPunchResponse> {
-    const attempt = await this.confirmableAttempt(device, body.attemptId);
+    const attempt = await this.confirmableAttempt(device, body.attemptId, [
+      'CLOCK',
+      'STAFF_PASSKEY',
+    ]);
     if (attempt.employeeId === null) {
       throw new ConflictException(CANNOT_PUNCH);
     }
@@ -210,8 +250,30 @@ export class ClockInService {
     if (!worker) {
       throw new ConflictException(CANNOT_PUNCH);
     }
-    // Pull request 7 adds FACE_PASSKEY here, when the kiosk's own sensor
-    // confirmed the face.
+    // A finger that was asked for is required: cancelling it means no punch
+    // at all, never a quieter one (docs/plan/13 §4).
+    if (attempt.fingerprintChallenge !== null) {
+      const answered =
+        body.assertion !== undefined &&
+        (await this.passkeys.assertionAnswers(
+          device,
+          attempt.employeeId,
+          attempt.fingerprintChallenge,
+          body.assertion,
+        ));
+      if (!answered) {
+        throw new ConflictException(CANNOT_PUNCH);
+      }
+      return this.punch(
+        device,
+        attempt,
+        worker,
+        // A staff number opens **any** finger saved on the kiosk, not this
+        // worker's own, so its punches are marked apart and the ghost rules
+        // count them (docs/plan/13 §4).
+        attempt.purpose === 'STAFF_PASSKEY' ? 'STAFF_PASSKEY' : 'FACE_PASSKEY',
+      );
+    }
     return this.punch(device, attempt, worker, 'FACE');
   }
 
@@ -224,7 +286,7 @@ export class ClockInService {
    * because the kiosk must not be able to find out (docs/plan/13 §3).
    */
   async assistedPunch(device: SignedDevice, body: AssistedPunchBody): Promise<KioskPunchResponse> {
-    const attempt = await this.confirmableAttempt(device, body.coSignAttemptId, 'CO_SIGN');
+    const attempt = await this.confirmableAttempt(device, body.coSignAttemptId, ['CO_SIGN']);
     if (attempt.employeeId === null || attempt.staffNumberTried === null) {
       throw new ConflictException(CANNOT_PUNCH);
     }
@@ -234,6 +296,19 @@ export class ClockInService {
     });
     if (!worker || worker.id === supervisorId) {
       throw new ConflictException(CANNOT_PUNCH);
+    }
+    if (attempt.fingerprintChallenge !== null) {
+      const answered =
+        body.assertion !== undefined &&
+        (await this.passkeys.assertionAnswers(
+          device,
+          supervisorId,
+          attempt.fingerprintChallenge,
+          body.assertion,
+        ));
+      if (!answered) {
+        throw new ConflictException(CANNOT_PUNCH);
+      }
     }
     await this.assertMaySupervise(device, supervisorId);
     await this.assertMayBeCoSigned(device, worker.id, worker.status);
@@ -278,6 +353,85 @@ export class ClockInService {
   }
 
   /**
+   * The staff number and a finger, when the camera will not have this worker
+   * (docs/plan/13 §4). The worker types their number and puts a finger on the
+   * kiosk's own sensor; the key that answers is their own, saved on this
+   * kiosk, so the number alone opens nothing.
+   *
+   * **Any** finger saved on the kiosk can unlock it, which is why the punch
+   * is marked `STAFF_PASSKEY` and counted by the ghost rules — this is the
+   * weakest way in, and the report says so.
+   *
+   * Every call that had an unlock uses it up, whatever the answer, so one run
+   * of three failures can never be spent trying staff numbers one after
+   * another. The check and the attempt it writes share the company's
+   * attendance lock, so two kiosk requests cannot both spend the same unlock.
+   */
+  async fingerprintOptions(
+    device: SignedDevice,
+    body: FingerprintOptionsBody,
+    address: string | null,
+  ): Promise<KioskFingerprintOptionsResponse> {
+    const worker = await this.employees.atTheKiosk(device.companyId, {
+      staffNumber: body.staffNumber,
+    });
+    // Everything the answer needs, read before the lock is taken: a locked
+    // transaction must never wait on another module (docs/plan/12 §2).
+    const allowed =
+      worker !== null &&
+      worker.status === 'ACTIVE' &&
+      (await this.employees.isPostedTo(device.companyId, worker.id, device.siteId));
+    const options = allowed ? await this.passkeys.challengeFor(device, worker.id) : null;
+
+    const attempt = await this.spendUnlock(device, {
+      companyId: device.companyId,
+      deviceId: device.id,
+      purpose: 'STAFF_PASSKEY',
+      direction: body.direction,
+      outcome: options ? 'FINGERPRINT_REQUESTED' : 'FALLBACK_REFUSED',
+      // A number that opens nothing is written down as typed and nothing
+      // else: the attempt log is how an ADMIN sees a kiosk being probed.
+      employeeId: options && worker ? worker.id : null,
+      staffNumberTried: body.staffNumber,
+      fingerprintChallenge: options?.challenge ?? null,
+      clientAddress: address,
+    });
+    if (!options || !worker) {
+      // An unknown number, a worker who is not posted here, one with no
+      // finger saved on this kiosk: one answer for all of them.
+      throw new ConflictException(CANNOT_PUNCH);
+    }
+    return {
+      attemptId: attempt.id,
+      worker: kioskWorker(worker),
+      options: options as unknown as KioskFingerprintOptionsResponse['options'],
+    };
+  }
+
+  /**
+   * Writes a fallback attempt under the company's attendance lock, having
+   * checked inside that same lock that the fallback really is unlocked.
+   *
+   * The lock is what makes "every call uses up the unlock" true: without it
+   * two requests could both read the same three failures and both go
+   * through.
+   */
+  private async spendUnlock(
+    device: SignedDevice,
+    data: Prisma.ClockInAttemptUncheckedCreateInput,
+  ): Promise<{ id: string }> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockCompanyAttendance(tx, device.companyId);
+        await this.assertFallbackUnlocked(device, tx);
+        return tx.clockInAttempt.create({ data, select: { id: true } });
+      }, ATTENDANCE_TRANSACTION_OPTIONS);
+    } catch (error) {
+      throw isLockTimeout(error) ? new AttendanceBusyException() : error;
+    }
+  }
+
+  /**
    * The attempt this call is about, if it may still be used: this device's
    * own, a match, the right purpose, under a minute old, not cancelled and
    * not already a punch.
@@ -289,23 +443,24 @@ export class ClockInService {
   private async confirmableAttempt(
     device: SignedDevice,
     attemptId: string,
-    purpose: 'CLOCK' | 'CO_SIGN' = 'CLOCK',
+    kinds: readonly AttemptKind[] = ['CLOCK'],
   ) {
     const attempt = await this.prisma.clockInAttempt.findFirst({
       where: {
         id: attemptId,
         companyId: device.companyId,
         deviceId: device.id,
-        purpose,
-        outcome: 'MATCHED',
+        OR: kinds.map((kind) => ATTEMPT_KINDS[kind]),
         attemptedAt: { gte: new Date(Date.now() - ATTEMPT_GOOD_FOR_SECONDS * 1000) },
       },
       select: {
         id: true,
+        purpose: true,
         direction: true,
         employeeId: true,
         staffNumberTried: true,
         attemptedAt: true,
+        fingerprintChallenge: true,
         cancelledBy: { select: { id: true } },
       },
     });
@@ -516,7 +671,7 @@ export class ClockInService {
     device: SignedDevice,
     attempt: { id: string; direction: PunchDirection; attemptedAt: Date },
     worker: KioskWorker,
-    method: 'FACE' | 'PIN_FALLBACK',
+    method: 'FACE' | 'FACE_PASSKEY' | 'STAFF_PASSKEY' | 'PIN_FALLBACK',
     alsoInTheSameCommit?: (tx: Prisma.TransactionClient, results: PunchResult[]) => Promise<void>,
   ): Promise<KioskPunchResponse> {
     const answer = await this.ingest.ingestPunches(
