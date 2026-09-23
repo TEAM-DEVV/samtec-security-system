@@ -3,6 +3,7 @@ import type { HeartbeatResponse, IngestPunchesResponse, PunchResult } from '@sam
 import { fromIsoDate, toAccraDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import type { PunchMethod } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService, type StaffLookup } from '../workforce/employees.service.js';
 import type { HeartbeatBody, IngestPunchesBody } from './attendance.schemas.js';
@@ -21,6 +22,16 @@ import {
   punchPayloadHash,
   staffNumberForDeviceUser,
 } from './punch-rules.js';
+
+/**
+ * What this service itself accepts. Wider than a device's request body: the
+ * kiosk's own methods (`FACE_PASSKEY`, `STAFF_PASSKEY`) are chosen by the
+ * server, so they may never arrive in a request — but the clock-in service
+ * hands them straight to this method.
+ */
+export type ServerPunchesBody = Omit<IngestPunchesBody, 'punches'> & {
+  punches: (Omit<IngestPunchesBody['punches'][number], 'method'> & { method: PunchMethod })[];
+};
 
 /** A new punch that was just stored, with what the exception rules need. */
 interface StoredPunch {
@@ -52,7 +63,7 @@ export class IngestService {
 
   async ingestPunches(
     device: SignedDevice,
-    body: IngestPunchesBody,
+    body: ServerPunchesBody,
     alsoInTheSameCommit?: (tx: Prisma.TransactionClient, results: PunchResult[]) => Promise<void>,
   ): Promise<IngestPunchesResponse> {
     const serverTime = new Date();

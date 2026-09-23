@@ -250,7 +250,12 @@ export const kioskIdentifySchema = z.discriminatedUnion('purpose', [
 export type KioskIdentifyBody = z.infer<typeof kioskIdentifySchema>;
 
 /** Contract: `KioskConfirmRequest`. The fingerprint answer arrives in pull request 7. */
-export const kioskConfirmSchema = z.strictObject({ attemptId: z.uuid() });
+export const kioskConfirmSchema = z.strictObject({
+  attemptId: z.uuid(),
+  // WebAuthn's own answer, through unchanged: its library is what checks
+  // the shape, and narrowing it here would invent a second definition.
+  assertion: z.looseObject({}).optional(),
+});
 export type KioskConfirmBody = z.infer<typeof kioskConfirmSchema>;
 
 /** Contract: `KioskNotMeRequest`. The kiosk named the wrong person. */
@@ -260,6 +265,7 @@ export type KioskNotMeBody = z.infer<typeof kioskNotMeSchema>;
 /** Contract: `KioskAssistedPunchRequest`. The reason is kept with the audit record. */
 export const assistedPunchSchema = z.strictObject({
   coSignAttemptId: z.uuid(),
+  assertion: z.looseObject({}).optional(),
   reason: z.string().trim().min(3).max(200),
 });
 export type AssistedPunchBody = z.infer<typeof assistedPunchSchema>;
@@ -291,3 +297,26 @@ export const listAttemptsQuerySchema = z.strictObject({
   cursor: cursor.optional(),
 });
 export type ListAttemptsQuery = z.infer<typeof listAttemptsQuerySchema>;
+
+/** Contract: `PasskeyOptionsRequest`. Ask the device to make a key for this worker. */
+export const passkeyOptionsSchema = z.strictObject({ employeeId: z.uuid() });
+export type PasskeyOptionsBody = z.infer<typeof passkeyOptionsSchema>;
+
+/**
+ * Contract: `RegisterPasskeyRequest`. The browser's own answer travels
+ * through unchanged — WebAuthn's library is what checks its shape, and
+ * narrowing it here would only invent a second, weaker definition.
+ */
+export const registerPasskeySchema = z.strictObject({
+  employeeId: z.uuid(),
+  ticket: z.string().min(1).max(4096),
+  response: z.looseObject({}),
+});
+export type RegisterPasskeyBody = z.infer<typeof registerPasskeySchema>;
+
+/** Contract: `KioskFingerprintOptionsRequest`. The staff-number fallback. */
+export const fingerprintOptionsSchema = z.strictObject({
+  staffNumber,
+  direction: kioskDirection,
+});
+export type FingerprintOptionsBody = z.infer<typeof fingerprintOptionsSchema>;

@@ -1,20 +1,27 @@
-import { Body, Controller, Get, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Res } from '@nestjs/common';
 import type {
   BiometricConsent,
   BiometricConsentText,
+  DevicePasskey,
   FaceEnrollmentResult,
+  PasskeyOptionsResponse,
 } from '@samtec/contracts';
 import type { Response } from 'express';
 import { Caller, OnKiosk, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   type EnrollFaceBody,
   enrollFaceSchema,
+  type PasskeyOptionsBody,
+  passkeyOptionsSchema,
   type RecordConsentBody,
+  type RegisterPasskeyBody,
   recordConsentSchema,
+  registerPasskeySchema,
 } from './attendance.schemas.js';
 import { BiometricsService } from './biometrics.service.js';
 import { CurrentDevice, type SignedDevice } from './device-signature.guard.js';
 import { KioskOperator } from './kiosk-operator.guard.js';
+import { PasskeysService } from './passkeys.service.js';
 
 /**
  * `/api/v1/biometrics/*` and the kiosk's ADMIN routes. Contract: the
@@ -22,7 +29,10 @@ import { KioskOperator } from './kiosk-operator.guard.js';
  */
 @Controller()
 export class BiometricsController {
-  constructor(private readonly biometrics: BiometricsService) {}
+  constructor(
+    private readonly biometrics: BiometricsService,
+    private readonly passkeys: PasskeysService,
+  ) {}
 
   /** Any signed-in role may read the wording, including on a kiosk. */
   @OnKiosk()
@@ -53,5 +63,28 @@ export class BiometricsController {
     @Body({ schema: enrollFaceSchema }) body: EnrollFaceBody,
   ): Promise<FaceEnrollmentResult> {
     return this.biometrics.enrollFace(caller, device, body);
+  }
+
+  /** Ask this kiosk to make a key for one worker's finger. Nothing is stored yet. */
+  @KioskOperator('kiosk/passkey-options')
+  @Post('kiosk/passkey-options')
+  @HttpCode(200)
+  passkeyOptions(
+    @Caller() caller: SignedInUser,
+    @CurrentDevice() device: SignedDevice,
+    @Body({ schema: passkeyOptionsSchema }) body: PasskeyOptionsBody,
+  ): Promise<PasskeyOptionsResponse> {
+    return this.passkeys.options(caller, device, body);
+  }
+
+  /** Save the key the kiosk just made. */
+  @KioskOperator('kiosk/passkeys')
+  @Post('kiosk/passkeys')
+  registerPasskey(
+    @Caller() caller: SignedInUser,
+    @CurrentDevice() device: SignedDevice,
+    @Body({ schema: registerPasskeySchema }) body: RegisterPasskeyBody,
+  ): Promise<DevicePasskey> {
+    return this.passkeys.register(caller, device, body);
   }
 }

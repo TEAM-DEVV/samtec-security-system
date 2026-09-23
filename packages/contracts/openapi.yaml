@@ -71,6 +71,8 @@ tags:
     description: >-
       Consent, enrolled faces and fingerprint keys, the duplicate-enrollment
       queue, and exemptions. Never an image or a template. Built in Phase 3.
+  # --- Payroll (Phase 4) --- Samuel adds payroll tags here, and nowhere else.
+  # --- Detection (Phase 5) --- Francis adds detection tags here.
 
 security:
   - bearerAuth: []
@@ -2774,6 +2776,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  # --- Payroll (Phase 4) --- Samuel adds /payroll paths here, and nowhere else.
+  # --- Detection (Phase 5) --- Francis adds /detection paths here.
+
 components:
   securitySchemes:
     bearerAuth:
@@ -5456,3 +5461,12 @@ components:
         nextCursor:
           type: [string, "null"]
           description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    # --- Payroll (Phase 4) --- Samuel adds payroll schemas here, and nowhere
+    # else. Every name carries its module: PayrollPeriod, PayrollRun,
+    # PayrollLine, TaxTable, Payslip; operationIds listPayrollRuns,
+    # approvePayrollRun, and so on.
+
+    # --- Detection (Phase 5) --- Francis adds detection schemas here.
+    # DetectionRule, DetectionAlert; operationIds listDetectionAlerts,
+    # resolveDetectionAlert.

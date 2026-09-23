@@ -16,7 +16,10 @@ export type SignedRoute =
   | 'kiosk/identify'
   | 'kiosk/confirm'
   | 'kiosk/not-me'
-  | 'kiosk/assisted-punches';
+  | 'kiosk/assisted-punches'
+  | 'kiosk/passkey-options'
+  | 'kiosk/passkeys'
+  | 'kiosk/fingerprint-options';
 
 export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
 
@@ -49,6 +52,9 @@ export function kindMayUse(
     case 'kiosk/confirm':
     case 'kiosk/not-me':
     case 'kiosk/assisted-punches':
+    case 'kiosk/passkey-options':
+    case 'kiosk/passkeys':
+    case 'kiosk/fingerprint-options':
       return kind === 'FACE_KIOSK';
   }
 }
