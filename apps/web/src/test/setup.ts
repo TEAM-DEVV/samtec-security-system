@@ -2,9 +2,12 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { clearSession } from '@/lib/session';
+import { resetMockAttendance } from '@/mocks/handlers/attendance';
 import { resetMockSession } from '@/mocks/handlers/auth';
+import { resetMockDevices } from '@/mocks/handlers/devices';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
 import { resetMockRosters } from '@/mocks/handlers/rosters';
+import { resetMockUsers } from '@/mocks/handlers/users';
 import { server } from '@/mocks/node';
 
 // Every test talks to the mock API. A request with no mock handler fails the
@@ -18,6 +21,9 @@ afterEach(() => {
   resetMockSession();
   resetMockEmployees();
   resetMockRosters();
+  resetMockUsers();
+  resetMockAttendance();
+  resetMockDevices();
   clearSession();
   cleanup();
 });

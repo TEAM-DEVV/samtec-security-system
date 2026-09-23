@@ -23,8 +23,11 @@ Each task ended with a working demo in mock mode, a test, and a pull request. Ke
 5. **Employee detail page** (`/employees/:id`): full record, status badge, current site; show the Ghana Card number only when the API sends it (it is omitted for roles that may not see it).
 6. **Sites page** (`/sites`): follow the step-by-step example in `docs/guides/03-frontend-guide.md`.
 7. **Switch live mode on**: done once sign-in worked against the real API (`pnpm dev`); the live-mode placeholder was removed from `src/app/router.tsx`, so every page is served in both modes.
+8. **Users pages** (ADMIN only): `src/pages/users-page.tsx`, `new-user-page.tsx` (the one-time link is `/set-password#token=…`, shown once) and `user-detail-page.tsx` (edit, switch off/on, reset sign-in, never on your own account). The mock Users API enforces sign-in, ADMIN and the own-account rules like the real one.
+9. **Change password**: `src/pages/change-password-page.tsx` at `/account/password`; on success the session is cleared and the sign-in page shows a notice from the router state.
+10. **Phase 2 attendance** (`src/lib/attendance.ts` holds every label and rule): worked shifts (`attendance-page.tsx`, a date range of at most 31 days, site and status filters), `my-attendance-page.tsx` for the signed-in employee, the exception queue (`exceptions-page.tsx`) and one exception with its evidence and decision form (`exception-detail-page.tsx`; the API's `allowedActions` decides what the form offers), and the Devices pages (`devices-page.tsx`, `new-device-page.tsx`, `device-detail-page.tsx`; secrets are shown once through `SecretPanel` and never cached).
 
-The next dashboard work follows the roadmap (`docs/plan/07-roadmap.md`): Phase 1's employee create/edit/terminate forms (the API endpoints are merged; `openapi.yaml` has the request shapes), then Phase 2's attendance screens.
+The next dashboard work follows the roadmap (`docs/plan/07-roadmap.md`): Phase 1's employee create/edit/terminate forms (the API endpoints are merged; `openapi.yaml` has the request shapes), then Phase 3's biometrics screens (live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts), all listed in the root `CLAUDE.md`.
 
 ## Traps to avoid
 

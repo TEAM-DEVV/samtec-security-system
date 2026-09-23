@@ -31,7 +31,22 @@ export const pageRoles = {
   sites: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** Creating, changing or terminating an employee (`POST`/`PATCH /employees…`). */
   employeeChanges: ['ADMIN', 'HR_PAYROLL'],
+  /** `GET /users` and every other Users operation: sign-in accounts are an administrator's job. */
+  users: ['ADMIN'],
+  /** `GET /attendance/segments` for the company or a site. A guard sees only themselves, on "My attendance". */
+  attendance: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** `GET /attendance/exceptions`: the queue. HR reads it; ADMIN and SUPERVISOR also resolve. */
+  exceptions: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** Every Devices operation. */
+  devices: ['ADMIN'],
+  /** `POST /attendance/exceptions/{id}/resolve`. The API also refuses your own attendance and other sites. */
+  resolveExceptions: ['ADMIN', 'SUPERVISOR'],
 } as const satisfies Record<string, readonly UserRole[]>;
+
+/** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */
+export function roleNeedsEmployee(role: UserRole): boolean {
+  return role === 'SUPERVISOR' || role === 'GUARD';
+}
 
 /** True when `role` is one of `allowed`. */
 export function roleAllowed(allowed: readonly UserRole[], role: UserRole): boolean {

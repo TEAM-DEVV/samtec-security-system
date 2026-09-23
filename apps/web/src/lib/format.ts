@@ -113,3 +113,59 @@ export function initials(fullName: string): string {
   const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
   return `${first}${last}`.toUpperCase();
 }
+
+const ghanaTime = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** Only the clock time of a timestamp, in Ghana: "2026-09-15T08:30:00Z" → "08:30". */
+export function formatTime(isoTimestamp: string): string {
+  return ghanaTime.format(new Date(isoTimestamp));
+}
+
+/** Worked minutes as hours and minutes: 725 → "12h 05m". */
+export function formatMinutes(minutes: number): string {
+  if (!Number.isInteger(minutes) || minutes < 0) {
+    throw new TypeError(`Minutes must be a whole number of at least 0, but got ${minutes}.`);
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+const ghanaIsoDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Africa/Accra',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Today's calendar date in Ghana, as the API writes dates: "2026-09-23". Defaults to now. */
+export function todayInGhana(now: Date = new Date()): string {
+  return ghanaIsoDate.format(now);
+}
+
+/** A calendar date moved by some days: addDays("2026-09-23", -7) → "2026-09-16". */
+export function addDays(isoDate: string, days: number): string {
+  if (!CALENDAR_DATE.test(isoDate)) {
+    throw new TypeError(`addDays expects a calendar date like "2026-09-15", but got "${isoDate}".`);
+  }
+  const moved = new Date(`${isoDate}T00:00:00Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return moved.toISOString().slice(0, 10);
+}
+
+/**
+ * A timestamp as a `datetime-local` input wants it, in Ghana time. Ghana is
+ * UTC+0 all year, so the clock time in the ISO string is already Ghana time.
+ */
+export function toGhanaLocalInput(isoTimestamp: string): string {
+  return new Date(isoTimestamp).toISOString().slice(0, 16);
+}
+
+/** The reverse: a `datetime-local` value typed in Ghana time, as the API wants it (UTC). */
+export function fromGhanaLocalInput(value: string): string {
+  return `${value}:00Z`;
+}

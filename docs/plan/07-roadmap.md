@@ -42,7 +42,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - [x] User management (API): administrators create, change, switch off and reset sign-in accounts; owners choose their own password with a one-time link; the token guard checks the account on every request; terminating an employee switches their account off; an audited script creates the first administrator
 - [x] Dashboard: the public set-password page, where a one-time link lands (`/set-password#token=…`)
-- [ ] Dashboard (Samuel): Users pages for ADMIN and a change-password form — the mock API already supports them
+- [x] Dashboard (Samuel): Users pages for ADMIN (list, add with the one-time link, account page with switch off/on and reset sign-in) and a change-password form
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)
 
@@ -54,7 +54,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Pairing of clock-ins and clock-outs into work segments, re-paired from scratch over 62 days, so arrival order never matters
 - [x] Exception queue API (missing clock-out or clock-in, unknown or inactive employee, overlaps) and resolving it: nobody resolves their own attendance, and HR reads but never creates hours
 - [x] Night shifts from 22:00 to 06:00 proven with tests (480 minutes, counted on the start date)
-- [ ] Dashboard (Samuel): attendance day view, a guard's "My attendance", the exception queue with its resolution screen, and the Devices page (ADMIN). The mock API already supports them.
+- [x] Dashboard (Samuel): worked shifts by day range and site, a guard's "My attendance", the exception queue with its evidence and resolution screen (dismiss, add a shift by hand, keep one, void both), and the Devices pages (register with the one-time secret, health, rename, switch off/on, new secret, ZKTeco serial and kiosk fingerprint switch)
 - **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in ([The attendance demo](../guides/10-attendance-demo.md))
 
 ## Phase 3 · Real biometrics (weeks 6 and 7)
@@ -71,7 +71,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
-- [ ] **Samuel:** dashboard — live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, and the new device fields. The mock API already supports them.
+- [ ] **Samuel:** dashboard — live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, and kiosk attempts per device. The mock API already supports them. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel

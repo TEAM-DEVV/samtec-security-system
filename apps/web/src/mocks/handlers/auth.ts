@@ -50,7 +50,21 @@ const memory = {
   usersWhoEnabledTwoFactor: new Set<string>(),
   /** Wrong passwords per email, counted whether or not the email has an account. */
   passwordFailures: new Map<string, number>(),
+  /** Accounts whose sessions were ended (a password change); their tokens stop working until the next sign-in. */
+  endedUserIds: new Set<string>(),
 };
+
+/**
+ * Ends every session of one account, like the real API does after a password
+ * change: the access token stops working and the pretend refresh cookie is
+ * cleared, so the next request answers 401 and no refresh can rescue it.
+ */
+export function endMockSessions(userId: string): void {
+  memory.endedUserIds.add(userId);
+  if (memory.signedInUserId === userId) {
+    setSignedInUser(undefined);
+  }
+}
 
 /** Forgets every sign-in. Tests call this after each test, so tests never affect each other. */
 export function resetMockSession(): void {
@@ -58,6 +72,7 @@ export function resetMockSession(): void {
   memory.pendingTokens.clear();
   memory.usersWhoEnabledTwoFactor.clear();
   memory.passwordFailures.clear();
+  memory.endedUserIds.clear();
 }
 
 function readMockCookie(): string | undefined {
@@ -223,10 +238,14 @@ export const authHandlers = [
  */
 export function userForRequest(request: Request): CurrentUser | undefined {
   const authorization = request.headers.get('Authorization');
-  return mockUsers.find((candidate) => authorization === `Bearer ${accessTokenFor(candidate)}`);
+  const user = mockUsers.find(
+    (candidate) => authorization === `Bearer ${accessTokenFor(candidate)}`,
+  );
+  return user && !memory.endedUserIds.has(user.id) ? user : undefined;
 }
 
 function signIn(user: CurrentUser): AuthenticatedSession {
+  memory.endedUserIds.delete(user.id);
   setSignedInUser(user.id);
   return {
     status: 'AUTHENTICATED',
