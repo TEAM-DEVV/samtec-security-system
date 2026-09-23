@@ -5,6 +5,7 @@ import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './health/health.module.js';
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
+import { DetectionModule } from './modules/detection/detection.module.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
 import { UsersModule } from './modules/identity/users.module.js';
 import { WorkforceModule } from './modules/workforce/workforce.module.js';
@@ -24,6 +25,7 @@ import { WorkforceModule } from './modules/workforce/workforce.module.js';
     WorkforceModule,
     UsersModule,
     AttendanceModule,
+    DetectionModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
 })

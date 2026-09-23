@@ -4,6 +4,7 @@ import { IdentityModule } from '../identity/identity.module.js';
 import { WorkforceModule } from '../workforce/workforce.module.js';
 import { AttendanceController } from './attendance.controller.js';
 import { AttendanceService } from './attendance.service.js';
+import { AttendanceFactsService } from './attendance-facts.service.js';
 import {
   BIOMETRIC_PROVIDER,
   type BiometricProvider,
@@ -47,6 +48,7 @@ import { PasskeysService } from './passkeys.service.js';
   ],
   providers: [
     AttendanceService,
+    AttendanceFactsService,
     BiometricsService,
     BiometricReviewsService,
     BiometricRetentionService,
@@ -74,6 +76,6 @@ import { PasskeysService } from './passkeys.service.js';
       },
     },
   ],
-  exports: [BIOMETRIC_PROVIDER, FaceProvider],
+  exports: [BIOMETRIC_PROVIDER, FaceProvider, AttendanceFactsService],
 })
 export class AttendanceModule {}

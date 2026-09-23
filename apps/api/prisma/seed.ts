@@ -28,6 +28,9 @@ import { deviceSecretKey } from '../src/modules/attendance/device-secret.js';
 import { hashPassword } from '../src/modules/identity/password.js';
 import { sealSecret } from '../src/modules/identity/secret-box.js';
 
+/** The planted ghost of rule R5, so a test can name him without guessing. */
+export const PLANTED_GHOST_STAFF_NUMBER = 'SMT-00099';
+
 const DEMO_COMPANY_ID = '01927c3e-0000-7000-8000-000000000001';
 const EMPLOYEE_COUNT = 50;
 
@@ -274,12 +277,67 @@ async function main(): Promise<void> {
     );
   }
   await seedUsers(company.id);
+  await seedPlantedGhost(company.id, sites);
 
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
   const userCount = await prisma.user.count({ where: { companyId: company.id } });
   console.log(
     `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${await prisma.device.count({ where: { companyId: company.id } })} devices and ${userCount} sign-in accounts (all fictional).`,
   );
+}
+
+/**
+ * The planted ghost the Phase 5 demo has to catch: on the payroll, posted to
+ * a site, past the settling-in period, and never once at a gate
+ * (docs/plan/08-ghost-detection-engine.md, rule R5).
+ *
+ * It is labelled ground truth — the report's precision and recall discussion
+ * is written from finding exactly this person and nobody else. Fictional,
+ * like every other row here, and deliberately unremarkable: a ghost that
+ * looked odd in the list would prove nothing.
+ *
+ * It uses no random numbers, so the 50 employees above are unchanged.
+ */
+async function seedPlantedGhost(companyId: string, sites: Site[]): Promise<void> {
+  const site = sites[0];
+  if (!site) {
+    return;
+  }
+  const hireDate = new Date(Date.now() - 45 * 86_400_000);
+  const details = {
+    firstName: 'Yaw',
+    lastName: 'Boadu',
+    otherNames: null,
+    phone: '+233200000199',
+    email: null,
+    ghanaCardNumber: 'GHA-999000199-9',
+    position: 'Security Guard',
+    status: EmployeeStatus.ACTIVE,
+    // Enrolled on paper, so the only thing wrong is that nobody has ever
+    // seen him at a gate.
+    biometricEnrolledAt: new Date(hireDate.getTime() + 34 * 3_600_000),
+    hireDate,
+    terminationDate: null,
+    terminationReason: null,
+  };
+  const ghost = await prisma.employee.upsert({
+    where: { companyId_staffNumber: { companyId, staffNumber: PLANTED_GHOST_STAFF_NUMBER } },
+    update: details,
+    create: { ...details, companyId, staffNumber: PLANTED_GHOST_STAFF_NUMBER },
+  });
+
+  const periods = await prisma.employmentPeriod.count({ where: { employeeId: ghost.id } });
+  if (periods === 0) {
+    await prisma.employmentPeriod.create({
+      data: { companyId, employeeId: ghost.id, startsOn: hireDate, endsOn: null },
+    });
+  }
+  const postings = await prisma.siteAssignment.count({ where: { employeeId: ghost.id } });
+  if (postings === 0) {
+    await prisma.siteAssignment.create({
+      data: { companyId, employeeId: ghost.id, siteId: site.id, startsOn: hireDate },
+    });
+  }
 }
 
 /**

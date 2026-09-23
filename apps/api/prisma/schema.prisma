@@ -120,6 +120,9 @@ model Company {
 
   fingerEnrollmentWindows   FingerEnrollmentWindow[]
   terminalEnrollmentReports TerminalEnrollmentReport[]
+  detectionRules  DetectionRule[]
+  detectionAlerts DetectionAlert[]
+  detectionCheck  DetectionCheck?
   @@map("companies")
 }
 
@@ -277,6 +280,7 @@ model Site {
   secondSiteExceptions AttendanceException[] @relation("ExceptionSecondSite")
 
   @@unique([companyId, code])
+  detectionAlerts DetectionAlert[]
   @@map("sites")
 }
 
@@ -373,6 +377,7 @@ model Employee {
   @@index([companyId, status])
   fingerEnrollmentWindows   FingerEnrollmentWindow[]
   terminalEnrollmentReports TerminalEnrollmentReport[]
+  detectionAlerts DetectionAlert[]
   @@map("employees")
 }
 
@@ -544,6 +549,7 @@ model Device {
   @@index([siteId])
   fingerEnrollmentWindows   FingerEnrollmentWindow[]
   terminalEnrollmentReports TerminalEnrollmentReport[]
+  detectionAlerts DetectionAlert[]
   @@map("devices")
 }
 
@@ -585,6 +591,8 @@ model PunchEvent {
   @@unique([deviceId, deviceEventId])
   @@index([employeeId, deviceTime])
   @@index([companyId, deviceTime])
+  /// Rule R10: this company's punches that matched nobody, lately.
+  @@index([companyId, serverTime], map: "punch_events_orphans")
   @@index([deviceId, deviceTime])
   @@map("punch_events")
 }
@@ -988,4 +996,103 @@ model TerminalEnrollmentReport {
   @@unique([deviceId, deviceUserRef, enrolledAt])
   @@index([companyId, reportedAt])
   @@map("terminal_enrollment_reports")
+}
+
+// --- Ghost detection (Phase 5, docs/plan/08-ghost-detection-engine.md) -------
+
+/// Which rule fired. Mirrors `DetectionRuleCode` in the API contract.
+enum DetectionRuleCode {
+  R1
+  R2
+  R3
+  R4
+  R5
+  R6
+  R7
+  R8
+  R9
+  R10
+  R11
+}
+
+/// Mirrors `DetectionSeverity` in the API contract.
+enum DetectionSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+}
+
+/// Mirrors `DetectionAlertStatus` in the API contract.
+enum DetectionAlertStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  CONFIRMED_FRAUD
+}
+
+/// One row per rule, so a threshold can be tuned without a deploy — and so
+/// the report's tuning table can be built by moving them.
+model DetectionRule {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  companyId       String            @map("company_id") @db.Uuid
+  code            DetectionRuleCode
+  enabled         Boolean           @default(true)
+  severity        DetectionSeverity
+  /// The numbers this rule uses, named. Empty for a rule that has none.
+  thresholds      Json              @default("{}")
+  updatedByUserId String?           @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, code])
+  @@map("detection_rules")
+}
+
+/// A pattern worth a person's attention: who or what it is about, the window
+/// it was found in, and the rows the rule cited. Never deleted.
+model DetectionAlert {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  companyId      String               @map("company_id") @db.Uuid
+  ruleCode       DetectionRuleCode    @map("rule_code")
+  severity       DetectionSeverity
+  status         DetectionAlertStatus @default(OPEN)
+  /// The rule, the subject and the window. A unique key is what makes a
+  /// sweep repeatable: running it twice raises nothing new.
+  dedupeKey      String               @map("dedupe_key")
+  employeeId     String?              @map("employee_id") @db.Uuid
+  deviceId       String?              @map("device_id") @db.Uuid
+  siteId         String?              @map("site_id") @db.Uuid
+  windowFrom     DateTime             @map("window_from") @db.Date
+  windowTo       DateTime             @map("window_to") @db.Date
+  /// The IDs and numbers this rule cited. Never a template, an image or a
+  /// Ghana Card number.
+  evidence       Json
+  openedAt       DateTime             @default(now()) @map("opened_at") @db.Timestamptz(3)
+  resolvedByUserId String?            @map("resolved_by_user_id") @db.Uuid
+  resolvedAt     DateTime?            @map("resolved_at") @db.Timestamptz(3)
+  resolutionNote String?              @map("resolution_note")
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device   Device?   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  site     Site?     @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, status, openedAt])
+  @@index([employeeId])
+  @@map("detection_alerts")
+}
+
+/// When this company's rules last ran, so a sweep is not repeated needlessly.
+model DetectionCheck {
+  companyId String   @id @map("company_id") @db.Uuid
+  sweptAt   DateTime @map("swept_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@map("detection_checks")
 }
