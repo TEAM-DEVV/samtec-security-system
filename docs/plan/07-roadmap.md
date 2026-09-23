@@ -54,7 +54,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Pairing of clock-ins and clock-outs into work segments, re-paired from scratch over 62 days, so arrival order never matters
 - [x] Exception queue API (missing clock-out or clock-in, unknown or inactive employee, overlaps) and resolving it: nobody resolves their own attendance, and HR reads but never creates hours
 - [x] Night shifts from 22:00 to 06:00 proven with tests (480 minutes, counted on the start date)
-- [ ] Dashboard (Samuel): attendance day view, a guard's "My attendance", the exception queue with its resolution screen, and the Devices page (ADMIN). The mock API already supports them.
+- [x] Dashboard (Samuel): worked shifts by day range and site, a guard's "My attendance", the exception queue with its evidence and resolution screen (dismiss, add a shift by hand, keep one, void both), and the Devices pages (register with the one-time secret, health, rename, switch off/on, new secret, ZKTeco serial and kiosk fingerprint switch)
 - **Exit demo:** replay 30 days of seeded punches and watch the attendance dashboard fill in ([The attendance demo](../guides/10-attendance-demo.md))
 
 ## Phase 3 · Real biometrics (weeks 6 and 7)
@@ -71,7 +71,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)
 - [ ] ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
-- [ ] Dashboard (Samuel): live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, and the new device fields. The mock API already supports them.
+- [ ] Dashboard (Samuel): live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, The mock API already supports them. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel
