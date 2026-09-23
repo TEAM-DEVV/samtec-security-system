@@ -36,6 +36,8 @@ describe('clientAddress', () => {
     // The column takes an address or nothing; a made-up one is worse.
     expect(clientAddress(asRequest({ 'x-vercel-forwarded-for': 'not-an-address' }))).toBeNull();
     expect(clientAddress(asRequest({ 'x-vercel-forwarded-for': '999.1.1.1' }))).toBeNull();
+    expect(clientAddress(asRequest({ 'x-vercel-forwarded-for': ':::' }))).toBeNull();
+    expect(clientAddress(asRequest({ 'x-vercel-forwarded-for': '1:2:3:4:5:6:7:8:9' }))).toBeNull();
     expect(clientAddress(asRequest({}, ''))).toBeNull();
     expect(clientAddress(asRequest({}))).toBeNull();
   });

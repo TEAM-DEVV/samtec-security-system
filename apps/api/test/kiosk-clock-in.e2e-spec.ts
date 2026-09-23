@@ -682,4 +682,122 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
         .expect(403);
     });
   });
+
+  /**
+   * The two clocks the design leans on: an identification is good for a
+   * minute, and a run of failures only unlocks the fallback while it is
+   * fresh. Attempts are append-only, so an old one is written as an old one
+   * rather than aged afterwards.
+   */
+  describe('the time limits', () => {
+    const attemptFrom = async (
+      employeeId: string,
+      secondsAgo: number,
+      outcome: 'MATCHED' | 'NOT_RECOGNISED' = 'MATCHED',
+    ) =>
+      prisma.clockInAttempt.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: kiosk.id,
+          purpose: 'CLOCK',
+          direction: 'IN',
+          outcome,
+          employeeId: outcome === 'MATCHED' ? employeeId : null,
+          thresholdVersion: 'ft-1',
+          attemptedAt: new Date(Date.now() - secondsAgo * 1000),
+        },
+        select: { id: true },
+      });
+
+    it('will not confirm an identification more than a minute old', async () => {
+      const worker = await newWorker();
+      await giveFace(worker.id, 52.4);
+      const stale = await attemptFrom(worker.id, 61);
+
+      const refused = await confirm(stale.id).expect(409);
+
+      expect(refused.body.detail).toMatch(/Ask your supervisor/);
+      expect(await prisma.punchEvent.count({ where: { employeeId: worker.id } })).toBe(0);
+
+      // A minute younger, and the same call works.
+      const fresh = await attemptFrom(worker.id, 5);
+      const punch = await confirm(fresh.id).expect(200);
+      expect(punch.body.status).toBe('ACCEPTED');
+    });
+
+    it('will not unlock the fallback on failures that have gone cold', async () => {
+      const worker = await newWorker();
+      await giveFace(worker.id, 56.4);
+      const staleKiosk = await registerKiosk('Cold failures kiosk');
+      // Three failures, but they happened five minutes ago: whoever was
+      // struggling then has long since walked away.
+      for (let n = 0; n < 3; n += 1) {
+        await prisma.clockInAttempt.create({
+          data: {
+            companyId: company.companyId,
+            deviceId: staleKiosk.id,
+            purpose: 'CLOCK',
+            direction: 'IN',
+            outcome: 'NOT_RECOGNISED',
+            thresholdVersion: 'ft-1',
+            attemptedAt: new Date(Date.now() - (300 + n) * 1000),
+          },
+        });
+      }
+      const seen = await signedPost(
+        app,
+        'kiosk/identify',
+        {
+          purpose: 'CO_SIGN',
+          staffNumber: worker.staffNumber,
+          direction: 'IN',
+          sample: sampleAt(SUPERVISOR_FACE),
+        },
+        staleKiosk,
+      ).expect(200);
+
+      const refused = await signedPost(
+        app,
+        'kiosk/assisted-punches',
+        { coSignAttemptId: seen.body.attemptId, reason: 'Trying an old run of failures.' },
+        staleKiosk,
+      ).expect(409);
+
+      expect(refused.body.detail).toMatch(/Ask your supervisor/);
+      expect(await prisma.punchEvent.count({ where: { employeeId: worker.id } })).toBe(0);
+    });
+  });
+
+  describe('one company never sees another', () => {
+    it('keeps punches and attempts inside the company that made them', async () => {
+      const other = await createAttendanceCompany(prisma);
+      const outsider = await app.get(TokensService).signAccessToken({
+        userId: other.adminUserId,
+        companyId: other.companyId,
+        role: 'ADMIN',
+        employeeId: null,
+        onKiosk: false,
+      });
+
+      const punches = await api()
+        .get('/api/v1/attendance/punches?limit=100')
+        .set(...bearer(outsider))
+        .expect(200);
+      const attempts = await api()
+        .get('/api/v1/attendance/clock-in-attempts?limit=100')
+        .set(...bearer(outsider))
+        .expect(200);
+
+      // This company has done nothing, and sees nothing — not one row of
+      // the busy company next door.
+      expect(punches.body.items).toEqual([]);
+      expect(attempts.body.items).toEqual([]);
+      // And the other way round: asking for their site by id is a 404, not
+      // a peek.
+      await api()
+        .get(`/api/v1/attendance/punches?siteId=${other.siteA}`)
+        .set(...bearer(adminToken))
+        .expect(404);
+    });
+  });
 });

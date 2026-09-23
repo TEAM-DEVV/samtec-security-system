@@ -1,18 +1,32 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import type { KioskIdentifyResponse, KioskPunchResponse, KioskWorker } from '@samtec/contracts';
+import type {
+  KioskIdentifyResponse,
+  KioskPunchResponse,
+  KioskWorker,
+  PunchResult,
+} from '@samtec/contracts';
 import { PrismaService } from '../../database/prisma.service.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import type { AttemptOutcome, PunchDirection } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
+import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   AssistedPunchBody,
   KioskConfirmBody,
   KioskIdentifyBody,
   KioskNotMeBody,
 } from './attendance.schemas.js';
-import { asSealedFaces } from './biometrics.service.js';
+import { asSealedFaces, BiometricsUnavailableException } from './biometrics.service.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import { FaceProvider } from './face-provider.js';
 import { IngestService } from './ingest.service.js';
+
+/**
+ * Either the plain client or one inside a transaction. The eligibility
+ * checks read through whichever is in hand, so the co-sign can repeat them
+ * inside the punch's own commit, where nothing else can slip past.
+ */
+type Reader = PrismaService | Prisma.TransactionClient;
 
 /** How long a kiosk has to turn an identification into a punch. */
 export const ATTEMPT_GOOD_FOR_SECONDS = 60;
@@ -54,6 +68,7 @@ export class ClockInService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly employees: EmployeesService,
     private readonly faces: FaceProvider,
     private readonly ingest: IngestService,
   ) {}
@@ -98,7 +113,7 @@ export class ClockInService {
         companyId: device.companyId,
         deviceId: device.id,
       });
-      throw new FaceMatchingUnavailableException();
+      throw new BiometricsUnavailableException();
     }
 
     const found = decision.result;
@@ -208,9 +223,8 @@ export class ClockInService {
       throw new ConflictException(CANNOT_PUNCH);
     }
     const supervisorId = attempt.employeeId;
-    const worker = await this.prisma.employee.findFirst({
-      where: { companyId: device.companyId, staffNumber: attempt.staffNumberTried },
-      select: { id: true, staffNumber: true, firstName: true, lastName: true, status: true },
+    const worker = await this.employees.atTheKiosk(device.companyId, {
+      staffNumber: attempt.staffNumberTried,
     });
     if (!worker || worker.id === supervisorId) {
       throw new ConflictException(CANNOT_PUNCH);
@@ -218,25 +232,40 @@ export class ClockInService {
     await this.assertMaySupervise(device, supervisorId);
     await this.assertMayBeCoSigned(device, worker.id, worker.status);
 
-    const punch = await this.punch(device, attempt, kioskWorker(worker), 'PIN_FALLBACK');
-    await this.audit.record({
-      companyId: device.companyId,
-      // Nobody is signed in on a kiosk clock-in: the supervisor is the
-      // employee the face matched, which the attempt already names.
-      actorUserId: null,
-      action: 'attendance.co_signed',
-      entityType: 'punch',
-      entityId: punch.punchId,
-      detail: {
-        deviceId: device.id,
-        attemptId: attempt.id,
-        supervisorEmployeeId: supervisorId,
-        employeeId: worker.id,
-        direction: attempt.direction,
-        reason: body.reason,
-      },
+    return this.punch(device, attempt, kioskWorker(worker), 'PIN_FALLBACK', async (tx, results) => {
+      // Under the company's attendance lock now, so nothing else can be
+      // making a punch on this kiosk. The unlock is checked **again**
+      // here: two supervisors who both reached the check a moment ago
+      // must not both spend the same three failures, and the first
+      // punch to commit is what the second one now sees.
+      await this.assertMayBeCoSigned(device, worker.id, worker.status, tx, attempt.id);
+      const [result] = results;
+      if (result?.status !== 'ACCEPTED') {
+        // A resend of a co-sign that already made its punch: nothing new
+        // happened, so nothing new is recorded.
+        return;
+      }
+      await this.audit.record(
+        {
+          companyId: device.companyId,
+          // Nobody is signed in on a kiosk clock-in: the supervisor is
+          // the employee the face matched, which the attempt names.
+          actorUserId: null,
+          action: 'attendance.co_signed',
+          entityType: 'punch',
+          entityId: result.punchId,
+          detail: {
+            deviceId: device.id,
+            attemptId: attempt.id,
+            supervisorEmployeeId: supervisorId,
+            employeeId: worker.id,
+            direction: attempt.direction,
+            reason: body.reason,
+          },
+        },
+        tx,
+      );
     });
-    return punch;
   }
 
   /**
@@ -279,12 +308,9 @@ export class ClockInService {
 
   /** The supervisor must be an ACTIVE SUPERVISOR posted to this kiosk's site. */
   private async assertMaySupervise(device: SignedDevice, supervisorId: string): Promise<void> {
-    const supervisor = await this.prisma.employee.findFirst({
-      where: { id: supervisorId, companyId: device.companyId, status: 'ACTIVE' },
-      select: { user: { select: { role: true, isActive: true } } },
-    });
+    const supervisor = await this.employees.atTheKiosk(device.companyId, { id: supervisorId });
     const account = supervisor?.user;
-    if (!account || !account.isActive || account.role !== 'SUPERVISOR') {
+    if (supervisor?.status !== 'ACTIVE' || !account?.isActive || account.role !== 'SUPERVISOR') {
       throw new ConflictException(CANNOT_PUNCH);
     }
     await this.assertPostedHere(device, supervisorId);
@@ -308,10 +334,13 @@ export class ClockInService {
     device: SignedDevice,
     employeeId: string,
     status: string,
+    db: Reader = this.prisma,
+    /** The co-sign being made right now, which is not a fallback that already happened. */
+    ownAttemptId?: string,
   ): Promise<void> {
     await this.assertPostedHere(device, employeeId);
     const [exemption, face] = await Promise.all([
-      this.prisma.biometricExemption.findFirst({
+      db.biometricExemption.findFirst({
         where: {
           companyId: device.companyId,
           employeeId,
@@ -319,7 +348,7 @@ export class ClockInService {
         },
         select: { status: true, reason: true },
       }),
-      this.prisma.biometricCredential.findFirst({
+      db.biometricCredential.findFirst({
         where: {
           companyId: device.companyId,
           employeeId,
@@ -344,7 +373,7 @@ export class ClockInService {
       return;
     }
     if (status === 'ACTIVE' && face) {
-      await this.assertFallbackUnlocked(device);
+      await this.assertFallbackUnlocked(device, db, ownAttemptId);
       return;
     }
     throw new ConflictException(CANNOT_PUNCH);
@@ -358,15 +387,26 @@ export class ClockInService {
    * no other kind of `PIN_FALLBACK` punch — raw punches are refused on a
    * kiosk key — so the punch itself says when that fallback happened.
    */
-  private async lastFallbackAt(device: SignedDevice): Promise<Date | null> {
+  private async lastFallbackAt(
+    device: SignedDevice,
+    db: Reader,
+    ownAttemptId?: string,
+  ): Promise<Date | null> {
     const [staffNumber, coSigned] = await Promise.all([
-      this.prisma.clockInAttempt.findFirst({
+      db.clockInAttempt.findFirst({
         where: { deviceId: device.id, purpose: 'STAFF_PASSKEY' },
         orderBy: { attemptedAt: 'desc' },
         select: { attemptedAt: true },
       }),
-      this.prisma.punchEvent.findFirst({
-        where: { deviceId: device.id, method: 'PIN_FALLBACK' },
+      db.punchEvent.findFirst({
+        // When this runs inside the co-sign's own commit, the punch it is
+        // about to make is already there. It is the thing being decided,
+        // not a fallback that happened earlier, so it does not count.
+        where: {
+          deviceId: device.id,
+          method: 'PIN_FALLBACK',
+          ...(ownAttemptId ? { deviceEventId: { not: ownAttemptId } } : {}),
+        },
         orderBy: { deviceTime: 'desc' },
         select: { deviceTime: true },
       }),
@@ -381,17 +421,7 @@ export class ClockInService {
 
   /** Everyone in a kiosk clock-in must be posted to the site the kiosk stands on. */
   private async assertPostedHere(device: SignedDevice, employeeId: string): Promise<void> {
-    const today = new Date();
-    const posted = await this.prisma.siteAssignment.findFirst({
-      where: {
-        companyId: device.companyId,
-        employeeId,
-        siteId: device.siteId,
-        startsOn: { lte: today },
-        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
-      },
-      select: { id: true },
-    });
+    const posted = await this.employees.isPostedTo(device.companyId, employeeId, device.siteId);
     if (!posted) {
       throw new ConflictException(CANNOT_PUNCH);
     }
@@ -410,9 +440,13 @@ export class ClockInService {
    * was refused used nothing up, so it does not reset the count — otherwise
    * one refusal would shut the fallback for the next worker in the queue.
    */
-  private async assertFallbackUnlocked(device: SignedDevice): Promise<void> {
-    const since = await this.lastFallbackAt(device);
-    const recent = await this.prisma.clockInAttempt.findMany({
+  private async assertFallbackUnlocked(
+    device: SignedDevice,
+    db: Reader,
+    ownAttemptId?: string,
+  ): Promise<void> {
+    const since = await this.lastFallbackAt(device, db, ownAttemptId);
+    const recent = await db.clockInAttempt.findMany({
       where: {
         deviceId: device.id,
         purpose: 'CLOCK',
@@ -453,19 +487,24 @@ export class ClockInService {
     attempt: { id: string; direction: PunchDirection; attemptedAt: Date },
     worker: KioskWorker,
     method: 'FACE' | 'PIN_FALLBACK',
+    alsoInTheSameCommit?: (tx: Prisma.TransactionClient, results: PunchResult[]) => Promise<void>,
   ): Promise<KioskPunchResponse> {
-    const answer = await this.ingest.ingestPunches(device, {
-      punches: [
-        {
-          deviceEventId: attempt.id,
-          deviceUserRef: worker.staffNumber,
-          // The server's own time of the attempt: a kiosk cannot backdate.
-          deviceTime: attempt.attemptedAt.toISOString(),
-          direction: attempt.direction === 'OUT' ? 'OUT' : 'IN',
-          method,
-        },
-      ],
-    });
+    const answer = await this.ingest.ingestPunches(
+      device,
+      {
+        punches: [
+          {
+            deviceEventId: attempt.id,
+            deviceUserRef: worker.staffNumber,
+            // The server's own time of the attempt: a kiosk cannot backdate.
+            deviceTime: attempt.attemptedAt.toISOString(),
+            direction: attempt.direction === 'OUT' ? 'OUT' : 'IN',
+            method,
+          },
+        ],
+      },
+      alsoInTheSameCommit,
+    );
     const [result] = answer.results;
     if (!result) {
       throw new ConflictException(CANNOT_PUNCH);
@@ -487,27 +526,14 @@ export class ClockInService {
 
   /** The worker this staff number belongs to, if it belongs to anybody here. */
   private async employeeIdOf(companyId: string, staffNumber: string): Promise<string | null> {
-    const row = await this.prisma.employee.findFirst({
-      where: { companyId, staffNumber },
-      select: { id: true },
-    });
+    const row = await this.employees.atTheKiosk(companyId, { staffNumber });
     return row?.id ?? null;
   }
 
   /** How a shared screen names somebody: "Kwame A. (SMT-00042)". */
   private async workerOf(companyId: string, employeeId: string): Promise<KioskWorker | null> {
-    const row = await this.prisma.employee.findFirst({
-      where: { id: employeeId, companyId },
-      select: { staffNumber: true, firstName: true, lastName: true },
-    });
+    const row = await this.employees.atTheKiosk(companyId, { id: employeeId });
     return row ? kioskWorker(row) : null;
-  }
-}
-
-/** The kiosk's answer when a stored face cannot be opened: try again later. */
-export class FaceMatchingUnavailableException extends ConflictException {
-  constructor() {
-    super('Face matching is not available on this kiosk right now. Tell your supervisor.');
   }
 }
 

@@ -53,6 +53,7 @@ export class IngestService {
   async ingestPunches(
     device: SignedDevice,
     body: IngestPunchesBody,
+    alsoInTheSameCommit?: (tx: Prisma.TransactionClient, results: PunchResult[]) => Promise<void>,
   ): Promise<IngestPunchesResponse> {
     const serverTime = new Date();
     const clockDriftSeconds = driftSeconds(body.deviceClockAt, serverTime);
@@ -163,6 +164,12 @@ export class IngestService {
             data: { lastClockDriftSeconds: clockDriftSeconds },
           });
         }
+        // Whatever the caller must save with these punches — a kiosk's
+        // co-sign saves the audit row naming the supervisor here — so the
+        // punch and its record are kept together or not at all. Throwing
+        // from here rolls the punches back, which is how a caller refuses
+        // after seeing what the punch turned out to be.
+        await alsoInTheSameCommit?.(tx, results);
         return results;
       }, ATTENDANCE_TRANSACTION_OPTIONS);
 

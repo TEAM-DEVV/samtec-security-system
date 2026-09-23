@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { Request } from 'express';
 
 /**
@@ -39,26 +40,17 @@ function firstAddress(header: string | string[] | undefined): string | null {
 }
 
 /**
- * PostgreSQL's `inet` type refuses anything that is not an address, so a
- * value that does not look like one is dropped rather than written. IPv4
- * addresses arriving in IPv6 clothing (`::ffff:1.2.3.4`, which is what a
- * dual-stack socket reports) are unwrapped to the address people recognise.
+ * PostgreSQL's `inet` column refuses anything that is not an address, and a
+ * refused write would fail somebody's clock-in — so anything Node does not
+ * recognise as an address is dropped here instead. `isIP` is the same check
+ * Node uses for real sockets, which is exactly the standard wanted.
+ *
+ * IPv4 addresses arriving in IPv6 clothing (`::ffff:1.2.3.4`, which is what
+ * a dual-stack socket reports) are unwrapped to the address people know.
  */
 function cleanAddress(value: string): string | null {
   const trimmed = value.trim().replace(/^\[|\]$/g, '');
-  if (trimmed.length === 0 || trimmed.length > 45) {
-    return null;
-  }
   const unwrapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(trimmed);
   const address = unwrapped?.[1] ?? trimmed;
-  return looksLikeAddress(address) ? address : null;
-}
-
-function looksLikeAddress(value: string): boolean {
-  const asIpv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
-  if (asIpv4) {
-    return asIpv4.slice(1).every((part) => Number(part) <= 255 && !/^0\d/.test(part));
-  }
-  // IPv6: hex groups and colons only, and at least one colon.
-  return /^[0-9a-f:]+$/i.test(value) && value.includes(':');
+  return isIP(address) === 0 ? null : address;
 }
