@@ -29,7 +29,7 @@ Each task ended with a working demo in mock mode, a test, and a pull request. Ke
 
 11. **Phase 3 biometrics** (`src/lib/biometrics.ts` holds every label): the live board (`live-board-page.tsx`, `GET /attendance/punches` refreshed every 5 seconds on the first page only, flagged methods in amber through `PunchMethodBadge`), the Biometrics panel on the employee page (`components/biometrics-panel.tsx`: statuses only; an ADMIN wipes a face, records a withdrawal, asks for an exemption or decides one another ADMIN asked for), the duplicate-enrollment queue (`duplicate-faces-page.tsx`; the decision form sits on each open card because the contract has no single-collision read) and kiosk attempts (`kiosk-attempts-page.tsx`, reached from the Devices page and from a kiosk's page with `?deviceId=`). Every "who may decide" rule is the API's; the pages hide a form only where they already know the answer (you asked, you enrolled) and otherwise show the API's refusal word for word.
 
-The next dashboard work follows the roadmap (`docs/plan/07-roadmap.md`): Phase 1's employee create/edit/terminate forms (the API endpoints are merged; `openapi.yaml` has the request shapes), then whatever Phase 4 (payroll) adds to the contract.
+What Samuel picks up next is in `docs/plan/14-work-split.md`: the kiosk app (`apps/kiosk`, a separate Vite app with plain CSS), then the fake ZKTeco terminal and the gateway (`apps/gateway`). On the dashboard itself, Phase 1's employee create/edit/terminate forms are still open (the API endpoints are merged; `openapi.yaml` has the request shapes), and Phases 4 and 5 add their screens once each contract lands.
 
 ## Traps to avoid
 
