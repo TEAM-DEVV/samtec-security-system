@@ -76,7 +76,13 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel
 
-**Goal: Ghana-correct, locked, auditable pay.**
+**Samuel builds this, end to end** — database, API and screens. See
+[Who builds what next](14-work-split.md).
+
+**Goal: Ghana-correct, locked, auditable pay.** Every design question that was
+open is now decided in [Payroll engine (Ghana)](09-payroll-engine-ghana.md);
+the house style for a backend module is in
+[16 · How a backend module is built here](16-building-a-backend-module.md).
 
 - Close a period, calculate a draft run, copy every input into its lines
 - PAYE bands and SSNIT rates from versioned tables, per [Payroll engine (Ghana)](09-payroll-engine-ghana.md), with golden tests
@@ -85,6 +91,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 ## Phase 5 · Ghost detection (weeks 11 and 12)
 
+**Francis builds this, end to end.** It merges **after** payroll, because its
+rules read payroll data.
+
 **Goal: the feature that sets SAMTEC apart.**
 
 - Rules engine and nightly sweep, per [Ghost detection engine](08-ghost-detection-engine.md)
@@ -92,6 +101,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - **Exit demo:** the three planted ghosts in the seed data are all caught live; a written false-positive discussion for the report
 
 ## Phase 6 · Dashboard and reports polish (week 13)
+
+Reports, the payslip downloads and the guard's own payslip: **Samuel**. The
+final visual pass: **Francis**.
 
 - Live attendance board and key figures: headcount present, absence rate, payroll cost trend
 - CSV and PDF reports; guards can view their own payslips

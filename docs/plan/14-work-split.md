@@ -1,39 +1,78 @@
 # 14 · Who builds what next (Francis and Samuel)
 
-Samuel is close to finished on the dashboard's current work, so this page says
-exactly what he picks up next, why it is his, and what he never has to wait
-for. It exists so neither of us ever sits idle, and so we never edit the same
-file at the same time.
+**Read this page first, every session.** It says what each of us owns right
+now, in plain words, and the rules that stop two people breaking the same
+file. When it disagrees with anything said in a pull request or a chat, this
+page wins.
 
-Read [Roadmap](07-roadmap.md) for the order of the phases and
-[Biometrics design](13-biometrics-design.md) for the rules of Phase 3.
+Read [Roadmap](07-roadmap.md) for the order of the phases.
 
-## The split, in one line
+## Where the project is today
 
-**Francis builds what decides things** (the API, the rules, the database).
-**Samuel builds what people touch** (the dashboard, the kiosk app, the fake
-terminal) — and those are whole apps of their own, so our files never meet.
+Eight phases. Five are finished or nearly so.
 
-| Folder | Owner | Why |
+| Phase | What it is | Where it stands |
 |---|---|---|
-| `apps/api` | Francis | One person owns the rules, so they stay consistent |
-| `apps/web` | Samuel | The dashboard |
-| `apps/kiosk` | **Samuel** | A new app. See Job 1 |
-| `apps/gateway` | **Samuel** | A new app. See Job 3 |
-| `packages/contracts/openapi.yaml` | Both | Rule 1: contract first. See "When it has to change" |
-| `docs/` | Both | Whoever does the work writes the page |
+| 0 | Project set-up, CI, first migration | **Done** |
+| 1 | Sign in, staff, sites, shifts, users | **Done** — API and screens |
+| 2 | Attendance: punches paired into shifts, the exception queue | **Done** — API and screens |
+| 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done.** Left: the kiosk app, the gateway, and three gateway endpoints |
+| 4 | Payroll: Ghana tax, payslips, bank file | **Not started — Samuel owns it, see Job A** |
+| 5 | Ghost detection: the rules that catch fake workers | **Not started — Francis owns it** |
+| 6 | Reports and the final visual pass | Not started |
+| 7 | Security hardening | Not started — Francis |
+| 8 | Deploy, defence pack, presentation | Not started — both |
 
-Nothing in Samuel's list needs Francis to finish anything first. Every API
-route each job uses is **already built and merged**, or already answered by
-the mock API.
+## The split, from here to the end
+
+Samuel has finished the dashboard and has time. So he now takes **whole
+phases, backend included** — not just the screens.
+
+| Who | Owns | Why |
+|---|---|---|
+| **Samuel** | **Phase 4 payroll, end to end** (database, API, screens) | It is a brand-new area. New tables, new files, nothing Francis is inside |
+| **Samuel** | **Phase 6 reports** (payslip downloads, CSV and PDF, the guard's own payslip) | It grows straight out of payroll |
+| **Samuel** | The kiosk app (`apps/kiosk`) and the ZKTeco gateway (`apps/gateway`) | Whole apps of their own. See Job B and Job C |
+| **Francis** | The last three Phase 3 endpoints the gateway needs | They live inside the attendance module he wrote |
+| **Francis** | **Phase 5 ghost detection, end to end** | Its rules read the attendance tables he wrote, line by line |
+| **Francis** | Phase 7 hardening, and the final visual pass in Phase 6 | Whole-system review work |
+| Both | Phase 8: deploy, defence pack, presentation | Shared |
+
+**Order matters in one place only.** Ghost detection reads payroll data
+(rules R3 and R6 in [Ghost detection engine](08-ghost-detection-engine.md)),
+so **payroll must reach `main` before detection does.** That is why Samuel
+starts payroll now and Francis finishes the Phase 3 endpoints first. Neither
+of us waits for the other.
 
 ---
 
-## Job 1 · The kiosk app (`apps/kiosk`) — start here
+## Job A · Phase 4, the payroll engine — Samuel starts here
 
-This is the demo. A guard walks up to a phone on the wall, looks at it, and
-their shift starts. It is the single most valuable thing left to build, and
-every API route it needs is merged and working today.
+**Everything you need is written down.** Do not design it yourself:
+
+- [Payroll engine (Ghana)](09-payroll-engine-ghana.md) — the tables, every
+  endpoint, the calculation step by step, and **the twenty-one decisions that
+  were open and are now settled**. Read it end to end before writing code.
+- [How a backend module is built here](16-building-a-backend-module.md) — the
+  house style, the traps, and which existing files to copy from.
+
+**In one sentence:** close a month, calculate what each guard is owed from the
+shifts the attendance module already confirmed, have a second person approve
+it, lock it so it can never change, and produce a payslip and a bank file.
+
+**Why it is safe to give away.** Payroll owns five brand-new tables that
+nothing else writes to, and it reads attendance only through one service call.
+It is the cleanest seam in the whole system.
+
+**Done when** you can close September, calculate a run, fail to approve it as
+the same person who prepared it, approve it as somebody else, and open a
+payslip whose numbers add up by hand to the pesewa.
+
+## Job B · The kiosk app (`apps/kiosk`)
+
+This is the live demo: a guard walks up to a phone on the wall, looks at it,
+and their shift starts. **Every API route it needs is merged and working.**
+Nothing blocks it, and nothing waits on it, so fit it around Job A.
 
 **What it is.** A separate Vite + React + TypeScript app, its own Vercel
 project, plain CSS (do not pull in the dashboard's Tailwind setup — a kiosk
@@ -90,7 +129,7 @@ Two different doors, and mixing them up costs an afternoon:
 | Consent, enrollment, saving a finger | The ADMIN's token **and** the device's signature. The ADMIN signs in on the kiosk; that session works on kiosk screens only |
 | Clock in, "Not me", confirm, the staff-number fallback, co-sign | The **device's signature alone**. No token, ever — the guard at the gate has no account |
 
-**The three things that are easy to get wrong**
+**The four things that are easy to get wrong**
 
 - **Signing.** Every `kiosk/…` call is signed by the device:
   `HMAC-SHA256(secret, "v1\n<timestamp>\n<route>\n<body>")`, where `<route>`
@@ -114,8 +153,9 @@ Two different doors, and mixing them up costs an afternoon:
   (`response.toJSON()` in Chrome, or `@simplewebauthn/browser`). Rebuilding
   those objects by hand is how a whole afternoon disappears: the bytes are
   signed, so one changed field means the server refuses everything. The
-  kiosk's address must be the one in `KIOSK_ORIGINS` — a key made on one
-  address can never be used on another, which is the point.
+  kiosk's address must be the one in `KIOSK_ORIGINS`, and **every address in
+  that setting must be the same host** — a key made on one address can never
+  be used on another, and the API now refuses to start if you mix hosts.
 - **The answers never carry a score, and neither may the screen.** Show the
   name or "Try again". Never "close match", never a number, never who a face
   looked like. Anyone can stand in front of a kiosk.
@@ -128,50 +168,104 @@ board as `FACE_PASSKEY`.
 > Francis: create the Vercel project for `apps/kiosk` and add its address to
 > `KIOSK_ORIGINS` before Samuel's first deploy. Ask the owner first.
 
-## Job 2 · The Phase 3 dashboard screens
+## Job C · The fake ZKTeco terminal, and then the gateway
 
-All five are answered by the mock API today and by the real API on TEST.
+Last of the three, and it is the one job that **does** wait: the gateway talks
+to `POST /ingest/roster`, `POST /ingest/enrollments` and
+`POST /devices/{id}/finger-enrollment-windows`, which Francis is building now.
+Check [Roadmap](07-roadmap.md) and the open pull requests before starting.
 
-- The **live clock-ins board** — `GET /attendance/punches`, refreshed every 5
-  seconds, method badges, `PIN_FALLBACK` and `STAFF_PASSKEY` in amber.
-- The employee **Biometrics panel** — `GET /employees/{id}/biometrics`, with
-  revoke, withdraw, ask for an exemption, and approve or reject one. Whoever
-  asked, or enrolled or removed a face for that worker, cannot decide it: the
-  API answers 403, so show that plainly rather than hiding the button.
-- The **duplicate-enrollment queue** — `GET /biometric-collisions`, resolve
-  with `POST /biometric-collisions/{id}/resolve`. The note is required, and
-  `SAME_PERSON` asks which record to keep.
-- **Kiosk attempts per device** (ADMIN) — `GET /attendance/clock-in-attempts`.
-  This is how an ADMIN sees somebody holding photographs up to a camera.
-- The new **device fields** on the Devices page: `serialNumber`,
-  `passkeysEnabled`, and switching on a kiosk that is waiting (`INACTIVE`).
+The **fake terminal** needs none of them and can be written any time: a small
+script that behaves like a ZKTeco device, holding a roster and producing
+punches with verify modes (1 → `FINGERPRINT`, 15 → `FACE`, anything else →
+`PIN_FALLBACK`). Rules: [Biometrics design](13-biometrics-design.md) section 5.
 
-## Job 3 · The fake ZKTeco terminal, and then the gateway
+## Done and merged
 
-Only after Jobs 1 and 2, and only if Francis has not reached it first — check
-`docs/plan/07-roadmap.md` and the open pull requests before starting.
+- **The Phase 3 dashboard screens** (pull request #43): the live clock-ins
+  board, the employee Biometrics panel, the duplicate-enrollment queue and
+  kiosk attempts per device.
 
-The **fake terminal** is a small script that behaves like a ZKTeco device:
-it holds a roster, produces punches with verify modes (1 → `FINGERPRINT`,
-15 → `FACE`, anything else → `PIN_FALLBACK`), and drives the gateway end to
-end. It needs no new API. Rules: [Biometrics design](13-biometrics-design.md)
-section 5.
+---
 
-## Phases 4 and 5 stay with Francis
+# Staying in sync
 
-Payroll ([Payroll engine (Ghana)](09-payroll-engine-ghana.md)) and ghost
-detection ([Ghost detection engine](08-ghost-detection-engine.md)) are money
-and evidence: one person owns those rules end to end. Samuel builds their
-**screens** once the endpoints land — the period close, the approval, the
-payslip, the alert queue — and the contract and mock API for each arrive
-before the API does, so he is never blocked.
+We work on separate branches and never talk while we build, so these rules are
+the whole of our coordination. They exist because two people are now editing
+the **same repository at the same time**, which was not true before.
 
-## When the contract has to change
+## 1. The sixteen files we both touch
 
-Rule 1 of the root `CLAUDE.md`, and it is the only rule that can cost us a
-day if we skip it:
+A clean `git merge` is not proof that a shared file survived. Check each of
+these by eye after every merge from `main`.
 
-1. Change `packages/contracts/openapi.yaml` **first**.
+| File | What goes wrong | The rule |
+|---|---|---|
+| `packages/contracts/openapi.yaml` | Two appends to the same three blocks | Append only inside **your own `# --- … ---` banner**. Keep both sides |
+| `packages/contracts/src/generated/api.d.ts` | 216 KB of conflict that looks terrifying | **Never hand-merge.** Take either side, run `pnpm contracts:generate`, commit |
+| `pnpm-lock.yaml` | A hand-merge silently pins a different version | **Never hand-merge.** Take `main`'s, run `pnpm install`, commit |
+| `apps/api/prisma/schema.prisma` | The conflict lands in `model Company` and `model Employee`, not at the end | Keep **both** back-relation lists in full. New models go at the end under your own comment |
+| `apps/api/prisma/migrations/` | Git never reports a conflict — see rule 2 | See rule 2 |
+| `apps/api/src/app.module.ts` | One lost line breaks **every** end-to-end test at once | Keep both imports and both array entries, then `pnpm lint:fix` |
+| `apps/api/prisma/seed.ts` | Two new blocks, one shared `main()` and one `console.log` | Keep both calls, payroll before detection. Never add a random call inside the existing 50-employee loop — the seed is deliberately repeatable |
+| `apps/api/test/db-fixture.ts` | Wrong delete order fails only in CI, with a raw foreign-key error | Keep both deletes, **above** the employee and site deletes |
+| `apps/web/src/app/routes.ts` | — | Keep both, each under its own comment |
+| `apps/web/src/app/router.tsx` | A route placed after the catch-all silently shows "Not found" | Keep both, and keep `path: '*'` **last** |
+| `apps/web/src/components/layout/nav-items.ts` | The Payroll and Ghost detection entries **already exist**, `available: false` | **Edit yours in place.** Never add a second one, never re-sort |
+| `apps/web/src/lib/roles.ts` | Must match the `@Roles(...)` on the API controller exactly | Keep both. Also read rule 4 |
+| `apps/web/src/mocks/handlers/index.ts` | — | Keep both imports and both spreads |
+| `apps/web/src/test/setup.ts` | A missing reset makes an **unrelated** test flake later | Keep both imports and both calls |
+| `docs/plan/07-roadmap.md`, `04-data-model.md` | Adjacent lines | Edit only your own phase's lines |
+| `CLAUDE.md` | Both sessions rewrite "Current phase" | It is now one line per area. Edit **only your own line** |
+
+## 2. Migrations: "it merged cleanly" means nothing
+
+Every `pnpm db:migrate` makes its own timestamped folder, so git never
+conflicts — and the problem only appears when the SQL actually runs.
+
+- **The rule, in one sentence: whoever merges second regenerates their
+  migration on top of `main`** — delete the not-yet-merged local folder, run
+  `pnpm db:reset`, run `pnpm db:migrate` again — so its timestamp is later
+  than the one already on `main`.
+- **Never** edit, rename or renumber a migration folder once it is on `main`.
+  TEST has already applied it and records its checksum.
+- Two migrations that only create their **own** tables, enums and indexes are
+  safe in any order. Do not over-engineer around this.
+- Danger only appears when they share something: the same new value on an
+  existing enum, a trigger function with the same name, or a new column on a
+  shared table like `employees`. CLAUDE.md rule 9 says read every generated
+  `migration.sql` — this is why.
+- After pulling `main` with the other person's migration, run `pnpm db:reset`
+  rather than carrying on with a local database that applied them in the other
+  order.
+
+## 3. Names carry their module
+
+A duplicate name merges cleanly in git and then turns CI red on `main`, which
+is the worst place to find it.
+
+- Contract schemas and operation IDs: `PayrollRun`, `listPayrollRuns`,
+  `DetectionAlert`, `resolveDetectionAlert`.
+- Tables: `payroll_*`, `detection_*`.
+- Trigger functions in SQL: `payroll_…()`, `detection_…()`.
+
+## 4. Two decisions taken in advance, so neither of us is surprised
+
+- **Guards may read their own payslips, and that lands in Phase 4.**
+  `apps/web/src/lib/roles.test.ts` currently asserts that **no** page role
+  includes `GUARD`. Samuel changes that test in the same pull request that
+  adds the payslip page, and says so in the description. Otherwise it turns
+  red for both of us and each assumes the other broke it.
+- **Payroll does not call ghost detection yet.** The design says detection
+  rule R3 blocks a payroll submission — but detection is built after payroll.
+  So Phase 4 records the evidence R3 needs on each line and lets the
+  submission through; Francis wires the block in during Phase 5.
+
+## 5. The contract, when it has to change
+
+Rule 1 of the root `CLAUDE.md`, and the only rule that can cost a day:
+
+1. Change `packages/contracts/openapi.yaml` **first**, inside your banner.
 2. Run `pnpm contracts:generate`.
 3. Update the mock handlers in `apps/web/src/mocks/handlers/` in the **same**
    change.
@@ -180,14 +274,19 @@ day if we skip it:
    of us reads the open pull requests for that heading at the start of every
    session.
 
-`openapi.yaml`, the mock handlers and this roadmap are the three files we
-both touch. When they conflict, **keep both sides** — never delete the other
-person's lines to make a conflict go away.
+Land a small, contract-only pull request first, before the code that uses it.
+It touches the most contended file once, briefly, instead of for two weeks.
 
-## The rhythm
+## 6. The rhythm
 
-- Branch from `main`, prefix it (`feat/`, `fix/`, `docs/`), open the pull
-  request early and merge it as soon as CI is green.
-- At most two open pull requests each, so conflicts stay small.
-- Every merge to `main` deploys to TEST by itself, migrations and all.
+- Branch from `main`, prefix it (`feat/`, `fix/`, `contract/`, `docs/`).
+- **Merge `origin/main` into your branch every day you work**, even when
+  nothing looks related, and run `pnpm check`. A conflict found on day two is
+  five minutes; on day ten it is an afternoon.
+- At most two open pull requests each.
+- Run the four review lenses before every pull request (`/lens-review`).
 - `pnpm check` before calling anything finished.
+- Every merge to `main` deploys to TEST by itself, migrations and all.
+- **After the second of our two migrations lands**, one of us runs
+  `pnpm db:reset` then `pnpm check` locally. That combination exists only on
+  `main`, never on either branch, so nothing else proves it works.
