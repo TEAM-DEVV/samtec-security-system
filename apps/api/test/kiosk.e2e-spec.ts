@@ -523,6 +523,87 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       expect((await enroll(ghost.id, anotherFace())).status).toBe(409);
     });
 
+    /** Waits until some statement is stuck on a lock on the employees table. */
+    const waitingOnEmployees = async () => {
+      for (let tries = 0; tries < 200; tries += 1) {
+        const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+          SELECT count(*) AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'
+            AND query LIKE '%FOR NO KEY UPDATE%'`;
+        if (row && row.waiting > 0n) return true;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return false;
+    };
+
+    it('cannot be slipped past an exemption request filed at the same moment', async () => {
+      const worker = await newStarter();
+      const consent = await kioskPost(
+        'kiosk/consents',
+        {
+          employeeId: worker.id,
+          ghanaCardLast4: await cardLast4(worker.id),
+          textVersion: 'bio-v1',
+        },
+        { device: enrolmentKiosk },
+      );
+      expect(consent.status).toBe(201);
+
+      let release = () => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let filed = () => {};
+      const isFiled = new Promise<void>((resolve) => {
+        filed = resolve;
+      });
+      // A second ADMIN files an exemption request, holding the worker's row
+      // exactly as the API does, and keeps it open.
+      const holding = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT 1 FROM employees WHERE id = ${worker.id}::uuid FOR NO KEY UPDATE`;
+          await tx.biometricExemption.create({
+            data: {
+              companyId: company.companyId,
+              employeeId: worker.id,
+              reason: 'CANNOT_ENROLL',
+              note: 'This worker will not stand in front of a camera.',
+              requestedByUserId: company.adminUserId,
+            },
+          });
+          filed();
+          await released;
+        },
+        { timeout: 30_000 },
+      );
+      await isFiled;
+
+      // `.then` is what makes supertest actually send the request: without it
+      // nothing would leave this process until the line that awaits it.
+      const enrolling = kioskPost(
+        'kiosk/face-enrollments',
+        {
+          employeeId: worker.id,
+          consentId: consent.body.id,
+          samples: captureOf(anotherFace()),
+        },
+        { device: enrolmentKiosk },
+      ).then((response) => response);
+      // The enrollment has to wait for that row instead of reading around it.
+      const waited = await waitingOnEmployees();
+      release();
+      await holding;
+
+      const answer = await enrolling;
+
+      // It waited, so it read the request that was being filed, not the
+      // empty state before it.
+      expect(waited).toBe(true);
+      expect(answer.status).toBe(409);
+      expect(JSON.stringify(answer.body)).toMatch(/exemption request/);
+      expect(await prisma.biometricCredential.count({ where: { employeeId: worker.id } })).toBe(0);
+    }, 60_000);
+
     it("replaces a worker's own face, wiping the old one", async () => {
       const worker = await newStarter();
       const first = await enroll(worker.id, anotherFace());
