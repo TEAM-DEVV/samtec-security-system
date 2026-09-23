@@ -37,8 +37,8 @@ every API route it needs is merged and working today.
 
 **What it is.** A separate Vite + React + TypeScript app, its own Vercel
 project, plain CSS (do not pull in the dashboard's Tailwind setup — a kiosk
-has five screens and must boot fast on a cheap Android phone). Design and
-rules: [Biometrics design](13-biometrics-design.md) sections 2, 3 and 7.
+has six screens and must boot fast on a cheap Android phone). Design and
+rules: [Biometrics design](13-biometrics-design.md) sections 2, 3, 4 and 7.
 
 **The screens, in the order a device lives through them**
 
@@ -52,14 +52,33 @@ rules: [Biometrics design](13-biometrics-design.md) sections 2, 3 and 7.
 3. **Enrollment** (the same ADMIN). Three face captures half a second apart →
    `POST /kiosk/face-enrollments`. The answer says `PASSED` or `COLLISION`;
    on `COLLISION` say only "Needs an admin review", never who it looked like.
-4. **Clock in / out** (the everyday screen, no sign-in). Start shift / End
+4. **Save the worker's finger** (the same ADMIN, right after the face, and
+   only on a kiosk whose `passkeysEnabled` is on). The worker's finger must
+   already be saved in the phone's own settings. `POST /kiosk/passkey-options`
+   → hand `options` **unchanged** to `navigator.credentials.create()` →
+   send the browser's answer, with the `ticket` exactly as it came, to
+   `POST /kiosk/passkeys` within 2 minutes. If the answer says `synced: true`,
+   tell the ADMIN the phone may copy this key to its cloud account.
+5. **Clock in / out** (the everyday screen, no sign-in). Start shift / End
    shift → head-turn challenge → `POST /kiosk/identify` → show
    "Hello, Kwame A." for 2 seconds with a **Not me** button →
    `POST /kiosk/confirm`. "Not me" calls `POST /kiosk/not-me`.
-5. **Ask your supervisor.** After 3 failed face attempts, or straight away
+   **If `identify` answers with `fingerprint`, the finger is required**: pass
+   `fingerprint.options` unchanged to `navigator.credentials.get()` and send
+   the answer as `assertion` on `POST /kiosk/confirm`. Cancelling it makes no
+   punch at all — do not fall back to confirming without it, because the
+   server will refuse anyway.
+6. **Ask your supervisor.** After 3 failed face attempts, or straight away
    for a worker the server says cannot use their face: the supervisor looks
    at the camera and types the worker's staff number →
    `POST /kiosk/identify` with `purpose: CO_SIGN` → `POST /kiosk/assisted-punches`.
+   That identify may ask for the **supervisor's own** finger too; when it
+   does, send the assertion as `assertion` on the assisted punch.
+   The same three failures also open `POST /kiosk/fingerprint-options`: the
+   worker types their staff number and uses any finger the phone knows, and
+   the answer's `options` go to `navigator.credentials.get()` and then to
+   `POST /kiosk/confirm` like any other. Offer it only after three failures,
+   because every call spends the unlock whatever the answer.
 
 **Which screens need somebody signed in**
 
@@ -68,8 +87,8 @@ Two different doors, and mixing them up costs an afternoon:
 | Screen | What the request carries |
 |---|---|
 | Set-up (`POST /devices`) | An ADMIN's access token. No signature — there is no device yet |
-| Consent, enrollment | The ADMIN's token **and** the device's signature. The ADMIN signs in on the kiosk; that session works on kiosk screens only |
-| Clock in, "Not me", confirm, co-sign | The **device's signature alone**. No token, ever — the guard at the gate has no account |
+| Consent, enrollment, saving a finger | The ADMIN's token **and** the device's signature. The ADMIN signs in on the kiosk; that session works on kiosk screens only |
+| Clock in, "Not me", confirm, the staff-number fallback, co-sign | The **device's signature alone**. No token, ever — the guard at the gate has no account |
 
 **The three things that are easy to get wrong**
 
@@ -89,12 +108,22 @@ Two different doors, and mixing them up costs an afternoon:
   least 0.60, a random LEFT or RIGHT head turn completed within 20 seconds,
   then one centred sample. The server checks the numbers again, but it cannot
   see the camera: if this is weak, the whole thing is weak.
+- **WebAuthn's objects travel through untouched.** Whatever
+  `passkey-options` or `fingerprint` hands over goes to the browser exactly
+  as it came, and whatever the browser answers goes back exactly as it came
+  (`response.toJSON()` in Chrome, or `@simplewebauthn/browser`). Rebuilding
+  those objects by hand is how a whole afternoon disappears: the bytes are
+  signed, so one changed field means the server refuses everything. The
+  kiosk's address must be the one in `KIOSK_ORIGINS` — a key made on one
+  address can never be used on another, which is the point.
 - **The answers never carry a score, and neither may the screen.** Show the
   name or "Try again". Never "close match", never a number, never who a face
   looked like. Anyone can stand in front of a kiosk.
 
 **Done when** a real face clock-in on an Android phone appears on the
-dashboard within 5 seconds, and a printed photograph is refused.
+dashboard within 5 seconds, a printed photograph is refused, and a worker
+whose finger is saved on that phone is asked for it and shows up on the
+board as `FACE_PASSKEY`.
 
 > Francis: create the Vercel project for `apps/kiosk` and add its address to
 > `KIOSK_ORIGINS` before Samuel's first deploy. Ask the owner first.
