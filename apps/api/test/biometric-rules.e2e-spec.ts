@@ -681,6 +681,101 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
 
       expect(refused.body.detail).toMatch(/removed a face/);
     });
+
+    it('is refused while an exemption request waits', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+      // The face is taken off, then one ADMIN asks for an exemption.
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(reviewer))
+        .send({ reason: 'Enrolled the wrong man.' })
+        .expect(200);
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'The worker refuses, in writing.' })
+        .expect(200);
+
+      const refused = await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Trying again while nobody is looking.' })
+        .expect(409);
+
+      expect(refused.body.detail).toMatch(/exemption request/);
+    });
+
+    it('leaves a blocked record blocked, through a revoke and a withdrawal', async () => {
+      const oneFace = anotherFace();
+      const real = await newStarter();
+      expect((await enroll(real.id, oneFace)).status).toBe(201);
+      const ghost = await newStarter();
+      expect((await enroll(ghost.id, oneFace)).status).toBe(201);
+      const review = await faceOf(ghost.id);
+      await resolve(reviewer, review.id, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: real.id,
+        note: 'One man, two names: the newer record is the ghost.',
+      }).expect(200);
+      const blocked = await faceOf(ghost.id);
+      expect(blocked.status).toBe('BLOCKED');
+
+      // A blocked record can only be terminated. Revoking is refused...
+      const revoked = await api()
+        .post(`/api/v1/employees/${ghost.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Trying to turn a block into a plain removal.' })
+        .expect(409);
+      expect(revoked.body.detail).toMatch(/blocked as a duplicate/);
+
+      // ...and a withdrawal, which the law always allows, leaves it blocked.
+      await api()
+        .post(`/api/v1/employees/${ghost.id}/biometric-consents/withdraw`)
+        .set(...bearer(enroller))
+        .send({ reason: 'The worker asked for their record to be cleared.' })
+        .expect(200);
+
+      const after = await faceOf(ghost.id);
+      expect(after.status).toBe('BLOCKED');
+      expect(after.wipedAt?.toISOString()).toBe(blocked.wipedAt?.toISOString());
+      // Nothing was filed for a second ADMIN: a blocked record has one way out.
+      expect(await prisma.biometricExemption.count({ where: { employeeId: ghost.id } })).toBe(0);
+    });
+
+    it('leaves the first record waiting when the same face is enrolled again elsewhere', async () => {
+      const oneFace = anotherFace();
+      const first = await newStarter();
+      expect((await enroll(first.id, oneFace)).status).toBe(201);
+      // The worker takes their consent back, so the face is wiped and a
+      // second ADMIN owes them an answer.
+      await api()
+        .post(`/api/v1/employees/${first.id}/biometric-consents/withdraw`)
+        .set(...bearer(reviewer))
+        .send({ reason: 'The worker asked for their face to be removed.' })
+        .expect(200);
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: first.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+
+      // The same face now turns up on a brand-new record. It passes, because
+      // the wiped face is no longer in the duplicate check.
+      const second = await newStarter();
+      const enrolled = await enroll(second.id, oneFace);
+      expect(enrolled.status).toBe(201);
+      expect(enrolled.body.dedupe).toBe('PASSED');
+
+      // The first record does not come back on its own: it waits, unpaid,
+      // for the second ADMIN who owes it an answer.
+      const waiting = await prisma.employee.findUniqueOrThrow({ where: { id: first.id } });
+      expect(waiting.status).toBe('PENDING_ENROLLMENT');
+      expect(waiting.biometricEnrolledAt).toBeNull();
+      const panelled = await panel(enroller, first.id).expect(200);
+      expect(panelled.body.exemption.status).toBe('REQUESTED');
+      expect(panelled.body.exemption.reason).toBe('CONSENT_WITHDRAWN');
+      // The words an ADMIN typed never reach a screen: only the code does.
+      expect(panelled.body.exemption.note).toBeNull();
+    });
   });
 
   describe('exemptions', () => {

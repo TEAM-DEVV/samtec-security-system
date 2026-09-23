@@ -80,9 +80,9 @@ export class BiometricReviewsService {
           action: 'biometric.revoked',
           entityType: 'employee',
           entityId: employeeId,
-          // The reason stays on the audit row's action only: the free text
-          // lives nowhere, like every other note in this project.
-          detail: { hadFace: face !== null, revokedKeys: keys },
+          // The reason is kept with the audit record, as the contract says,
+          // and nowhere a screen can read it back.
+          detail: { hadFace: face !== null, revokedKeys: keys, reason: body.reason },
         },
         tx,
       );
@@ -133,8 +133,7 @@ export class BiometricReviewsService {
 
       // Only a worker who was really working by their face loses that
       // footing, so only then is a request filed for a second ADMIN.
-      const filed =
-        wasInUse && (await this.fileWithdrawalExemption(tx, viewer, employeeId, body.reason));
+      const filed = wasInUse && (await this.fileWithdrawalExemption(tx, viewer, employeeId));
       await this.audit.record(
         {
           companyId: viewer.companyId,
@@ -142,7 +141,8 @@ export class BiometricReviewsService {
           action: 'biometric.consent_withdrawn',
           entityType: 'employee',
           entityId: employeeId,
-          detail: { filedExemption: filed === true, employeeStatus: status },
+          // The contract says the reason is kept with the audit record: here.
+          detail: { filedExemption: filed === true, employeeStatus: status, reason: body.reason },
         },
         tx,
       );
@@ -533,7 +533,6 @@ export class BiometricReviewsService {
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
-    reason: string,
   ): Promise<boolean> {
     const open = await tx.biometricExemption.findFirst({
       where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
@@ -546,7 +545,11 @@ export class BiometricReviewsService {
         companyId: viewer.companyId,
         employeeId,
         reason: 'CONSENT_WITHDRAWN',
-        note: reason,
+        // No note. The ADMIN's words go to the audit record, which the
+        // contract promises and which no route reads back. Copying them here
+        // would show every HR user why a worker refused — often a religious
+        // or health matter, which this system never writes down.
+        note: null,
         requestedByUserId: viewer.userId,
       },
     });
