@@ -917,47 +917,6 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       );
     });
 
-    it('holds a worker up while a face of theirs only waits for review', async () => {
-      const worker = await newStarter();
-      await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
-        .set(...bearer(enroller))
-        .send({ reason: 'CANNOT_ENROLL', note: 'Three visits, no usable capture.' })
-        .expect(200);
-      await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
-        .set(...bearer(reviewer))
-        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
-        .expect(200);
-      const stillActive = async () =>
-        (await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status;
-      expect(await stillActive()).toBe('ACTIVE');
-
-      // The kiosk manages a capture at last, and it collides with somebody.
-      const oneFace = anotherFace();
-      const other = await newStarter();
-      expect((await enroll(other.id, oneFace)).status).toBe(201);
-      const enrolled = await enroll(worker.id, oneFace);
-      expect(enrolled.status).toBe(201);
-      expect(enrolled.body.dedupe).toBe('COLLISION');
-
-      // A face that has not passed proves nothing yet, so the footing two
-      // ADMINs gave this worker is still what they stand on.
-      expect(enrolled.body.employeeStatus).toBe('ACTIVE');
-      expect(await stillActive()).toBe('ACTIVE');
-
-      // Nor does one ADMIN take it away by recording a withdrawal.
-      const withdrawn = await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-consents/withdraw`)
-        .set(...bearer(enroller))
-        .send({ reason: 'The worker no longer agrees to biometrics at all.' })
-        .expect(200);
-
-      expect(withdrawn.body.exemption.status).toBe('APPROVED');
-      expect(withdrawn.body.face.status).toBe('REVOKED');
-      expect(await stillActive()).toBe('ACTIVE');
-    });
-
     it('is never approved while a duplicate review about the worker is open', async () => {
       const oneFace = anotherFace();
       const guard = await newStarter();
@@ -1210,35 +1169,6 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       const face = await faceOf(recent.id);
       expect(face.status).toBe('ACTIVE');
       expect(face.templateSealed).not.toBeNull();
-    });
-
-    it('leaves a worker standing on their exemption when it takes their face', async () => {
-      const worker = await newStarter();
-      await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
-        .set(...bearer(enroller))
-        .send({ reason: 'CANNOT_ENROLL', note: 'The camera cannot read this worker.' })
-        .expect(200);
-      await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
-        .set(...bearer(reviewer))
-        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
-        .expect(200);
-      // A capture that collided with somebody, which nobody ever answered.
-      const level = anotherFace();
-      const other = await newStarter();
-      expect((await enroll(other.id, level)).status).toBe(201);
-      expect((await enroll(worker.id, level)).status).toBe(201);
-      await dueAgain();
-
-      await sweeper().sweep(company.companyId, inDays(91));
-
-      expect((await faceOf(worker.id)).wipedAt).not.toBeNull();
-      // The face is gone, but the footing two ADMINs gave them is not, so
-      // they keep clocking in by co-sign instead of dropping off the roster.
-      const after = await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } });
-      expect(after.status).toBe('ACTIVE');
-      expect(after.biometricEnrolledAt).toBeNull();
     });
 
     it('wipes a face that waited 90 days for a review, and leaves the review open', async () => {

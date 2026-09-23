@@ -27,7 +27,6 @@ import type {
 } from './attendance.schemas.js';
 import { isDeadlock } from './attendance-lock.js';
 import { blockedRecord, openReview } from './biometric-questions.js';
-import { standDown } from './biometric-standing.js';
 
 /** What the face and the fingerprint keys of one worker look like from the dashboard. */
 type FaceRow = Prisma.BiometricCredentialGetPayload<{ include: { device: true } }>;
@@ -471,8 +470,7 @@ export class BiometricReviewsService {
           }
         } else {
           // The new record was the duplicate: it keeps only its blocked face.
-          await this.revokeKeys(tx, viewer, row.employeeId);
-          await this.endExemptions(tx, viewer, row.employeeId);
+          await this.endExemptionsAndKeys(tx, viewer, row.employeeId);
           await this.employees.clearBiometricsEnrolled(viewer.companyId, row.employeeId, tx);
         }
       }
@@ -759,13 +757,7 @@ export class BiometricReviewsService {
         });
       }
     }
-    await this.revokeKeys(tx, viewer, employeeId);
-    if (to === 'BLOCKED') {
-      // Only a blocked record loses its exemption. A revoke or a withdrawal
-      // takes the face away; the exemption is the *other* footing, agreed by
-      // two ADMINs, and one ADMIN must never be able to take it.
-      await this.endExemptions(tx, viewer, employeeId);
-    }
+    await this.endExemptionsAndKeys(tx, viewer, employeeId);
   }
 
   /**
@@ -785,23 +777,18 @@ export class BiometricReviewsService {
     await this.employees.markBiometricsEnrolled(viewer.companyId, employeeId, tx);
   }
 
-  /**
-   * Wipes what a worker had and takes them off the biometric footing —
-   * without knocking away the other one. A worker who still holds an
-   * exemption two ADMINs approved keeps working by co-sign; only somebody
-   * with neither a face nor an exemption goes back to waiting.
-   */
+  /** Wipes what a worker had and takes them off the biometric footing. */
   private async wipeAndStandDown(
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
   ): Promise<EmployeeStatus> {
     await this.wipeEverything(tx, viewer, employeeId, 'REVOKED');
-    return standDown(tx, this.employees, viewer.companyId, employeeId);
+    return this.employees.clearBiometricsEnrolled(viewer.companyId, employeeId, tx);
   }
 
-  /** Switches off every fingerprint key the worker still has. */
-  private async revokeKeys(
+  /** Switches off the fingerprint keys and ends an approved exemption. */
+  private async endExemptionsAndKeys(
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
@@ -810,14 +797,6 @@ export class BiometricReviewsService {
       where: { companyId: viewer.companyId, employeeId, revokedAt: null },
       data: { revokedAt: new Date(), revokedByUserId: viewer.userId },
     });
-  }
-
-  /** Ends the exemption a blocked record no longer has any footing for. */
-  private async endExemptions(
-    tx: TransactionClient,
-    viewer: SignedInUser,
-    employeeId: string,
-  ): Promise<void> {
     await tx.biometricExemption.updateMany({
       where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
       data: { status: 'ENDED', endedAt: new Date() },

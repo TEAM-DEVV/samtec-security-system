@@ -27,7 +27,6 @@ import {
   lockCompanyBiometrics,
 } from './attendance-lock.js';
 import { blockedRecord, openReview } from './biometric-questions.js';
-import { standDown } from './biometric-standing.js';
 import { CONSENT_TEXT, CONSENT_TEXT_SHA256, CONSENT_TEXT_VERSION } from './consent-text.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import type { FaceSample } from './face-match.js';
@@ -223,7 +222,7 @@ export class BiometricsService {
         const employeeStatus =
           dedupe === 'PASSED'
             ? await this.facePassed(tx, caller, body.employeeId)
-            : await standDown(tx, this.employees, caller.companyId, body.employeeId);
+            : await this.employees.clearBiometricsEnrolled(caller.companyId, body.employeeId, tx);
 
         await this.audit.record(
           {
