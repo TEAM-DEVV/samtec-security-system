@@ -12,10 +12,11 @@ export function ThemeToggle() {
   const Icon = ICONS[theme];
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
       onClick={() => setTheme(NEXT[theme])}
       title={`Theme: ${LABELS[theme]}. Click to switch.`}
+      className="rounded-full"
     >
       <Icon aria-hidden="true" />
       <span className="sr-only">Theme:</span>

@@ -16,7 +16,7 @@ export function TableLoadingRows({ colSpan, label, rows = 5 }: TableLoadingRowsP
     // Placeholder rows have no identity of their own, so the index is a fine key.
     // biome-ignore lint/suspicious/noArrayIndexKey: see above
     <TableRow key={index}>
-      <TableCell colSpan={colSpan} className="px-4">
+      <TableCell colSpan={colSpan} className="px-4 py-3">
         {index === 0 && (
           <span role="status" className="sr-only">
             {label}
@@ -40,12 +40,12 @@ interface TableEmptyRowProps {
 export function TableEmptyRow({ colSpan, icon: Icon, title, hint }: TableEmptyRowProps) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="py-12">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <span className="rounded-full bg-muted p-3 text-muted-foreground">
+      <TableCell colSpan={colSpan} className="py-14">
+        <div className="flex flex-col items-center gap-2 text-center motion-safe:animate-rise-soft">
+          <span className="rounded-2xl bg-primary/8 p-3 text-primary">
             <Icon aria-hidden="true" className="size-5" />
           </span>
-          <p className="font-medium">{title}</p>
+          <p className="font-heading font-medium text-base">{title}</p>
           {hint && <p className="text-muted-foreground text-sm">{hint}</p>}
         </div>
       </TableCell>
