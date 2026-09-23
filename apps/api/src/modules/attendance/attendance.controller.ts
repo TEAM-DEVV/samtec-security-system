@@ -2,14 +2,20 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/com
 import type {
   AttendanceException,
   AttendanceExceptionList,
+  ClockInAttemptList,
+  PunchFeedList,
   WorkSegmentList,
 } from '@samtec/contracts';
 import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   idSchema,
+  type ListAttemptsQuery,
   type ListExceptionsQuery,
+  type ListPunchesQuery,
   type ListSegmentsQuery,
+  listAttemptsQuerySchema,
   listExceptionsQuerySchema,
+  listPunchesQuerySchema,
   listSegmentsQuerySchema,
   type ResolveExceptionBody,
   resolveExceptionSchema,
@@ -28,6 +34,26 @@ export class AttendanceController {
     @Query({ schema: listSegmentsQuerySchema }) query: ListSegmentsQuery,
   ): Promise<WorkSegmentList> {
     return this.attendance.listSegments(caller, query);
+  }
+
+  /** The live board. A supervisor sees their own sites; others get a 404. */
+  @Get('punches')
+  @Roles('ADMIN', 'HR_PAYROLL', 'SUPERVISOR')
+  listPunches(
+    @Caller() caller: SignedInUser,
+    @Query({ schema: listPunchesQuerySchema }) query: ListPunchesQuery,
+  ): Promise<PunchFeedList> {
+    return this.attendance.listPunches(caller, query);
+  }
+
+  /** What the kiosks have been asked, successes and failures alike. */
+  @Get('clock-in-attempts')
+  @Roles('ADMIN')
+  listAttempts(
+    @Caller() caller: SignedInUser,
+    @Query({ schema: listAttemptsQuerySchema }) query: ListAttemptsQuery,
+  ): Promise<ClockInAttemptList> {
+    return this.attendance.listAttempts(caller, query);
   }
 
   @Get('exceptions')

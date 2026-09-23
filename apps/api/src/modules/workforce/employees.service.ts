@@ -685,6 +685,49 @@ export class EmployeesService {
   }
 
   /**
+   * What a kiosk needs to know about somebody standing in front of it: how
+   * to name them on a shared screen, where they stand in their working life,
+   * and — because a supervisor's co-sign has to be a real supervisor — what
+   * account they hold, if any.
+   *
+   * There is no viewer here: a clock-in is the **device** asking, with no
+   * user signed in at all, so the caller passes the company its own signed
+   * device belongs to. Nothing here is secret on its own; the kiosk is told
+   * only what it already needs to show, and never the Ghana Card number.
+   */
+  async atTheKiosk(companyId: string, find: { id: string } | { staffNumber: string }) {
+    return this.prisma.employee.findFirst({
+      where: { companyId, ...find },
+      select: {
+        id: true,
+        staffNumber: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        user: { select: { role: true, isActive: true } },
+      },
+    });
+  }
+
+  /**
+   * Is this worker posted to this site today? Every person in a kiosk
+   * clock-in — the worker and the supervisor alike — must be, because a
+   * kiosk stands at one gate and records the hours worked there.
+   */
+  async isPostedTo(
+    companyId: string,
+    employeeId: string,
+    siteId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<boolean> {
+    const posted = await db.siteAssignment.findFirst({
+      where: { companyId, employeeId, siteId, ...currentAssignmentFilter() },
+      select: { id: true },
+    });
+    return posted !== null;
+  }
+
+  /**
    * True when these really are the last 4 digits of this worker's Ghana Card.
    * The ADMIN reads them off the card the worker is holding, so the right
    * person is in front of the kiosk; the full number never leaves the office.
