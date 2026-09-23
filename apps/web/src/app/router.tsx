@@ -4,9 +4,11 @@ import { AppShell } from '@/components/layout/app-shell';
 import { RequireRole } from '@/components/require-role';
 import { RequireSession } from '@/components/require-session';
 import { pageRoles } from '@/lib/roles';
+import { ChangePasswordPage } from '@/pages/change-password-page';
 import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { LoginPage } from '@/pages/login-page';
+import { NewUserPage } from '@/pages/new-user-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
@@ -15,6 +17,8 @@ import { SitesPage } from '@/pages/sites-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
 import { TwoFactorVerifyPage } from '@/pages/two-factor-verify-page';
+import { UserDetailPage } from '@/pages/user-detail-page';
+import { UsersPage } from '@/pages/users-page';
 
 /**
  * Every page of the dashboard and its web address, the same in mock mode and
@@ -48,6 +52,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: 'status', element: <SystemStatusPage /> },
+      { path: 'account/password', element: <ChangePasswordPage /> },
       {
         path: 'employees',
         element: (
@@ -69,6 +74,30 @@ export const router = createBrowserRouter([
         // record by record (a guard sees only their own).
         path: 'employees/:employeeId',
         element: <EmployeeDetailPage />,
+      },
+      {
+        path: 'users',
+        element: (
+          <RequireRole roles={pageRoles.users}>
+            <UsersPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'users/new',
+        element: (
+          <RequireRole roles={pageRoles.users}>
+            <NewUserPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'users/:userId',
+        element: (
+          <RequireRole roles={pageRoles.users}>
+            <UserDetailPage />
+          </RequireRole>
+        ),
       },
       { path: '*', element: <NotFoundPage /> },
     ],

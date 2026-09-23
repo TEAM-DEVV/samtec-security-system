@@ -1,6 +1,8 @@
 import type { CurrentUser } from '@samtec/contracts';
-import { LogOut } from 'lucide-react';
+import { KeyRound, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
+import { routes } from '@/app/routes';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { signOut } from '@/lib/auth';
@@ -45,15 +47,27 @@ export function UserCard({ user }: { user: CurrentUser }) {
         </span>
       </p>
       <Button
+        asChild
         variant="ghost"
-        size="sm"
+        size="icon-sm"
+        title="Change password"
+        className="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      >
+        <Link to={routes.changePassword}>
+          <KeyRound aria-hidden="true" />
+          <span className="sr-only">Change password</span>
+        </Link>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onClick={() => void handleSignOut()}
         title={signingOut ? 'Signing out…' : 'Sign out'}
         className="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       >
         <LogOut aria-hidden="true" />
-        {/* The word shows where there is room; the sr-only copy covers icon-only widths. */}
-        <span className="sr-only sm:not-sr-only">{signingOut ? 'Signing out…' : 'Sign out'}</span>
+        {/* Two icon buttons side by side: the words live in the title and for screen readers. */}
+        <span className="sr-only">{signingOut ? 'Signing out…' : 'Sign out'}</span>
       </Button>
     </div>
   );

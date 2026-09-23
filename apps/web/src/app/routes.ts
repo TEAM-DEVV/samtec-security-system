@@ -10,6 +10,13 @@ export const routes = {
   sites: '/sites',
   /** One employee's record. */
   employee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}`,
+  /** Sign-in accounts (ADMIN only). */
+  users: '/users',
+  newUser: '/users/new',
+  /** One sign-in account. */
+  user: (userId: string) => `/users/${encodeURIComponent(userId)}`,
+  /** Where a signed-in person changes their own password. */
+  changePassword: '/account/password',
   /** The 6-digit code screen, after a sign-in answered TWO_FACTOR_REQUIRED. */
   twoFactorVerify: '/login/two-factor',
   /** The QR code screen, after a sign-in answered TWO_FACTOR_SETUP_REQUIRED. */

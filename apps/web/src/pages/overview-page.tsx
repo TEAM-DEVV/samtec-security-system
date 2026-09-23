@@ -103,7 +103,12 @@ export function OverviewPage() {
             <CardTitle className="font-heading text-lg">Your role</CardTitle>
             <CardDescription>{roleLabels[user.role]}</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm">{roleDescriptions[user.role]}</CardContent>
+          <CardContent className="grid gap-2 text-sm">
+            <p>{roleDescriptions[user.role]}</p>
+            <Link to={routes.changePassword} className="w-fit underline underline-offset-4">
+              Change your password
+            </Link>
+          </CardContent>
         </Card>
 
         <Card className="stagger-5 motion-safe:animate-rise">

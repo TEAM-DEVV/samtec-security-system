@@ -1,6 +1,6 @@
 import type { LoginResponse } from '@samtec/contracts';
 import { type FormEvent, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { routes } from '@/app/routes';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -26,6 +26,8 @@ export function LoginPage() {
   usePageTitle('Sign in');
   const navigate = useNavigate();
   const session = useSession();
+  // A short message another page asked us to show, for example after a password change.
+  const notice = noticeFrom(useLocation().state);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -71,6 +73,11 @@ export function LoginPage() {
 
   return (
     <AuthLayout title="Sign in to SAMTEC" description="Attendance & Payroll dashboard">
+      {notice && (
+        <Alert className="mb-4">
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
       <form onSubmit={submit} aria-busy={login.isPending} className="grid gap-4">
         <div className="grid gap-1.5">
           <Label htmlFor="login-email">Email</Label>
@@ -116,6 +123,14 @@ export function LoginPage() {
       {import.meta.env.DEV && env.useMocks && <MockAccountsHint />}
     </AuthLayout>
   );
+}
+
+/** The `notice` another page put in the router state, if it is a plain string. */
+function noticeFrom(state: unknown): string | undefined {
+  if (typeof state === 'object' && state !== null && 'notice' in state) {
+    return typeof state.notice === 'string' ? state.notice : undefined;
+  }
+  return undefined;
 }
 
 /** Shown in mock mode only, so anyone trying the dashboard knows which pretend accounts exist. */

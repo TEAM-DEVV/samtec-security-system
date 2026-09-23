@@ -42,7 +42,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - [x] User management (API): administrators create, change, switch off and reset sign-in accounts; owners choose their own password with a one-time link; the token guard checks the account on every request; terminating an employee switches their account off; an audited script creates the first administrator
 - [x] Dashboard: the public set-password page, where a one-time link lands (`/set-password#token=…`)
-- [ ] Dashboard (Samuel): Users pages for ADMIN and a change-password form — the mock API already supports them
+- [x] Dashboard (Samuel): Users pages for ADMIN (list, add with the one-time link, account page with switch off/on and reset sign-in) and a change-password form
 
 ## Phase 2 · Attendance on mocks (weeks 4 and 5)
 

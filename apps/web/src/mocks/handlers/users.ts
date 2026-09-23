@@ -9,31 +9,34 @@ import type {
   UserRole,
 } from '@samtec/contracts';
 import { HttpResponse, http, type PathParams } from 'msw';
+import { roleNeedsEmployee } from '@/lib/roles';
 import { mockAccounts } from '../data/accounts';
 import { mockEmployees } from '../data/employees';
 import { MOCK_PASSWORD } from '../data/users';
 import {
   apiUrl,
   conflict,
+  forbidden,
   isOneOf,
   isUuid,
   notFound,
   type OrProblem,
   pageOf,
   readLimit,
+  unauthorized,
   validationProblem,
 } from '../helpers';
+import { endMockSessions, userForRequest } from './auth';
 
 /**
  * The mock Users API (ADMIN screens) plus choosing and changing a password.
  * It keeps its own copy of the accounts, so the write handlers can change it;
  * tests call `resetMockUsers()` to start fresh.
  *
- * Simplifications, on purpose, until the sign-in screens have landed:
- * - It does not check who is calling, so the ADMIN-only rule and the
- *   never-on-your-own-account rule (both enforced by the real API) are not
- *   imitated yet.
- * - Accounts created here cannot sign in to the mock API.
+ * Like the real API, every Users route needs a signed-in ADMIN, and an
+ * administrator may only rename their own account, never switch it off, switch
+ * it on or reset it. One simplification: accounts created here cannot sign in
+ * to the mock API.
  */
 let accounts: UserAccount[] = mockAccounts.map((account) => ({ ...account }));
 /** One-time password link tokens, mapped to the account they belong to. */
@@ -58,7 +61,7 @@ const NO_SUCH_ACCOUNT = 'No user account exists with this ID.';
 
 /** SUPERVISOR and GUARD must be linked to an employee; ADMIN and HR_PAYROLL never are. */
 function linkProblem(role: UserRole, employeeId: string | null) {
-  const needsLink = role === 'SUPERVISOR' || role === 'GUARD';
+  const needsLink = roleNeedsEmployee(role);
   if (needsLink && employeeId === null) {
     return validationProblem(
       'employeeId',
@@ -121,10 +124,31 @@ function findAccount(userId: string) {
   return account ? { account } : { problem: notFound(NO_SUCH_ACCOUNT) };
 }
 
-// TODO(after the sign-in stack lands): answer 401 without a token and 403 for
-// every role except ADMIN, and refuse changes to the caller's own account.
+/** The real API's guards on every Users route: signed in, and ADMIN. */
+function adminFor(request: Request) {
+  const user = userForRequest(request);
+  if (!user) {
+    return { problem: unauthorized('Sign in to continue.') };
+  }
+  if (user.role !== 'ADMIN') {
+    return { problem: forbidden() };
+  }
+  return { user };
+}
+
+// The real API's wording (users.service.ts) for each action refused on your own account.
+const OWN_ACCOUNT = {
+  deactivate: 'You cannot switch off your own account. Ask another administrator.',
+  reactivate: 'You cannot switch on your own account. Ask another administrator.',
+  reset: 'You cannot reset your own sign-in. Ask another administrator.',
+};
+
 export const userHandlers = [
   http.get<PathParams, never, OrProblem<UserAccountList>>(apiUrl('/users'), ({ request }) => {
+    const caller = adminFor(request);
+    if (!caller.user) {
+      return caller.problem;
+    }
     const query = new URL(request.url).searchParams;
     const limit = readLimit(query);
     if (limit === undefined) {
@@ -139,7 +163,17 @@ export const userHandlers = [
   http.post<PathParams, CreateUserRequest, OrProblem<UserAccountWithPasswordSetup>>(
     apiUrl('/users'),
     async ({ request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const body = await request.json();
+      // Like the real API's strict schema: no fields beyond the contract's.
+      const allowed = ['email', 'fullName', 'role', 'employeeId'];
+      const unknown = Object.keys(body).find((key) => !allowed.includes(key));
+      if (unknown !== undefined) {
+        return validationProblem(unknown, 'Unrecognized field.');
+      }
       const badDetails = emailProblem(body.email) ?? fullNameProblem(body.fullName);
       if (badDetails) {
         return badDetails;
@@ -180,7 +214,11 @@ export const userHandlers = [
 
   http.get<{ userId: string }, never, OrProblem<UserAccount>>(
     apiUrl('/users/:userId'),
-    ({ params }) => {
+    ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const found = findAccount(params.userId);
       return found.account ? HttpResponse.json<UserAccount>(found.account) : found.problem;
     },
@@ -189,6 +227,10 @@ export const userHandlers = [
   http.patch<{ userId: string }, UpdateUserRequest, OrProblem<UserAccount>>(
     apiUrl('/users/:userId'),
     async ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
@@ -202,6 +244,12 @@ export const userHandlers = [
       }
       if (Object.keys(body).length === 0) {
         return validationProblem('body', 'Send at least one field to change.');
+      }
+      // On your own account only the name may change, so nobody locks themselves out.
+      if (account.id === caller.user.id && Object.keys(body).some((key) => key !== 'fullName')) {
+        return conflict(
+          'On your own account you can only change your name. Ask another administrator.',
+        );
       }
       // Same rules as creating an account, applied to the fields that were sent.
       const badDetails =
@@ -243,10 +291,17 @@ export const userHandlers = [
 
   http.post<{ userId: string }, never, OrProblem<UserAccount>>(
     apiUrl('/users/:userId/deactivate'),
-    ({ params }) => {
+    ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
+      }
+      if (found.account.id === caller.user.id) {
+        return conflict(OWN_ACCOUNT.deactivate);
       }
       if (found.account.status === 'DEACTIVATED') {
         return conflict('This account is already switched off.');
@@ -260,12 +315,19 @@ export const userHandlers = [
 
   http.post<{ userId: string }, never, OrProblem<UserAccount>>(
     apiUrl('/users/:userId/reactivate'),
-    ({ params }) => {
+    ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
       }
       const account = found.account;
+      if (account.id === caller.user.id) {
+        return conflict(OWN_ACCOUNT.reactivate);
+      }
       if (account.status !== 'DEACTIVATED') {
         return conflict('This account is already switched on.');
       }
@@ -282,12 +344,19 @@ export const userHandlers = [
 
   http.post<{ userId: string }, never, OrProblem<UserAccountWithPasswordSetup>>(
     apiUrl('/users/:userId/reset-sign-in'),
-    ({ params }) => {
+    ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
       }
       const account = found.account;
+      if (account.id === caller.user.id) {
+        return conflict(OWN_ACCOUNT.reset);
+      }
       if (account.status === 'DEACTIVATED') {
         return conflict('This account is switched off. Reactivate it first.');
       }
@@ -330,6 +399,10 @@ export const userHandlers = [
   http.post<PathParams, ChangePasswordRequest, OrProblem<undefined>>(
     apiUrl('/auth/change-password'),
     async ({ request }) => {
+      const caller = userForRequest(request);
+      if (!caller) {
+        return unauthorized('Sign in to continue.');
+      }
       const body = await request.json();
       // Like the real API: a wrong current password is a 400, never a 401.
       if (body.currentPassword !== MOCK_PASSWORD) {
@@ -347,6 +420,8 @@ export const userHandlers = [
           'Choose a password different from your current one.',
         );
       }
+      // Like the real API: every session of the account ends, this one included.
+      endMockSessions(caller.id);
       return new HttpResponse(null, { status: 204 });
     },
   ),

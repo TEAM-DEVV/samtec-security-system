@@ -1,11 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { fetchClient } from '@/lib/api';
+import { clearSession } from '@/lib/session';
+import { signInForTests } from '@/test/session';
 import { mockAccounts } from '../data/accounts';
 import { mockEmployees } from '../data/employees';
-import { resetMockUsers } from './users';
-
-// This file resets its own mock store, so it needs no change to test/setup.ts.
-afterEach(() => resetMockUsers());
 
 /** An employee who has not left and has no sign-in account yet, whatever the mock data holds. */
 const linkable = mockEmployees.find(
@@ -15,8 +13,28 @@ const linkable = mockEmployees.find(
 );
 const LINKABLE_EMPLOYEE_ID = linkable?.id ?? '';
 
+/** The signed-in administrator's own account, and someone else's. */
+const ADMIN_ID = mockAccounts.find((account) => account.role === 'ADMIN')?.id ?? '';
+const HR_ID = mockAccounts.find((account) => account.role === 'HR_PAYROLL')?.id ?? '';
+
 /** The mock Users API follows the same rules as the real one. */
 describe('mock users API', () => {
+  // Every Users route needs an ADMIN. test/setup.ts resets the store and the session afterwards.
+  beforeEach(() => signInForTests('admin@samtec.example'));
+
+  it('refuses anyone who is not a signed-in administrator', async () => {
+    const asAdmin = await fetchClient.GET('/users');
+    expect(asAdmin.response.status).toBe(200);
+
+    clearSession();
+    const signedOut = await fetchClient.GET('/users');
+    expect(signedOut.response.status).toBe(401);
+
+    await signInForTests('supervisor@samtec.example');
+    const asSupervisor = await fetchClient.GET('/users');
+    expect(asSupervisor.response.status).toBe(403);
+  });
+
   it('creates an account that waits for a password, with a one-time link', async () => {
     const { data, response } = await fetchClient.POST('/users', {
       body: {
@@ -58,9 +76,7 @@ describe('mock users API', () => {
   });
 
   it('switches an account off and on, and resets sign-in with a fresh link', async () => {
-    const { data: list } = await fetchClient.GET('/users');
-    const hr = list?.items.find((account) => account.role === 'HR_PAYROLL');
-    const userId = hr?.id ?? '';
+    const userId = HR_ID;
 
     const off = await fetchClient.POST('/users/{userId}/deactivate', {
       params: { path: { userId } },
@@ -82,9 +98,31 @@ describe('mock users API', () => {
     expect(fresh.data?.passwordSetup.token).toBeTruthy();
   });
 
+  it('lets an administrator rename their own account, and nothing else', async () => {
+    const renamed = await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId: ADMIN_ID } },
+      body: { fullName: 'Efua A. Mensah' },
+    });
+    expect(renamed.data?.fullName).toBe('Efua A. Mensah');
+
+    const demoted = await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId: ADMIN_ID } },
+      body: { role: 'GUARD' },
+    });
+    expect(demoted.response.status).toBe(409);
+
+    const off = await fetchClient.POST('/users/{userId}/deactivate', {
+      params: { path: { userId: ADMIN_ID } },
+    });
+    expect(off.response.status).toBe(409);
+    const reset = await fetchClient.POST('/users/{userId}/reset-sign-in', {
+      params: { path: { userId: ADMIN_ID } },
+    });
+    expect(reset.response.status).toBe(409);
+  });
+
   it('checks the email and name on update exactly as on create', async () => {
-    const { data: list } = await fetchClient.GET('/users');
-    const userId = list?.items[0]?.id ?? '';
+    const userId = HR_ID;
 
     const badEmail = await fetchClient.PATCH('/users/{userId}', {
       params: { path: { userId } },
