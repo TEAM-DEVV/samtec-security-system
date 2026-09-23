@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { DevicePasskey, PasskeyOptionsResponse } from '@samtec/contracts';
 import {
@@ -6,18 +7,17 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
-
-/** WebAuthn's own options object, as the browser expects it. */
-type AuthenticationOptions = Awaited<ReturnType<typeof generateAuthenticationOptions>>;
-
-import { randomBytes } from 'node:crypto';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
 import type { PasskeyOptionsBody, RegisterPasskeyBody } from './attendance.schemas.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import { openTicket, passkeyTicketKey, sealTicket } from './passkey-ticket.js';
+
+/** WebAuthn's own options object, as the browser expects it. */
+type AuthenticationOptions = Awaited<ReturnType<typeof generateAuthenticationOptions>>;
 
 /**
  * The finger, on the kiosk's own sensor (docs/plan/13 section 4).
@@ -123,6 +123,11 @@ export class PasskeysService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // This worker's row first, as every biometric write does (docs/plan/13
+      // §2). Without it two registrations could both revoke, both insert,
+      // and the "one live key per kiosk" rule would fail one of them with a
+      // database error instead of a plain refusal.
+      await lockWorker(tx, worker.id);
       await tx.devicePasskey.updateMany({
         where: {
           companyId: caller.companyId,
@@ -325,6 +330,16 @@ export class PasskeysService {
     }
     return new URL(first).hostname;
   }
+}
+
+/**
+ * Takes this worker's row for the rest of the transaction, so the rows about
+ * one person are written one at a time (the same rule, and the same ten
+ * second cap, as every other biometric write).
+ */
+async function lockWorker(tx: Prisma.TransactionClient, employeeId: string): Promise<void> {
+  await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
+  await tx.$queryRaw`SELECT 1 FROM employees WHERE id = ${employeeId}::uuid FOR NO KEY UPDATE`;
 }
 
 /** One answer for every way a fingerprint step can be refused. */
