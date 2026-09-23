@@ -3,14 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#13213a" />
     <title>SAMTEC · Attendance &amp; Payroll</title>
     <!-- Applies the saved light/dark choice before the first paint (see public/theme.js). -->
     <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/boot.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <!-- The boot screen: the brand mark while the dashboard loads. src/main.tsx removes it. -->
+    <div id="boot" aria-hidden="true">
+      <svg class="boot-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>SAMTEC</title>
+        <path fill="#e8b542" d="m16 7.5-6.5 2.4v4.8c0 4.4 2.8 8 6.5 9.1 3.7-1.1 6.5-4.7 6.5-9.1V9.9L16 7.5Z" />
+        <path
+          class="boot-ring"
+          stroke="#f4f6fb"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+          d="M16 2 4 6.5v8.2c0 7.6 5.1 13.7 12 15.3 6.9-1.6 12-7.7 12-15.3V6.5L16 2Z"
+        />
+      </svg>
+      <p class="boot-word">SAMTEC</p>
+      <p class="boot-chain">identity → presence → pay</p>
+    </div>
+    <!-- `inert` keeps keyboard focus out of the page until the boot screen has gone. -->
+    <div id="root" inert></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

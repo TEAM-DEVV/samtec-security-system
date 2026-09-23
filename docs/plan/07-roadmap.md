@@ -35,6 +35,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 - [x] Dashboard (Samuel): sign-in and two-factor screens, employee list and detail, site pages — the mock API already supports all of them
 - [x] Dashboard (Samuel): once the sign-in screens work against the live API, remove the live-mode notice in `apps/web/src/app/router.tsx`
 - [x] Dashboard (Samuel): brand theme with light/dark mode, an Overview home page at `/`, System status moved to `/status` (Phase 6 polish pulled forward)
+- [x] Dashboard (Samuel): executive design foundation — heading font, motion with a reduced-motion switch, boot screen, sign-in stage, shell and page styling, phone layouts (the Phase 6 visual pass pulled forward; Phase 6 keeps the final review pass)
 - **Exit demo:** create an employee, assign them to a site and shift, and see the change in the audit trail
 
 Added to Phase 1 during the build (needed before the pilot, and by Phase 4's maker–checker and Phase 6's guard payslips):
@@ -94,7 +95,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 - Live attendance board and key figures: headcount present, absence rate, payroll cost trend
 - CSV and PDF reports; guards can view their own payslips
-- **Final visual level-up (Francis) — the last build step of the whole project.** Only once every feature works end to end, biometrics included: one design pass over the whole dashboard for a more executive, cinematic look. After it, only fixes.
+- **Final visual pass (Francis) — the last build step of the whole project.** The design foundation (heading font, motion, boot screen, sign-in stage, shell) is in place since Phase 1; once every feature works end to end, biometrics included, one pass checks every screen built since against it. After it, only fixes.
 - **Exit demo:** a full dry run of the 15-minute client walkthrough
 
 ## Phase 7 · Hardening (week 14)
