@@ -67,11 +67,11 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] The kiosk door: a sign-in on a kiosk (`KIOSK_ORIGINS`) gets no refresh cookie and a token that only works on the kiosk screens; the kiosk ADMIN routes need that token **and** the kiosk's signature; the consent text, and consent with the Ghana Card check
 - [x] Enrollment on the kiosk by an ADMIN: 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep on the heartbeat
 - [x] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, the live clock-ins board and the kiosk attempt log
-- [ ] The kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens
+- [ ] **Samuel:** the kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens. Every route it needs is merged — see [14 · Who builds what next](14-work-split.md)
 - [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)
-- [ ] ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
+- [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
-- [ ] Dashboard (Samuel): live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, and the new device fields. The mock API already supports them.
+- [ ] **Samuel:** dashboard — live clock-ins board, the employee Biometrics panel, the duplicate-enrollment queue, kiosk attempts per device, and the new device fields. The mock API already supports them.
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel
