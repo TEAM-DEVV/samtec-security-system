@@ -22,6 +22,8 @@ export interface AttendanceCompany {
   leaver: { id: string; staffNumber: string };
   leaverLastDay: string;
   adminUserId: string;
+  /** A second ADMIN, because every biometric decision needs one (docs/plan/13 section 2). */
+  secondAdminUserId: string;
   hrUserId: string;
   /** A GUARD account linked to the ACTIVE employee. */
   guardUserId: string;
@@ -95,6 +97,16 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
       twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
     },
   });
+  const secondAdmin = await prisma.user.create({
+    data: {
+      companyId,
+      email: `admin2-${run}@attendance.example`,
+      passwordHash,
+      fullName: 'Test Second Admin',
+      role: 'ADMIN',
+      twoFactorEnabledAt: new Date('2026-01-01T00:00:00Z'),
+    },
+  });
   const hr = await prisma.user.create({
     data: {
       companyId,
@@ -135,6 +147,7 @@ export async function createAttendanceCompany(prisma: PrismaClient): Promise<Att
     leaver: { id: leaver.id, staffNumber: leaver.staffNumber },
     leaverLastDay: '2026-09-10',
     adminUserId: admin.id,
+    secondAdminUserId: secondAdmin.id,
     hrUserId: hr.id,
     guardUserId: guard.id,
     supervisorUserId: supervisorUser.id,
@@ -198,6 +211,7 @@ export async function tokensFor(app: NestExpressApplication, company: Attendance
     });
   return {
     admin: await sign(company.adminUserId, 'ADMIN', null),
+    secondAdmin: await sign(company.secondAdminUserId, 'ADMIN', null),
     hr: await sign(company.hrUserId, 'HR_PAYROLL', null),
     supervisor: await sign(company.supervisorUserId, 'SUPERVISOR', company.supervisorEmployeeId),
     guard: await sign(company.guardUserId, 'GUARD', company.active.id),

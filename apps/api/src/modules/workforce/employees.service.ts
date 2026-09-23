@@ -538,6 +538,134 @@ export class EmployeesService {
   }
 
   /**
+   * Biometrics moved: the worker now has a face in use (docs/plan/13 section
+   * 2). Only this module writes the employees table, so the attendance module
+   * calls in instead of reaching across. A `PENDING_ENROLLMENT` worker becomes
+   * `ACTIVE`; a `SUSPENDED` or `TERMINATED` one is left exactly as they are.
+   */
+  async markBiometricsEnrolled(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, {
+      biometricEnrolledAt: new Date(),
+      activate: true,
+    });
+  }
+
+  /**
+   * The worker no longer has a face (a revoke, a withdrawal, a new enrollment
+   * that has not passed yet, or a record blocked as a duplicate). An `ACTIVE`
+   * worker goes back to `PENDING_ENROLLMENT` and is not paid for co-signed
+   * hours until a second ADMIN settles it.
+   */
+  async clearBiometricsEnrolled(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, {
+      biometricEnrolledAt: null,
+      activate: false,
+    });
+  }
+
+  /**
+   * `clearBiometricsEnrolled` for a whole batch, in two statements instead
+   * of two for every person. The retention sweep cleans up to 50 people at
+   * once, inside a device's heartbeat and holding locks the dashboard also
+   * wants, so the round trips are what matter there.
+   *
+   * It moves the same people the one-at-a-time version moves, and nobody
+   * else: an `ACTIVE` worker goes back to `PENDING_ENROLLMENT`, while
+   * anybody suspended or gone is left exactly as they are.
+   */
+  async clearBiometricsEnrolledMany(
+    companyId: string,
+    employeeIds: string[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    if (employeeIds.length === 0) {
+      return;
+    }
+    await tx.employee.updateMany({
+      where: { companyId, id: { in: employeeIds } },
+      data: { biometricEnrolledAt: null },
+    });
+    await tx.employee.updateMany({
+      where: { companyId, id: { in: employeeIds }, status: 'ACTIVE' },
+      data: { status: 'PENDING_ENROLLMENT' },
+    });
+  }
+
+  /**
+   * Where a worker stands right now, read inside somebody else's
+   * transaction. Biometrics use it when they change nothing about a worker
+   * but still have to report their standing.
+   */
+  async statusOf(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    const employee = await tx.employee.findFirst({
+      where: { id: employeeId, companyId },
+      select: { status: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    return employee.status;
+  }
+
+  /**
+   * An approved exemption: the worker may work without a face, so they become
+   * `ACTIVE` with nothing enrolled. Every hour they work is then flagged,
+   * because they clock in by a supervisor's co-sign.
+   */
+  async activateWithoutBiometrics(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, { activate: true });
+  }
+
+  private async moveForBiometrics(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+    change: { biometricEnrolledAt?: Date | null; activate: boolean },
+  ): Promise<EmployeeStatus> {
+    const employee = await tx.employee.findFirst({
+      where: { id: employeeId, companyId },
+      select: { status: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    // Biometrics only ever move a worker between these two states. Somebody
+    // suspended or gone is never changed by anything biometric.
+    const status =
+      change.activate && employee.status === 'PENDING_ENROLLMENT'
+        ? 'ACTIVE'
+        : !change.activate && employee.status === 'ACTIVE'
+          ? 'PENDING_ENROLLMENT'
+          : employee.status;
+    await tx.employee.update({
+      where: { id: employeeId },
+      data: {
+        status,
+        ...(change.biometricEnrolledAt === undefined
+          ? {}
+          : { biometricEnrolledAt: change.biometricEnrolledAt }),
+      },
+    });
+    return status;
+  }
+
+  /**
    * What the biometric flows need to know about a worker (docs/plan/13). The
    * attendance module asks for this instead of reading the employees table,
    * and the Ghana Card number itself never leaves this module.

@@ -63,6 +63,10 @@ administrator and create accounts.
   how a lost admin sign-in on TEST is rescued.
 - `hr@samtec.example` gets a private password next: the admin resets its
   sign-in from the Users page once that page is on TEST.
+- `admin2@samtec.example` is the **second** administrator. Biometrics need
+  one: a duplicate-enrollment review and an exemption are always decided by
+  an ADMIN other than the one who caused them. On TEST it gets a private
+  password the same way.
 
 On your own computer every demo account keeps `demo-password` (the local seed
 and the mock API), exactly as `docs/guides/03-frontend-guide.md` says. Admin
