@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type {
   DetectionAlert as ApiAlert,
   DetectionRule as ApiRule,
@@ -12,7 +18,7 @@ import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { DetectionRuleCode } from '../../generated/prisma/enums.js';
+import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
@@ -32,6 +38,12 @@ import {
 } from './detection-rules.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** How far back a risk score looks (docs/plan/08 §8). */
+const SCORE_WINDOW_DAYS = 90;
+
+/** The most open alerts one score is worked out from, so a read is bounded. */
+const SCORE_ALERTS_READ = 2_000;
 
 /**
  * Ghost detection (docs/plan/08-ghost-detection-engine.md).
@@ -124,6 +136,16 @@ export class DetectionService {
   /** The queue, newest first. */
   async list(viewer: SignedInUser, query: ListAlertsQuery): Promise<DetectionAlertList> {
     const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
+    if (query.cursor !== undefined && cursor === undefined) {
+      throw new BadRequestException({
+        message: [
+          {
+            path: ['cursor'],
+            message: 'The cursor is not valid. Start again from the first page.',
+          },
+        ],
+      });
+    }
     const rows = await this.prisma.detectionAlert.findMany({
       where: {
         companyId: viewer.companyId,
@@ -153,22 +175,24 @@ export class DetectionService {
   async resolve(viewer: SignedInUser, alertId: string, body: ResolveAlertBody): Promise<ApiAlert> {
     await this.byId(viewer, alertId);
     const decided = await this.prisma.$transaction(async (tx) => {
-      // Read it again now: two people may be looking at the same queue.
-      const current = await tx.detectionAlert.findFirstOrThrow({
-        where: { id: alertId, companyId: viewer.companyId },
-        select: { resolvedAt: true },
-      });
-      if (current.resolvedAt !== null) {
-        throw new ConflictException('This alert was already resolved.');
-      }
-      const updated = await tx.detectionAlert.update({
-        where: { id: alertId },
+      // Two people may be looking at the same queue. The condition that
+      // decides rides on the update itself, so the second one matches
+      // nothing and is told plainly, rather than meeting the database's
+      // "never decided again" trigger.
+      const closed = await tx.detectionAlert.updateMany({
+        where: { id: alertId, companyId: viewer.companyId, resolvedAt: null },
         data: {
           status: body.status,
           resolvedByUserId: viewer.userId,
           resolvedAt: new Date(),
           resolutionNote: body.note,
         },
+      });
+      if (closed.count !== 1) {
+        throw new ConflictException('This alert was already resolved.');
+      }
+      const updated = await tx.detectionAlert.findFirstOrThrow({
+        where: { id: alertId },
         include: ALERT_INCLUDE,
       });
       await this.audit.record(
@@ -265,7 +289,18 @@ export class DetectionService {
    */
   async riskScores(viewer: SignedInUser, limit: number): Promise<RiskScoreList> {
     const open = await this.prisma.detectionAlert.findMany({
-      where: { companyId: viewer.companyId, resolvedAt: null, employeeId: { not: null } },
+      where: {
+        companyId: viewer.companyId,
+        resolvedAt: null,
+        employeeId: { not: null },
+        // "Times that rule fired for that worker in 90 days" (docs/plan/08
+        // §8). Without the window an alert nobody triaged keeps adding to
+        // somebody's score for ever.
+        openedAt: { gte: new Date(Date.now() - SCORE_WINDOW_DAYS * DAY_MS) },
+      },
+      orderBy: { openedAt: 'desc' },
+      // One company's open alerts, capped like every other read here.
+      take: SCORE_ALERTS_READ,
       select: {
         employeeId: true,
         ruleCode: true,
@@ -279,7 +314,7 @@ export class DetectionService {
         employee: { id: string; staffNumber: string; fullName: string };
         score: number;
         openAlerts: number;
-        perRule: Map<DetectionRuleCode, number>;
+        perRule: Map<DetectionRuleCode, { times: number; severity: DetectionSeverity }>;
       }
     >();
     for (const row of open) {
@@ -295,10 +330,13 @@ export class DetectionService {
         },
         score: 0,
         openAlerts: 0,
-        perRule: new Map<DetectionRuleCode, number>(),
+        perRule: new Map<DetectionRuleCode, { times: number; severity: DetectionSeverity }>(),
       };
-      const seenBefore = running.perRule.get(row.ruleCode) ?? 0;
-      running.perRule.set(row.ruleCode, seenBefore + 1);
+      const seenBefore = running.perRule.get(row.ruleCode);
+      running.perRule.set(row.ruleCode, {
+        times: (seenBefore?.times ?? 0) + 1,
+        severity: seenBefore?.severity ?? row.severity,
+      });
       running.openAlerts += 1;
       byEmployee.set(person.id, running);
     }
@@ -307,8 +345,12 @@ export class DetectionService {
         let score = 0;
         let topRule: DetectionRuleCode = 'R1';
         let best = -1;
-        for (const [code, times] of row.perRule) {
-          const weight = SEVERITY_WEIGHT[severityOf(code)] * Math.min(times, RECURRENCE_CAP);
+        for (const [code, seen] of row.perRule) {
+          const { times, severity } = seen;
+          // The severity the alert was raised with, not the rule's severity
+          // today: an ADMIN may have changed the rule since, and that must
+          // not silently rewrite what an old finding was worth.
+          const weight = SEVERITY_WEIGHT[severity] * Math.min(times, RECURRENCE_CAP);
           score += weight;
           if (weight > best) {
             best = weight;

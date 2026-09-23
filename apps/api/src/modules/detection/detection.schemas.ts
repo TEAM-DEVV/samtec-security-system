@@ -5,6 +5,8 @@ import { z } from 'zod';
  * did not ask for, so nothing can be slipped into an alert from outside.
  */
 
+export const idSchema = z.uuid();
+
 const limit = z.coerce.number().int().min(1).max(100).default(25);
 const cursor = z.string().min(1).max(200);
 

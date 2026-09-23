@@ -175,6 +175,28 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(after.body.items[0].status).toBe('RESOLVED');
     });
 
+    it('never calls a worker waiting for enrollment a ghost', async () => {
+      // They cannot clock in at all until they are enrolled — the attendance
+      // rules refuse them — so zero punches is this system's own doing, not
+      // a finding about the person. Accusing every new starter whose
+      // enrollment took a fortnight would be the worst kind of false
+      // positive: the one population that can never clear itself.
+      const waiting = await ghost(40);
+      await prisma.employee.update({
+        where: { id: waiting.id },
+        data: { status: 'PENDING_ENROLLMENT' },
+      });
+
+      await sweep().expect(200);
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ employeeId: waiting.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(alerts.body.items).toHaveLength(0);
+    });
+
     it('leaves a new starter alone, and moves with the threshold', async () => {
       const newStarter = await ghost(3);
       await sweep().expect(200);

@@ -9,8 +9,8 @@ import type {
 } from '@samtec/contracts';
 import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import type { DetectionRuleCode } from '../../generated/prisma/enums.js';
-import { idSchema } from '../attendance/attendance.schemas.js';
 import {
+  idSchema,
   type ListAlertsQuery,
   listAlertsQuerySchema,
   type ResolveAlertBody,

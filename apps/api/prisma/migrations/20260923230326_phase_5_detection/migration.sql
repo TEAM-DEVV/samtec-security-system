@@ -118,6 +118,12 @@ BEGIN
      OR NEW.evidence::text <> OLD.evidence::text THEN
     RAISE EXCEPTION 'detection_alerts: what a rule found is never rewritten';
   END IF;
+  IF NEW.employee_id IS DISTINCT FROM OLD.employee_id
+     OR NEW.device_id IS DISTINCT FROM OLD.device_id
+     OR NEW.site_id IS DISTINCT FROM OLD.site_id
+     OR NEW.severity <> OLD.severity THEN
+    RAISE EXCEPTION 'detection_alerts: who an alert is about never changes';
+  END IF;
   IF OLD.resolved_at IS NOT NULL THEN
     RAISE EXCEPTION 'detection_alerts: a decided alert is never decided again';
   END IF;
@@ -143,3 +149,9 @@ CREATE TRIGGER detection_alerts_no_delete
 CREATE TRIGGER detection_alerts_no_truncate
   BEFORE TRUNCATE ON "detection_alerts"
   FOR EACH STATEMENT EXECUTE FUNCTION public.detection_alerts_are_never_deleted();
+
+-- Rule R10 asks one question of punch_events: which of this company's punches
+-- matched nobody, lately. Every existing index on that table is on
+-- device_time, so without this one the sweep would filter on a column nothing
+-- is ordered by, and read across companies to do it.
+CREATE INDEX "punch_events_orphans" ON "punch_events" ("company_id", "server_time");

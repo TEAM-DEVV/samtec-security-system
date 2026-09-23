@@ -591,6 +591,8 @@ model PunchEvent {
   @@unique([deviceId, deviceEventId])
   @@index([employeeId, deviceTime])
   @@index([companyId, deviceTime])
+  /// Rule R10: this company's punches that matched nobody, lately.
+  @@index([companyId, serverTime], map: "punch_events_orphans")
   @@index([deviceId, deviceTime])
   @@map("punch_events")
 }

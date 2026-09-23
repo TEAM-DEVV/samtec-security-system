@@ -710,13 +710,18 @@ export class EmployeesService {
   }
 
   /**
-   * Everyone on the books right now, with the day they were hired and where
-   * they are posted. Ghost detection asks for this to find the workers who
-   * have been on the payroll for a fortnight and never once clocked in.
+   * Everyone at work right now, with the day they were hired and where they
+   * are posted. Ghost detection asks for this to find the workers who have
+   * been on the payroll for a fortnight and never once clocked in.
+   *
+   * **ACTIVE only, on purpose.** Somebody still waiting for enrollment
+   * cannot clock in at all — `mayClockIn` refuses them — so "never seen" is
+   * not a finding about that person, it is this system's own rule. Including
+   * them would accuse every new starter whose enrollment took a fortnight.
    */
   async onTheBooks(companyId: string) {
     const employees = await this.prisma.employee.findMany({
-      where: { companyId, status: { in: ['ACTIVE', 'PENDING_ENROLLMENT'] } },
+      where: { companyId, status: 'ACTIVE' },
       select: {
         id: true,
         staffNumber: true,
