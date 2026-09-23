@@ -25,6 +25,7 @@ import type {
   ResolveCollisionBody,
   ReviewExemptionBody,
 } from './attendance.schemas.js';
+import { isDeadlock } from './attendance-lock.js';
 import { blockedRecord, openReview } from './biometric-questions.js';
 import { standDown } from './biometric-standing.js';
 
@@ -349,6 +350,25 @@ export class BiometricReviewsService {
     credentialId: string,
     body: ResolveCollisionBody,
   ): Promise<BiometricCollision> {
+    try {
+      return await this.decide(viewer, credentialId, body);
+    } catch (error) {
+      if (isDeadlock(error)) {
+        // Two decisions crossed over the same people. This one did nothing
+        // at all, so sending it again is safe, and the answer says so.
+        throw new ConflictException(
+          'Another ADMIN was deciding about one of these workers at the same moment. Try again.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async decide(
+    viewer: SignedInUser,
+    credentialId: string,
+    body: ResolveCollisionBody,
+  ): Promise<BiometricCollision> {
     return this.prisma.$transaction(async (tx) => {
       const found = await tx.biometricCredential.findFirst({
         where: { id: credentialId, companyId: viewer.companyId, kind: 'FACE' },
@@ -357,10 +377,19 @@ export class BiometricReviewsService {
       if (!found || found.collisionEmployeeId === null) {
         throw new NotFoundException('No duplicate-enrollment review exists with this ID.');
       }
+      // Blocking the losing record touches its own live face, and a database
+      // trigger then locks whoever *that* face looked like — a third worker.
+      // Taking every row this decision can reach in one sorted statement is
+      // what keeps it in the same order as the retention sweep's batch, so
+      // the two can never deadlock over the same people.
+      const mayTouch = await this.workersInReach(tx, viewer.companyId, [
+        found.employeeId,
+        found.collisionEmployeeId,
+      ]);
       const lookalikeId = found.collisionEmployeeId;
-      // Both people's rows, in a fixed order, so two ADMINs deciding at the
-      // same moment take turns instead of deadlocking (docs/plan/13 §2).
-      await lockWorkers(tx, [found.employeeId, lookalikeId]);
+      // In a fixed order, so two ADMINs deciding at the same moment take
+      // turns instead of deadlocking (docs/plan/13 §2).
+      await lockWorkers(tx, mayTouch);
       // Read it again now that the workers are ours: the other ADMIN may have
       // decided this very review while this request waited for the lock.
       const row = await tx.biometricCredential.findFirstOrThrow({
@@ -470,6 +499,28 @@ export class BiometricReviewsService {
       });
       return toApiCollision(decided);
     });
+  }
+
+  /**
+   * Every worker a decision can end up touching: the two the review names,
+   * plus whoever the live face of either of them looked like, because
+   * blocking one of those faces makes the database lock that worker too.
+   * They are all taken at once, in id order, so no two of these ever wait
+   * on each other the wrong way round.
+   */
+  private async workersInReach(
+    tx: TransactionClient,
+    companyId: string,
+    pair: string[],
+  ): Promise<string[]> {
+    const faces = await tx.biometricCredential.findMany({
+      where: { companyId, employeeId: { in: pair }, kind: 'FACE', wipedAt: null },
+      select: { collisionEmployeeId: true },
+    });
+    const reach = faces
+      .map((face) => face.collisionEmployeeId)
+      .filter((employeeId): employeeId is string => employeeId !== null);
+    return [...new Set([...pair, ...reach])];
   }
 
   /**

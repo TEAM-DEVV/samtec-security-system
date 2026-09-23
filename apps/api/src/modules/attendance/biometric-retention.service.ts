@@ -255,11 +255,26 @@ export class BiometricRetentionService {
         select: { employeeId: true },
       }),
     ]);
-    for (const employeeId of new Set([...leavers, ...abandoned].map((row) => row.employeeId))) {
-      // The worker no longer counts as enrolled. A leaver stays TERMINATED;
-      // this only moves somebody still waiting back to PENDING_ENROLLMENT.
-      await this.employees.clearBiometricsEnrolled(companyId, employeeId, tx);
+    const wiped = [...new Set([...leavers, ...abandoned].map((row) => row.employeeId))];
+    if (wiped.length === 0) {
+      return;
     }
+    // A worker standing on an exemption two ADMINs approved keeps working by
+    // co-sign, exactly as when an ADMIN takes a face off by hand.
+    const standing = await tx.biometricExemption.findMany({
+      where: { companyId, employeeId: { in: wiped }, status: 'APPROVED' },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
+    });
+    // Two statements for the whole batch, not two per person: this runs
+    // inside the heartbeat, holding the company's lock and 50 worker rows,
+    // and every extra round trip is time somebody else waits.
+    await this.employees.clearBiometricsEnrolledMany(
+      companyId,
+      wiped,
+      standing.map((row) => row.employeeId),
+      tx,
+    );
   }
 
   /**

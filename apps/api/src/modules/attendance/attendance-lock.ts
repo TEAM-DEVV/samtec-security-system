@@ -59,3 +59,13 @@ export class AttendanceBusyException extends HttpException {
 export function isLockTimeout(error: unknown): boolean {
   return hasDatabaseCode(error, '55P03');
 }
+
+/**
+ * True for PostgreSQL's "these two transactions were each waiting for the
+ * other" (SQLSTATE 40P01). One of them is cancelled, and the work it was
+ * doing never happened, so sending the same request again is always safe —
+ * which is what the caller should be told, rather than "something broke".
+ */
+export function isDeadlock(error: unknown): boolean {
+  return hasDatabaseCode(error, '40P01');
+}

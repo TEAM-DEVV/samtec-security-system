@@ -572,6 +572,41 @@ export class EmployeesService {
   }
 
   /**
+   * `clearBiometricsEnrolled` for a whole batch, in two statements instead
+   * of two for every person. The retention sweep cleans up to 50 people at
+   * once, inside a device's heartbeat and holding locks the dashboard also
+   * wants, so the round trips are what matter there.
+   *
+   * `stillStanding` are the workers who keep their `ACTIVE` status because
+   * something else holds them up — an approved exemption. Everyone else who
+   * was `ACTIVE` goes back to `PENDING_ENROLLMENT`; anybody suspended or
+   * gone is left exactly as they are, as always.
+   */
+  async clearBiometricsEnrolledMany(
+    companyId: string,
+    employeeIds: string[],
+    stillStanding: string[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    if (employeeIds.length === 0) {
+      return;
+    }
+    await tx.employee.updateMany({
+      where: { companyId, id: { in: employeeIds } },
+      data: { biometricEnrolledAt: null },
+    });
+    const keep = new Set(stillStanding);
+    const waiting = employeeIds.filter((employeeId) => !keep.has(employeeId));
+    if (waiting.length === 0) {
+      return;
+    }
+    await tx.employee.updateMany({
+      where: { companyId, id: { in: waiting }, status: 'ACTIVE' },
+      data: { status: 'PENDING_ENROLLMENT' },
+    });
+  }
+
+  /**
    * Where a worker stands right now, read inside somebody else's
    * transaction. Biometrics use it when they change nothing about a worker
    * but still have to report their standing.
