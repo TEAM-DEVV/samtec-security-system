@@ -20,6 +20,8 @@ import { DeviceSignatureGuard } from './device-signature.guard.js';
 import { DevicesController } from './devices.controller.js';
 import { DevicesService } from './devices.service.js';
 import { FaceProvider } from './face-provider.js';
+import { GatewayController } from './gateway.controller.js';
+import { GatewayService } from './gateway.service.js';
 import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
 import { KioskOperatorGuard } from './kiosk-operator.guard.js';
@@ -37,6 +39,7 @@ import { PasskeysService } from './passkeys.service.js';
   controllers: [
     DevicesController,
     IngestController,
+    GatewayController,
     AttendanceController,
     BiometricsController,
     BiometricReviewsController,
@@ -49,6 +52,7 @@ import { PasskeysService } from './passkeys.service.js';
     BiometricRetentionService,
     ClockInService,
     DevicesService,
+    GatewayService,
     IngestService,
     PairingService,
     PasskeysService,

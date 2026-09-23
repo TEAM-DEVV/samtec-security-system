@@ -705,6 +705,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devices/{deviceId}/finger-enrollment-windows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let one worker enroll a finger on this terminal
+         * @description **Roles:** ADMIN. Opens a 30-minute window for one worker on one `ZKTECO` terminal. A finger the terminal reports inside that window becomes that worker's, with the duplicate check recorded as `NOT_CHECKED` — this server never sees a terminal's fingerprint template, so it cannot compare one. A finger reported outside any window is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`, because a terminal must never be able to enroll somebody by itself (docs/plan/13 section 5).
+         *     Opening a second window for the same worker on the same terminal replaces the first, so an ADMIN who taps twice does not get two.
+         */
+        post: operations["openFingerEnrollmentWindow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ingest/punches": {
         parameters: {
             query?: never;
@@ -757,6 +781,49 @@ export interface paths {
          *     The heartbeat also carries the **biometric retention sweep**: once a day, the first heartbeat switches off the fingerprint keys of anyone past their termination date, and wipes the face templates of anyone who left 90 days ago (and of a face that has waited 90 days for a duplicate review). The review itself stays open, a record blocked as a duplicate stays blocked, and no row is ever deleted. The work is done 50 people at a time, so a heartbeat is never slow, and the answer is the same either way.
          */
         post: operations["sendHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Who should be on this terminal
+         * @description **Signed by a `ZKTECO` device** (route name `ingest/roster`). The gateway asks every 5 minutes and compares the answer with the terminal's own user list, adding and removing users to match. It is safe to repeat and changes nothing on the server, so no command table is needed (docs/plan/13 section 5).
+         *     The answer holds everyone posted to this terminal's site who is `ACTIVE` or `PENDING_ENROLLMENT`, and **leaves out anyone whose biometric record is blocked as a duplicate**, so their fingers come off the terminals too. It carries a staff number and a display name and nothing else: never a Ghana Card number, never a template.
+         */
+        post: operations["getTerminalRoster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A terminal reports a finger it enrolled
+         * @description **Signed by a `ZKTECO` device** (route name `ingest/enrollments`). The gateway sends only *that* user enrolled a finger on *this* terminal at *that* time. **The fingerprint template itself is discarded by the gateway and never reaches this API** (docs/plan/13 section 5).
+         *     A finger reported inside a window an ADMIN opened for that worker (`POST /devices/{deviceId}/finger-enrollment-windows`) becomes an `ACTIVE` fingerprint credential whose duplicate check is `NOT_CHECKED`, because this server cannot compare a terminal's templates. **Anything else is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`** — a terminal never activates anybody by itself.
+         *     Repeating a report changes nothing: the same terminal, user and moment answers `DUPLICATE`.
+         */
+        post: operations["reportTerminalEnrollments"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2142,9 +2209,83 @@ export interface components {
          *       waiting for enrollment, suspended, or after their termination date
          *       (grouped per person and day).
          *     - `OVERLAP` — one person on two shifts at the same time (often at two sites).
+         *     - `UNEXPECTED_DEVICE_ENROLLMENT` — a ZKTeco terminal reported a finger
+         *       nobody asked for: outside any window an ADMIN opened, or for a user
+         *       number that matches nobody (grouped per device, number and day).
          * @enum {string}
          */
-        AttendanceExceptionType: "MISSING_CLOCK_OUT" | "MISSING_CLOCK_IN" | "UNKNOWN_EMPLOYEE" | "INACTIVE_EMPLOYEE" | "OVERLAP";
+        AttendanceExceptionType: "MISSING_CLOCK_OUT" | "MISSING_CLOCK_IN" | "UNKNOWN_EMPLOYEE" | "INACTIVE_EMPLOYEE" | "OVERLAP" | "UNEXPECTED_DEVICE_ENROLLMENT";
+        OpenFingerEnrollmentWindowRequest: {
+            /** Format: uuid */
+            employeeId: string;
+        };
+        FingerEnrollmentWindow: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deviceId: string;
+            /** Format: uuid */
+            employeeId: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            /** Format: date-time */
+            opensAt: string;
+            /**
+             * Format: date-time
+             * @description 30 minutes after it opened.
+             */
+            expiresAt: string;
+        };
+        TerminalRosterRequest: {
+            /**
+             * Format: date-time
+             * @description The terminal's own clock, when the gateway knows it.
+             */
+            deviceClockAt?: string;
+        };
+        TerminalRosterResponse: {
+            users: components["schemas"]["TerminalRosterUser"][];
+            /** Format: date-time */
+            serverTime: string;
+        };
+        TerminalRosterUser: {
+            /** @description What the terminal calls this person — the staff number. */
+            deviceUserRef: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            /** @description A first name and the surname's initial, as a terminal screen shows it. Never a full name, never a Ghana Card number. */
+            displayName: string;
+        };
+        TerminalEnrollmentsRequest: {
+            enrollments: components["schemas"]["TerminalEnrollment"][];
+        };
+        TerminalEnrollment: {
+            /** @description The terminal's user number or staff number. */
+            deviceUserRef: string;
+            /** @description Which finger the terminal used. Kept for the report only. */
+            fingerIndex?: number;
+            /**
+             * Format: date-time
+             * @description The terminal's own time, read as UTC.
+             */
+            enrolledAt: string;
+        };
+        TerminalEnrollmentsResponse: {
+            results: components["schemas"]["TerminalEnrollmentResult"][];
+        };
+        TerminalEnrollmentResult: {
+            deviceUserRef: string;
+            /** Format: date-time */
+            enrolledAt: string;
+            /**
+             * @description - `ACCEPTED` — inside a window an ADMIN opened; the finger is now
+             *       in use, with its duplicate check recorded as `NOT_CHECKED`.
+             *     - `DUPLICATE` — this same report was already recorded.
+             *     - `REFUSED` — no open window, or the user number matches nobody.
+             *       An `UNEXPECTED_DEVICE_ENROLLMENT` exception is raised, and the
+             *       gateway is told no more than that.
+             * @enum {string}
+             */
+            status: "ACCEPTED" | "DUPLICATE" | "REFUSED";
+        };
         /**
          * @description - `OPEN` — waiting for a person.
          *     - `RESOLVED` — a person dealt with it (see `resolution`).
@@ -2907,6 +3048,15 @@ export type SegmentStatus = components['schemas']['SegmentStatus'];
 export type WorkSegment = components['schemas']['WorkSegment'];
 export type WorkSegmentList = components['schemas']['WorkSegmentList'];
 export type AttendanceExceptionType = components['schemas']['AttendanceExceptionType'];
+export type OpenFingerEnrollmentWindowRequest = components['schemas']['OpenFingerEnrollmentWindowRequest'];
+export type FingerEnrollmentWindow = components['schemas']['FingerEnrollmentWindow'];
+export type TerminalRosterRequest = components['schemas']['TerminalRosterRequest'];
+export type TerminalRosterResponse = components['schemas']['TerminalRosterResponse'];
+export type TerminalRosterUser = components['schemas']['TerminalRosterUser'];
+export type TerminalEnrollmentsRequest = components['schemas']['TerminalEnrollmentsRequest'];
+export type TerminalEnrollment = components['schemas']['TerminalEnrollment'];
+export type TerminalEnrollmentsResponse = components['schemas']['TerminalEnrollmentsResponse'];
+export type TerminalEnrollmentResult = components['schemas']['TerminalEnrollmentResult'];
 export type AttendanceExceptionStatus = components['schemas']['AttendanceExceptionStatus'];
 export type ExceptionResolutionAction = components['schemas']['ExceptionResolutionAction'];
 export type PunchSummary = components['schemas']['PunchSummary'];
@@ -4069,6 +4219,46 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    openFingerEnrollmentWindow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenFingerEnrollmentWindowRequest"];
+            };
+        };
+        responses: {
+            /** @description The window is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FingerEnrollmentWindow"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The device is not a ZKTeco terminal, or the worker may not be enrolled: they are not posted to this device's site, they have given no consent, or their record is blocked as a duplicate. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     ingestPunches: {
         parameters: {
             query?: never;
@@ -4128,6 +4318,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeartbeatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    getTerminalRoster: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TerminalRosterRequest"];
+            };
+        };
+        responses: {
+            /** @description Everyone this terminal should know about. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalRosterResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    reportTerminalEnrollments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TerminalEnrollmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Each report, with what became of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalEnrollmentsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -710,6 +710,31 @@ export class EmployeesService {
   }
 
   /**
+   * Everyone posted to this site today who is at work or waiting to be
+   * enrolled. A ZKTeco terminal's roster is built from this, so it carries
+   * only what a terminal screen shows: a staff number and a name.
+   */
+  async atSite(companyId: string, siteId: string) {
+    const assignments = await this.prisma.siteAssignment.findMany({
+      where: {
+        companyId,
+        siteId,
+        ...currentAssignmentFilter(),
+        employee: { status: { in: ['ACTIVE', 'PENDING_ENROLLMENT'] } },
+      },
+      select: {
+        employee: {
+          select: { id: true, staffNumber: true, firstName: true, lastName: true, status: true },
+        },
+      },
+      orderBy: { employeeId: 'asc' },
+    });
+    // One person can hold two assignments at one site (two posts), so the
+    // roster is made unique before it leaves.
+    return [...new Map(assignments.map((row) => [row.employee.id, row.employee])).values()];
+  }
+
+  /**
    * Is this worker posted to this site today? Every person in a kiosk
    * clock-in — the worker and the supervisor alike — must be, because a
    * kiosk stands at one gate and records the hours worked there.

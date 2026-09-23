@@ -390,8 +390,14 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(prisma.biometricCredential.delete({ where: { id: row.id } })).rejects.toThrow(
         /never deleted/,
       );
+      // Two separate refusals now, and either is the right answer. The
+      // append-only trigger says so in its own words; PostgreSQL itself
+      // refuses first when a table points at this one with a foreign key
+      // (`terminal_enrollment_reports.credential_id` does, from Phase 3's
+      // gateway). What must hold is that the rows cannot be wiped, not which
+      // of the two guards spoke.
       await expect(prisma.$executeRawUnsafe('TRUNCATE biometric_credentials')).rejects.toThrow(
-        /biometric_credentials rows are never deleted/,
+        /biometric_credentials rows are never deleted|cannot truncate a table referenced in a foreign key/,
       );
     });
   });

@@ -11,6 +11,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export type SignedRoute =
   | 'ingest/punches'
   | 'ingest/heartbeat'
+  | 'ingest/roster'
+  | 'ingest/enrollments'
   | 'kiosk/consents'
   | 'kiosk/face-enrollments'
   | 'kiosk/identify'
@@ -43,6 +45,8 @@ export function kindMayUse(
 ): boolean {
   switch (route) {
     case 'ingest/punches':
+    case 'ingest/roster':
+    case 'ingest/enrollments':
       return kind === 'ZKTECO' || (kind === 'MOCK' && simulatorAllowed);
     case 'ingest/heartbeat':
       return true;

@@ -41,6 +41,7 @@ const exceptionTypeStyles: Record<AttendanceExceptionType, string> = {
   UNKNOWN_EMPLOYEE: alert,
   INACTIVE_EMPLOYEE: alert,
   OVERLAP: alert,
+  UNEXPECTED_DEVICE_ENROLLMENT: alert,
 };
 
 export function ExceptionTypeBadge({ type }: { type: AttendanceExceptionType }) {

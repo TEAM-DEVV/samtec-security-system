@@ -34,6 +34,7 @@ export const EXCEPTION_TYPES: readonly AttendanceExceptionType[] = [
   'UNKNOWN_EMPLOYEE',
   'INACTIVE_EMPLOYEE',
   'OVERLAP',
+  'UNEXPECTED_DEVICE_ENROLLMENT',
 ];
 
 export const exceptionTypeLabels: Record<AttendanceExceptionType, string> = {
@@ -42,6 +43,7 @@ export const exceptionTypeLabels: Record<AttendanceExceptionType, string> = {
   UNKNOWN_EMPLOYEE: 'Unknown employee',
   INACTIVE_EMPLOYEE: 'May not clock in',
   OVERLAP: 'Two shifts at once',
+  UNEXPECTED_DEVICE_ENROLLMENT: 'Finger nobody asked for',
 };
 
 /** One sentence per type: what happened, and what a person can do about it. */
@@ -56,6 +58,8 @@ export const exceptionTypeDescriptions: Record<AttendanceExceptionType, string> 
     'A punch from someone who may not clock in yet (waiting for enrolment, suspended, or after leaving). Their hours are recorded; payroll decides later.',
   OVERLAP:
     'One person on two shifts at the same time, often at two sites. Keep the shift that really happened, or void both.',
+  UNEXPECTED_DEVICE_ENROLLMENT:
+    'A ZKTeco terminal reported a fingerprint nobody asked for — outside any window an admin opened, or for a user number that matches nobody. The finger was refused, so nothing was taken. Check the terminal, then dismiss it.',
 };
 
 export const EXCEPTION_STATUSES: readonly AttendanceExceptionStatus[] = [

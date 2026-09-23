@@ -47,6 +47,9 @@ const ACTIONS_FOR_TYPE: Record<ApiException['type'], ExceptionResolutionAction[]
   UNKNOWN_EMPLOYEE: ['DISMISS'],
   INACTIVE_EMPLOYEE: ['DISMISS'],
   OVERLAP: ['KEEP_SEGMENT', 'VOID_ALL'],
+  // A terminal reported a finger nobody asked for. Nothing here to add or
+  // keep: the finger was never taken, so an ADMIN reads it and dismisses it.
+  UNEXPECTED_DEVICE_ENROLLMENT: ['DISMISS'],
 };
 
 const exceptionInclude = {

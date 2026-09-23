@@ -298,6 +298,33 @@ export const listAttemptsQuerySchema = z.strictObject({
 });
 export type ListAttemptsQuery = z.infer<typeof listAttemptsQuerySchema>;
 
+/** Contract: `OpenFingerEnrollmentWindowRequest`. */
+export const openFingerEnrollmentWindowSchema = z.strictObject({ employeeId: z.uuid() });
+export type OpenFingerEnrollmentWindowBody = z.infer<typeof openFingerEnrollmentWindowSchema>;
+
+/** Contract: `TerminalRosterRequest`. The gateway asks; nothing changes here. */
+export const terminalRosterSchema = z.strictObject({ deviceClockAt: instant.optional() });
+export type TerminalRosterBody = z.infer<typeof terminalRosterSchema>;
+
+/**
+ * Contract: `TerminalEnrollmentsRequest`. What a terminal claims it enrolled.
+ * There is no template here and there never will be: the gateway throws it
+ * away before this request is made (docs/plan/13 §5).
+ */
+export const terminalEnrollmentsSchema = z.strictObject({
+  enrollments: z
+    .array(
+      z.strictObject({
+        deviceUserRef: z.string().min(1).max(32),
+        fingerIndex: z.number().int().min(0).max(9).optional(),
+        enrolledAt: instant,
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+export type TerminalEnrollmentsBody = z.infer<typeof terminalEnrollmentsSchema>;
+
 /** Contract: `PasskeyOptionsRequest`. Ask the device to make a key for this worker. */
 export const passkeyOptionsSchema = z.strictObject({ employeeId: z.uuid() });
 export type PasskeyOptionsBody = z.infer<typeof passkeyOptionsSchema>;

@@ -70,7 +70,8 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [ ] **Samuel:** the kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens. Every route it needs is merged — see [14 · Who builds what next](14-work-split.md)
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
-- [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
+- [x] Roster sync and finger-enrollment windows: `POST /ingest/roster`, `POST /ingest/enrollments` and `POST /devices/{id}/finger-enrollment-windows`, with a terminal that can never enroll anybody by itself
+- [ ] The pull fallback, the demo guide and the threshold report
 - [x] **Samuel:** dashboard — live clock-ins board (`/attendance/live`), the employee Biometrics panel, the duplicate-enrollment queue (`/biometrics/duplicates`), and kiosk attempts per device (`/devices/attempts`). Built against the mock API. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 

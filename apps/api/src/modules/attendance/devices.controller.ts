@@ -1,11 +1,18 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import type { Device, DeviceList, DeviceWithSecret } from '@samtec/contracts';
+import type {
+  Device,
+  DeviceList,
+  DeviceWithSecret,
+  FingerEnrollmentWindow,
+} from '@samtec/contracts';
 import type { Response } from 'express';
 import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   idSchema,
   type ListDevicesQuery,
   listDevicesQuerySchema,
+  type OpenFingerEnrollmentWindowBody,
+  openFingerEnrollmentWindowSchema,
   type RegisterDeviceBody,
   registerDeviceSchema,
   type UpdateDeviceBody,
@@ -60,6 +67,20 @@ export class DevicesController {
     @Body({ schema: updateDeviceSchema }) body: UpdateDeviceBody,
   ): Promise<Device> {
     return this.devices.update(caller, deviceId, body);
+  }
+
+  /**
+   * Let one worker enroll a finger on this terminal, for the next 30 minutes.
+   * Never from a kiosk: this is a ZKTeco terminal's route, and a kiosk
+   * session may only touch kiosk screens.
+   */
+  @Post(':deviceId/finger-enrollment-windows')
+  openFingerEnrollmentWindow(
+    @Caller() caller: SignedInUser,
+    @Param('deviceId', { schema: idSchema }) deviceId: string,
+    @Body({ schema: openFingerEnrollmentWindowSchema }) body: OpenFingerEnrollmentWindowBody,
+  ): Promise<FingerEnrollmentWindow> {
+    return this.devices.openFingerEnrollmentWindow(caller, deviceId, body);
   }
 
   @OnKiosk()
