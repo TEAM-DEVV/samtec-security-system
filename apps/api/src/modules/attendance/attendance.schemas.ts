@@ -166,8 +166,11 @@ export const recordConsentSchema = z.strictObject({
 export type RecordConsentBody = z.infer<typeof recordConsentSchema>;
 
 /** Contract: `FaceSample`. Numbers only: a kiosk can never send an image. */
-const faceSample = z.strictObject({
-  model: z.string().min(1).max(64),
+export const faceSample = z.strictObject({
+  // The contract names one model, and faces from two models can never be
+  // compared. Anything else is refused here, so a broken kiosk is never
+  // written down as a worker whose face did not look real (docs/plan/13 §3).
+  model: z.literal('human-faceres-1'),
   embedding: z.array(z.number()).length(1024),
   real: z.number().min(0).max(1),
   live: z.number().min(0).max(1),
@@ -215,3 +218,76 @@ export const listCollisionsQuerySchema = z.strictObject({
   cursor: cursor.optional(),
 });
 export type ListCollisionsQuery = z.infer<typeof listCollisionsQuerySchema>;
+
+/** Contract: `StaffNumber`. The number printed on the worker's ID card. */
+const staffNumber = z.string().regex(/^SMT-\d{5}$/);
+
+/** Contract: `KioskDirection`. The button the worker pressed; never UNKNOWN. */
+const kioskDirection = z.enum(['IN', 'OUT']);
+
+/**
+ * Contract: `KioskIdentifyRequest`, one shape per purpose.
+ *
+ * `CLOCK` is a worker at the camera. `CO_SIGN` is a site supervisor
+ * confirming one named worker who cannot use their own face: the sample is
+ * the **supervisor's**, and the staff number is only written down here —
+ * `kiosk/assisted-punches` is what checks it, so this answer can never tell
+ * a stranger who works where (docs/plan/13 §3).
+ */
+export const kioskIdentifySchema = z.discriminatedUnion('purpose', [
+  z.strictObject({
+    purpose: z.literal('CLOCK'),
+    direction: kioskDirection,
+    sample: faceSample,
+  }),
+  z.strictObject({
+    purpose: z.literal('CO_SIGN'),
+    staffNumber,
+    direction: kioskDirection,
+    sample: faceSample,
+  }),
+]);
+export type KioskIdentifyBody = z.infer<typeof kioskIdentifySchema>;
+
+/** Contract: `KioskConfirmRequest`. The fingerprint answer arrives in pull request 7. */
+export const kioskConfirmSchema = z.strictObject({ attemptId: z.uuid() });
+export type KioskConfirmBody = z.infer<typeof kioskConfirmSchema>;
+
+/** Contract: `KioskNotMeRequest`. The kiosk named the wrong person. */
+export const kioskNotMeSchema = z.strictObject({ attemptId: z.uuid() });
+export type KioskNotMeBody = z.infer<typeof kioskNotMeSchema>;
+
+/** Contract: `KioskAssistedPunchRequest`. The reason is kept with the audit record. */
+export const assistedPunchSchema = z.strictObject({
+  coSignAttemptId: z.uuid(),
+  reason: z.string().trim().min(3).max(200),
+});
+export type AssistedPunchBody = z.infer<typeof assistedPunchSchema>;
+
+/** Contract: the `listPunches` query. The live board, newest first. */
+export const listPunchesQuerySchema = z.strictObject({
+  siteId: z.uuid().optional(),
+  since: instant.optional(),
+  limit,
+  cursor: cursor.optional(),
+});
+export type ListPunchesQuery = z.infer<typeof listPunchesQuerySchema>;
+
+/** Contract: the `listClockInAttempts` query. What the kiosks have been asked. */
+export const listAttemptsQuerySchema = z.strictObject({
+  deviceId: z.uuid().optional(),
+  outcome: z
+    .enum([
+      'MATCHED',
+      'AMBIGUOUS',
+      'NOT_RECOGNISED',
+      'LOW_LIVENESS',
+      'FINGERPRINT_REQUESTED',
+      'NOT_ME',
+      'FALLBACK_REFUSED',
+    ])
+    .optional(),
+  limit,
+  cursor: cursor.optional(),
+});
+export type ListAttemptsQuery = z.infer<typeof listAttemptsQuerySchema>;

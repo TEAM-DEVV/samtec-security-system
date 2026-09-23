@@ -9,8 +9,10 @@ import type {
   AttendanceException as ApiException,
   WorkSegment as ApiSegment,
   AttendanceExceptionList,
+  ClockInAttemptList,
   EmployeeRef,
   ExceptionResolutionAction,
+  PunchFeedList,
   WorkSegmentList,
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
@@ -23,7 +25,9 @@ import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import { SitesService } from '../workforce/sites.service.js';
 import type {
+  ListAttemptsQuery,
   ListExceptionsQuery,
+  ListPunchesQuery,
   ListSegmentsQuery,
   ResolveExceptionBody,
 } from './attendance.schemas.js';
@@ -344,6 +348,141 @@ export class AttendanceService {
         ])
         .filter((id): id is string => id !== null),
     );
+  }
+
+  /**
+   * The live clock-ins board: every punch from every device, newest first by
+   * the time the API received it, so the dashboard can refresh every few
+   * seconds and see a shift change happening.
+   *
+   * Newest-first by **server** time, not device time, because that is the
+   * order things really reached us: a terminal with a wrong clock cannot
+   * push itself to the top of somebody's screen.
+   */
+  async listPunches(viewer: SignedInUser, query: ListPunchesQuery): Promise<PunchFeedList> {
+    // The workforce rules decide whether this caller may see this site (404 if not).
+    if (query.siteId) await this.sites.get(viewer, query.siteId);
+    const after = readCursor(query.cursor);
+    const visible = await this.sites.visibleSiteIds(viewer);
+
+    const rows = await this.prisma.punchEvent.findMany({
+      where: {
+        companyId: viewer.companyId,
+        ...(query.siteId ? { siteId: query.siteId } : {}),
+        ...(query.since ? { serverTime: { gte: new Date(query.since) } } : {}),
+        AND: [
+          visible ? { siteId: { in: visible } } : {},
+          after
+            ? {
+                OR: [
+                  { serverTime: { lt: after.at } },
+                  { serverTime: after.at, id: { lt: after.id } },
+                ],
+              }
+            : {},
+        ],
+      },
+      orderBy: [{ serverTime: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      include: { device: { select: { name: true } } },
+    });
+    const { pageRows, nextCursor } = toPage(rows, query.limit, (row) =>
+      cursorOf(row.serverTime, row.id),
+    );
+    const refs = await this.employees.refsByIds(
+      viewer.companyId,
+      pageRows.flatMap((row) => (row.employeeId ? [row.employeeId] : [])),
+    );
+    return {
+      items: pageRows.map((row) => ({
+        id: row.id,
+        employee: row.employeeId ? (refs.get(row.employeeId) ?? null) : null,
+        deviceUserRef: row.deviceUserRef,
+        siteId: row.siteId,
+        deviceId: row.deviceId,
+        deviceName: row.device.name,
+        deviceTime: row.deviceTime.toISOString(),
+        serverTime: row.serverTime.toISOString(),
+        direction: row.direction,
+        method: row.method,
+        // A punch nobody could pair is as suspect as one with a bad clock:
+        // the board shows both the same way.
+        clockSuspect: row.clockSuspect || !row.pairable,
+      })),
+      nextCursor,
+    };
+  }
+
+  /**
+   * What the kiosks have been asked, successes and failures alike (ADMIN).
+   *
+   * This is the anti-probing control made visible: somebody holding up
+   * photographs, or trying staff numbers one after another, shows up here as
+   * a run of failures from one device. Scores never leave the server, so the
+   * list carries outcomes, not numbers.
+   */
+  async listAttempts(viewer: SignedInUser, query: ListAttemptsQuery): Promise<ClockInAttemptList> {
+    const after = readCursor(query.cursor);
+    const rows = await this.prisma.clockInAttempt.findMany({
+      where: {
+        companyId: viewer.companyId,
+        ...(query.deviceId ? { deviceId: query.deviceId } : {}),
+        ...(query.outcome ? { outcome: query.outcome } : {}),
+        ...(after
+          ? {
+              OR: [
+                { attemptedAt: { lt: after.at } },
+                { attemptedAt: after.at, id: { lt: after.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ attemptedAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      include: { device: { select: { name: true } } },
+    });
+    const { pageRows, nextCursor } = toPage(rows, query.limit, (row) =>
+      cursorOf(row.attemptedAt, row.id),
+    );
+    const refs = await this.employees.refsByIds(
+      viewer.companyId,
+      pageRows.flatMap((row) =>
+        [row.employeeId, row.coSignForEmployeeId].filter((id): id is string => id !== null),
+      ),
+    );
+    // An attempt never changes once it is written, so it has no "was this
+    // confirmed?" column: the punch it led to carries its id, and that one
+    // link is also what makes a second confirmation a DUPLICATE.
+    const punches = await this.prisma.punchEvent.findMany({
+      where: {
+        companyId: viewer.companyId,
+        // The same device: another device's event that happens to carry
+        // this id is not this attempt's punch.
+        deviceId: { in: [...new Set(pageRows.map((row) => row.deviceId))] },
+        deviceEventId: { in: pageRows.map((row) => row.id) },
+      },
+      select: { id: true, deviceId: true, deviceEventId: true },
+    });
+    const punchOf = new Map(
+      punches.map((punch) => [`${punch.deviceId}|${punch.deviceEventId}`, punch.id]),
+    );
+    return {
+      items: pageRows.map((row) => ({
+        id: row.id,
+        deviceId: row.deviceId,
+        deviceName: row.device.name,
+        purpose: row.purpose,
+        direction: row.direction === 'OUT' ? ('OUT' as const) : ('IN' as const),
+        outcome: row.outcome,
+        staffNumberTried: row.staffNumberTried,
+        employee: row.employeeId ? (refs.get(row.employeeId) ?? null) : null,
+        coSignFor: row.coSignForEmployeeId ? (refs.get(row.coSignForEmployeeId) ?? null) : null,
+        cancelsAttemptId: row.cancelsAttemptId,
+        attemptedAt: row.attemptedAt.toISOString(),
+        punchId: punchOf.get(`${row.deviceId}|${row.id}`) ?? null,
+      })),
+      nextCursor,
+    };
   }
 }
 

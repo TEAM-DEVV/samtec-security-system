@@ -12,7 +12,11 @@ export type SignedRoute =
   | 'ingest/punches'
   | 'ingest/heartbeat'
   | 'kiosk/consents'
-  | 'kiosk/face-enrollments';
+  | 'kiosk/face-enrollments'
+  | 'kiosk/identify'
+  | 'kiosk/confirm'
+  | 'kiosk/not-me'
+  | 'kiosk/assisted-punches';
 
 export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
 
@@ -24,8 +28,10 @@ export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
  *   Never a kiosk: a kiosk's punches are made by the server from a face match
  *   (docs/plan/13 §3), so a stolen kiosk key can never post raw punches.
  * - `ingest/heartbeat` takes every kind.
- * - every `kiosk/…` route takes a face kiosk only, and also needs an ADMIN
- *   signed in on that kiosk (docs/plan/13 §2).
+ * - every `kiosk/…` route takes a face kiosk only. The set-up routes
+ *   (`consents`, `face-enrollments`) also need an ADMIN signed in on that
+ *   kiosk; the clock-in routes are the device alone, because the worker in
+ *   front of it has no account of their own (docs/plan/13 §2 and §3).
  */
 export function kindMayUse(
   route: SignedRoute,
@@ -39,6 +45,10 @@ export function kindMayUse(
       return true;
     case 'kiosk/consents':
     case 'kiosk/face-enrollments':
+    case 'kiosk/identify':
+    case 'kiosk/confirm':
+    case 'kiosk/not-me':
+    case 'kiosk/assisted-punches':
       return kind === 'FACE_KIOSK';
   }
 }
