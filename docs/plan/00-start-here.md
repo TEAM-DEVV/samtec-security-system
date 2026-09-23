@@ -22,6 +22,7 @@ A biometric attendance and payroll platform for security companies that makes it
 11. [Client presentation plan](11-client-presentation-plan.md): turning the project into a sale
 12. [Attendance design](12-attendance-design.md): how a punch becomes paid-for hours (Phase 2)
 13. [Biometrics design](13-biometrics-design.md): company kiosks, face and fingerprint clock-in, and ZKTeco (Phase 3)
+14. [Who builds what next](14-work-split.md): what Francis and Samuel each pick up, and the files we share
 
 New to the project? Read [How the system works](../guides/01-how-the-system-works.md) first.
 
@@ -52,5 +53,6 @@ These are not negotiable.
 |---|---|
 | API, database, integrations, payroll, detection | Francis |
 | Dashboard | Samuel |
-| Clock-in kiosk app (`apps/kiosk`) and the ZKTeco gateway (`apps/gateway`), Phase 3 | Francis |
+| Clock-in kiosk app (`apps/kiosk`) and the ZKTeco gateway (`apps/gateway`) | Samuel — see [14 · Who builds what next](14-work-split.md) |
 | API contract | Both: every change needs both approvals |
+
