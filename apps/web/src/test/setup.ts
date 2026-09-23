@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 import { clearSession } from '@/lib/session';
 import { resetMockAttendance } from '@/mocks/handlers/attendance';
 import { resetMockSession } from '@/mocks/handlers/auth';
+import { resetMockBiometrics } from '@/mocks/handlers/biometrics';
 import { resetMockDevices } from '@/mocks/handlers/devices';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
 import { resetMockRosters } from '@/mocks/handlers/rosters';
@@ -24,6 +25,7 @@ afterEach(() => {
   resetMockUsers();
   resetMockAttendance();
   resetMockDevices();
+  resetMockBiometrics();
   clearSession();
   cleanup();
 });
