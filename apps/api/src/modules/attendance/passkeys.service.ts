@@ -121,6 +121,13 @@ export class PasskeysService {
       // No finger, no key: a device PIN alone is not what was asked for.
       throw new ConflictException(PASSKEY_REFUSED);
     }
+    if (attachmentOf(body.response) === 'cross-platform') {
+      // A key held on something else — a phone or a security key held near
+      // the kiosk — is refused. Asking for `platform` in the options is only
+      // a request; this is the answer, and it is what the browser reports,
+      // so it is a safety net and not a proof (docs/plan/13 §4).
+      throw new ConflictException(PASSKEY_REFUSED);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       // This worker's row first, as every biometric write does (docs/plan/13
@@ -128,6 +135,33 @@ export class PasskeysService {
       // and the "one live key per kiosk" rule would fail one of them with a
       // database error instead of a plain refusal.
       await lockWorker(tx, worker.id);
+      const already = await tx.devicePasskey.findUnique({
+        where: { credentialId: credential.id },
+        select: {
+          id: true,
+          employeeId: true,
+          deviceId: true,
+          registeredAt: true,
+          revokedAt: true,
+          backedUp: true,
+          device: { select: { id: true, name: true } },
+        },
+      });
+      if (already) {
+        // The ticket is good for two minutes, so a kiosk that did not hear
+        // the answer may send the same one again. That is the key we already
+        // saved: say so, rather than revoking it and failing on its own
+        // credential ID. A key that belongs to somebody else, or that was
+        // already revoked, is simply refused.
+        if (
+          already.employeeId !== worker.id ||
+          already.deviceId !== device.id ||
+          already.revokedAt !== null
+        ) {
+          throw new ConflictException(PASSKEY_REFUSED);
+        }
+        return toApiPasskey(already);
+      }
       await tx.devicePasskey.updateMany({
         where: {
           companyId: caller.companyId,
@@ -170,14 +204,7 @@ export class PasskeysService {
         },
         tx,
       );
-      return {
-        id: saved.id,
-        deviceId: saved.device.id,
-        deviceName: saved.device.name,
-        registeredAt: saved.registeredAt.toISOString(),
-        synced: saved.backedUp,
-        revokedAt: saved.revokedAt?.toISOString() ?? null,
-      };
+      return toApiPasskey(saved);
     });
   }
 
@@ -249,7 +276,11 @@ export class PasskeysService {
     }
     const { newCounter } = checked.authenticationInfo;
     if (newCounter > Number(key.signCount)) {
-      // The counter only ever goes up; the database refuses anything else.
+      // A counter that stayed still or went backwards never reaches here:
+      // `verifyAuthenticationResponse` throws on it, and the catch above
+      // turns that into a plain refusal. It is how a cloned key shows
+      // itself. Only an authenticator that keeps no counter at all reports
+      // zero every time, and for those the rule cannot say anything.
       await this.prisma.devicePasskey.updateMany({
         where: { companyId: device.companyId, employeeId, credentialId: key.credentialId },
         data: { signCount: BigInt(newCounter), lastUsedAt: new Date() },
@@ -313,23 +344,60 @@ export class PasskeysService {
     }
   }
 
-  /** Anything WebAuthn refuses, for any reason, gets this one answer. */
+  /** The key the tickets are sealed with, from the one master secret. */
   private ticketKey(): Buffer {
     return passkeyTicketKey(this.config.authSecret);
   }
 
   /**
-   * The domain the key belongs to: the kiosk's own. A key made for one
-   * domain can never be used on another, which is what stops a copied
-   * kiosk page from asking for somebody's finger.
+   * The domain the key belongs to: the kiosk's own. A key made for one domain
+   * can never be used on another, which is what stops a copied kiosk page
+   * from asking for somebody's finger.
+   *
+   * It is the **first** address in `KIOSK_ORIGINS`, so every kiosk address
+   * must be that same host (different ports and paths are fine). A second
+   * host there would still sign in and clock in by face, but its browser
+   * would refuse to make a key at all — so keep `KIOSK_ORIGINS` to one host,
+   * and give a preview deployment its own environment instead.
    */
   private relyingParty(): string {
     const [first] = this.config.kioskOrigins;
     if (!first) {
+      // No kiosk address is configured, so no fingerprint step can happen.
       throw new ConflictException(PASSKEY_REFUSED);
     }
     return new URL(first).hostname;
   }
+}
+
+/** A saved key, as the contract's `DevicePasskey` carries it. */
+function toApiPasskey(row: {
+  id: string;
+  registeredAt: Date;
+  revokedAt: Date | null;
+  backedUp: boolean;
+  device: { id: string; name: string };
+}): DevicePasskey {
+  return {
+    id: row.id,
+    deviceId: row.device.id,
+    deviceName: row.device.name,
+    registeredAt: row.registeredAt.toISOString(),
+    synced: row.backedUp,
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * What the browser says the key is held on. WebAuthn puts it beside the
+ * answer, not inside the signed bytes, so it is a safety net and not a proof
+ * — which is exactly how the design describes it (docs/plan/13 §4).
+ */
+function attachmentOf(response: unknown): string | undefined {
+  const given = response as { authenticatorAttachment?: unknown };
+  return typeof given?.authenticatorAttachment === 'string'
+    ? given.authenticatorAttachment
+    : undefined;
 }
 
 /**

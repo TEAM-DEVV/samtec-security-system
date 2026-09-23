@@ -306,6 +306,64 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
       expect(await prisma.devicePasskey.count({ where: { deviceId: own.id } })).toBe(0);
     });
 
+    it('refuses a key the browser says lives on something else', async () => {
+      const own = await registerKiosk('Cross platform kiosk');
+      const worker = await newWorker();
+      await giveFace(worker.id, 17.4);
+      const asked = await operatorPost(
+        'kiosk/passkey-options',
+        { employeeId: worker.id },
+        own,
+      ).expect(200);
+      const sensor = new FakeAuthenticator(RELYING_PARTY, KIOSK_ORIGIN);
+
+      // A phone or a security key held near the kiosk. Asking for `platform`
+      // in the options is only a request; this is the answer.
+      await operatorPost(
+        'kiosk/passkeys',
+        {
+          employeeId: worker.id,
+          ticket: asked.body.ticket,
+          response: sensor.register(asked.body.options.challenge, {
+            attachment: 'cross-platform',
+          }),
+        },
+        own,
+      ).expect(409);
+      expect(await prisma.devicePasskey.count({ where: { deviceId: own.id } })).toBe(0);
+    });
+
+    it('answers a resent registration with the key it already saved', async () => {
+      const own = await registerKiosk('Resent registration kiosk');
+      const worker = await newWorker();
+      await giveFace(worker.id, 18.4);
+      const asked = await operatorPost(
+        'kiosk/passkey-options',
+        { employeeId: worker.id },
+        own,
+      ).expect(200);
+      const sensor = new FakeAuthenticator(RELYING_PARTY, KIOSK_ORIGIN);
+      const answer = sensor.register(asked.body.options.challenge);
+      const send = () =>
+        operatorPost(
+          'kiosk/passkeys',
+          { employeeId: worker.id, ticket: asked.body.ticket, response: answer },
+          own,
+        );
+
+      const first = await send().expect(201);
+      // The kiosk did not hear the first answer and sent it again. The ticket
+      // is still good, so this must be the same key, not a second one and
+      // not a refusal that leaves the worker with nothing.
+      const again = await send().expect(201);
+
+      expect(again.body.id).toBe(first.body.id);
+      expect(again.body.revokedAt).toBeNull();
+      const keys = await prisma.devicePasskey.findMany({ where: { deviceId: own.id } });
+      expect(keys).toHaveLength(1);
+      expect(keys[0]?.revokedAt).toBeNull();
+    });
+
     it('refuses a worker with no face in use', async () => {
       const own = await registerKiosk('No face kiosk');
       const worker = await newWorker();
@@ -406,6 +464,50 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
       ).expect(409);
 
       expect(await prisma.punchEvent.count({ where: { deviceId: own.id } })).toBe(0);
+    });
+
+    it('refuses a key whose counter went backwards, which is what a copy looks like', async () => {
+      const own = await registerKiosk('Cloned key kiosk');
+      const worker = await newWorker();
+      await giveFace(worker.id, 25.4);
+      const { sensor } = await saveFinger(worker.id, own);
+      const ask = async () =>
+        (
+          await signedPost(
+            app,
+            'kiosk/identify',
+            { purpose: 'CLOCK', direction: 'IN', sample: sampleAt(25.4) },
+            own,
+          ).expect(200)
+        ).body;
+
+      // One real clock-in moves the key's counter on.
+      const real = await ask();
+      await signedPost(
+        app,
+        'kiosk/confirm',
+        {
+          attemptId: real.attemptId,
+          assertion: sensor.authenticate(real.fingerprint.options.challenge),
+        },
+        own,
+      ).expect(200);
+      const key = await prisma.devicePasskey.findFirstOrThrow({ where: { deviceId: own.id } });
+      expect(Number(key.signCount)).toBe(1);
+
+      // A copy of the key answers with a counter it has already used.
+      const copied = await ask();
+      await signedPost(
+        app,
+        'kiosk/confirm',
+        {
+          attemptId: copied.attemptId,
+          assertion: sensor.authenticate(copied.fingerprint.options.challenge, { counter: 1 }),
+        },
+        own,
+      ).expect(409);
+
+      expect(await prisma.punchEvent.count({ where: { deviceId: own.id } })).toBe(1);
     });
 
     it('refuses another worker’s finger, and a finger saved on another kiosk', async () => {

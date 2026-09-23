@@ -20,8 +20,13 @@ import { deriveKey, openSecret, sealSecret } from '../identity/secret-box.js';
 /** How long a kiosk has to come back with the device's answer. */
 export const TICKET_GOOD_FOR_SECONDS = 120;
 
-/** What a ticket is for: saving a new finger, or using one already saved. */
-export type TicketPurpose = 'REGISTER' | 'AUTHENTICATE';
+/**
+ * What a ticket is for. Only a registration needs one: a clock-in's challenge
+ * rides on the attempt row instead, which both halves of a clock-in already
+ * share. It is still sealed in and checked, so the day a second kind of
+ * ticket exists, one can never be spent as the other.
+ */
+export type TicketPurpose = 'REGISTER';
 
 export interface PasskeyTicket {
   purpose: TicketPurpose;
@@ -29,8 +34,6 @@ export interface PasskeyTicket {
   employeeId: string;
   deviceId: string;
   challenge: string;
-  /** For `AUTHENTICATE`: the clock-in attempt this fingerprint answers for. */
-  attemptId?: string;
   /** Unix milliseconds. */
   expiresAt: number;
 }
@@ -93,13 +96,12 @@ function parse(text: string): PasskeyTicket | null {
     }
     const ticket = value as Partial<PasskeyTicket>;
     const complete =
-      (ticket.purpose === 'REGISTER' || ticket.purpose === 'AUTHENTICATE') &&
+      ticket.purpose === 'REGISTER' &&
       typeof ticket.companyId === 'string' &&
       typeof ticket.employeeId === 'string' &&
       typeof ticket.deviceId === 'string' &&
       typeof ticket.challenge === 'string' &&
-      typeof ticket.expiresAt === 'number' &&
-      (ticket.attemptId === undefined || typeof ticket.attemptId === 'string');
+      typeof ticket.expiresAt === 'number';
     return complete ? (ticket as PasskeyTicket) : null;
   } catch {
     // Anything that is not the JSON this server wrote is simply not a ticket.

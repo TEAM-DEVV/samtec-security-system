@@ -48,7 +48,10 @@ export class FakeAuthenticator {
   }
 
   /** The answer to `navigator.credentials.create(...)`, as JSON. */
-  register(challenge: string, options: { userVerified?: boolean } = {}): unknown {
+  register(
+    challenge: string,
+    options: { userVerified?: boolean; attachment?: 'platform' | 'cross-platform' } = {},
+  ): unknown {
     const authData = this.authenticatorData(ATTESTED_DATA, options.userVerified ?? true);
     const attestation = cbor(
       new Map<string, unknown>([
@@ -61,7 +64,7 @@ export class FakeAuthenticator {
       id: this.credentialId,
       rawId: this.credentialId,
       type: 'public-key',
-      authenticatorAttachment: 'platform',
+      authenticatorAttachment: options.attachment ?? 'platform',
       clientExtensionResults: {},
       response: {
         clientDataJSON: this.clientData('webauthn.create', challenge),

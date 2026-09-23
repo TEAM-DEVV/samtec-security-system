@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sealSecret } from '../identity/secret-box.js';
 import {
   openTicket,
   passkeyTicketKey,
@@ -51,13 +52,23 @@ describe('a passkey ticket', () => {
     expect(openTicket(sealed, key, must, now + TICKET_GOOD_FOR_SECONDS * 1000)).toBeNull();
   });
 
-  it('is no use for another worker, another device or another purpose', () => {
+  it('is no use for another worker or another device', () => {
     const sealed = sealTicket(ticket, key);
     const somebodyElse = '44444444-4444-7444-8444-444444444444';
 
     expect(openTicket(sealed, key, { ...must, employeeId: somebodyElse })).toBeNull();
     expect(openTicket(sealed, key, { ...must, deviceId: somebodyElse })).toBeNull();
     expect(openTicket(sealed, key, { ...must, companyId: somebodyElse })).toBeNull();
-    expect(openTicket(sealed, key, { ...must, purpose: 'AUTHENTICATE' })).toBeNull();
+  });
+
+  it('is not a ticket at all once its purpose is something else', () => {
+    // A ticket the server never writes: the purpose is sealed in, so one kind
+    // could never be spent as another.
+    const wrongKind = sealSecret(
+      JSON.stringify({ ...ticket, purpose: 'AUTHENTICATE', expiresAt: Date.now() + 60_000 }),
+      key,
+    );
+
+    expect(openTicket(wrongKind, key, must)).toBeNull();
   });
 });

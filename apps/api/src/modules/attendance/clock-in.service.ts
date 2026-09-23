@@ -327,8 +327,11 @@ export class ClockInService {
         return;
       }
       // Only a punch really being made now is checked again, here inside
-      // its own commit, under the company's attendance lock.
-      await this.assertMayBeCoSigned(device, worker.id, worker.status, tx, attempt);
+      // its own commit, under the company's attendance lock — including the
+      // worker's status, read again rather than reused, because a
+      // termination may have committed while this request waited.
+      const status = await this.employees.statusOf(device.companyId, worker.id, tx);
+      await this.assertMayBeCoSigned(device, worker.id, status, tx, attempt);
       await this.audit.record(
         {
           companyId: device.companyId,
@@ -548,12 +551,16 @@ export class ClockInService {
   }
 
   /**
-   * When this kiosk last let somebody past the face: a staff number with a
-   * finger, or a co-sign that made a punch.
+   * When this kiosk last spent an unlock: **any** staff-number try, or a
+   * co-sign that made a punch.
    *
-   * A co-sign's punch carries the attempt's own time, and a kiosk can make
-   * no other kind of `PIN_FALLBACK` punch — raw punches are refused on a
-   * kiosk key — so the punch itself says when that fallback happened.
+   * The two are not the same on purpose. A staff-number try is counted
+   * whatever it answered, because it is one try at a number and three
+   * failures must not buy a run of them. A co-sign that was refused used
+   * nothing up, because otherwise one refusal would shut the fallback for
+   * the next worker in the queue — and a co-sign's punch carries the
+   * attempt's own time, with no other kind of `PIN_FALLBACK` punch possible
+   * on a kiosk key, so the punch itself says when that one happened.
    */
   private async lastFallbackAt(
     device: SignedDevice,
