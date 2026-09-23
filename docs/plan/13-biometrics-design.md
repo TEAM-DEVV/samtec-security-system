@@ -63,7 +63,7 @@ The attendance module owns every new table. Each table has row-level security, U
 **Deletion (Act 843).** A withdrawal of consent or an ADMIN revoke wipes the face at once and switches off the worker's fingerprint keys. Leavers are handled by a **retention sweep that rides on the device heartbeat**, exactly like the overdue clock-out check in [Attendance design](12-attendance-design.md):
 
 - The company's `attendance_checks` row gains a `retention_checked_at` bookmark. The first heartbeat after 24 hours runs the sweep and moves the bookmark forward.
-- The sweep switches off the fingerprint keys of anyone past their termination date, and wipes the face of anyone terminated at least 90 days ago. It also wipes a face that has waited 90 days for a duplicate review or for an abandoned hire; the review stays open, because only a second ADMIN may close it. A face blocked as a duplicate is already wiped, and the sweep leaves it blocked. For leavers, it clears the exemption note and the attempts' network addresses after the same 90 days (the reason codes and the rows stay). It handles at most 50 people per heartbeat; the next heartbeat carries on.
+- The sweep switches off the fingerprint keys of anyone past their termination date, and wipes the face of anyone terminated at least 90 days ago. It also wipes a face that has waited 90 days for a duplicate review — whatever became of the worker meanwhile, including a suspension — or for an abandoned hire; the review stays open, because only a second ADMIN may close it, and the verdict still blocks the losing record when it comes. A face blocked as a duplicate is already wiped, and the sweep leaves it blocked. For leavers, it clears the exemption note and the attempts' network addresses after the same 90 days (the reason codes and the rows stay). It handles at most 50 people per heartbeat; the next heartbeat carries on.
 - There is no scheduled job and no extra secret. Kiosks send a heartbeat every minute, so the sweep runs daily in practice. If every device in the company is switched off, the sweep waits for the next heartbeat. Nobody can clock in during that time, and an ADMIN can still revoke anyone by hand. A company that stops using SAMTEC altogether has its data deleted as part of ending the contract (Phase 8).
 
 Rows stay for the audit trail. Punches, attempts and consents are never deleted.
@@ -104,8 +104,8 @@ A cleared face activates the worker only if they are `PENDING_ENROLLMENT`, and o
 
 **Only a second ADMIN can close a review.**
 
-- A revoke is refused while a review is open.
-- A withdrawal of consent, or the retention sweep, wipes the face as the law requires, but the review **stays open**, and the reviewer still decides from the Ghana Cards and the record of who the face looked like.
+- A revoke is refused while a review is open — for **both** records, the one whose face is under review and the one it looked like. A review is a question about two people, so neither of them changes while it waits.
+- A withdrawal of consent, or the retention sweep, wipes the face as the law requires, but the review **stays open**, and the reviewer still decides from the Ghana Cards and the record of who the face looked like. The verdict still lands: a record whose face is already wiped is blocked where it stands, keeping the original wipe's time and the name of whoever made it (the sweep leaves no name), because a wipe is never undone or re-signed.
 - A face wiped in the meantime stays wiped, even after a `DIFFERENT_PEOPLE` verdict; that worker then enrolls again or asks for an exemption.
 
 So an ADMIN can never wipe a collision away and retry captures until a score slips under the threshold. Phase 5's rule R1 (duplicate biometrics) reads these rows, so no extra alerts table is needed.
@@ -125,6 +125,7 @@ So an ADMIN can never wipe a collision away and retry captures until a score sli
 - If the face was in use and the worker is `ACTIVE`, the worker goes back to `PENDING_ENROLLMENT`, and the API **files** an exemption request (`CONSENT_WITHDRAWN`). The ADMIN who recorded the withdrawal is its asker, so a **different** ADMIN decides it: every exemption takes two ADMIN accounts.
   - While it waits, the worker can still clock in by a supervisor's co-sign. Those punches are stored and paired, but they raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for enrollment ([Attendance design](12-attendance-design.md) section 3), and payroll counts them only once a second ADMIN has approved. The worker's presence is on record from the first day, and they are paid in full once approved.
   - Once approved, the worker is `ACTIVE` again and clocks in by co-sign.
+  - A worker who had **no face at all** — one already working under an approved exemption — loses nothing. There is nothing to wipe, their exemption stands, and their status does not move: one ADMIN must never be able to undo what two ADMINs agreed.
 - **Why not exempt at once?** A wiped face is no longer in the duplicate check. If one ADMIN could withdraw a face and keep that record working, they could enroll the same face again on a second record, and a third, with nobody else ever looking. Requiring a second person for every faceless worker closes that loop.
 - An exemption already approved is kept. Any other face (waiting for review, or blocked) gives no request. An open review stays open, and a blocked face stays blocked. **Withdrawing never activates anyone.**
 - A worker who withdrew may consent again later, unless the record is blocked as a duplicate.

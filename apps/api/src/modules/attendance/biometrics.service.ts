@@ -385,9 +385,17 @@ export class BiometricsService {
       }),
       // A review is open while it has no verdict — **not** while the face is
       // PENDING. After 90 days the retention sweep wipes such a face, which
-      // makes it REVOKED, and the question it asks is still unanswered.
+      // makes it REVOKED, and the question it asks is still unanswered. It
+      // holds both records: the one that enrolled the face and the one it
+      // looked like.
       tx.biometricCredential.findFirst({
-        where: { companyId, employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        where: {
+          companyId,
+          kind: 'FACE',
+          dedupe: 'COLLISION',
+          verdict: null,
+          OR: [{ employeeId }, { collisionEmployeeId: employeeId }],
+        },
         select: { id: true },
       }),
       tx.biometricExemption.findFirst({

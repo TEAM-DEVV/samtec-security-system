@@ -143,8 +143,9 @@ export class BiometricRetentionService {
         take: PEOPLE_PER_SWEEP,
         where: { companyId, kind: 'FACE', wipedAt: null, employee: left },
       }),
-      // A face still live 90 days after enrollment, on a worker who never
-      // started: either a review nobody answered or a hire that went away.
+      // A face still live 90 days after it was taken, with nothing to show
+      // for it: a review nobody ever answered (whatever became of the
+      // worker meanwhile), or a hire who never started.
       tx.biometricCredential.groupBy({
         by: ['employeeId'],
         orderBy: { employeeId: 'asc' },
@@ -154,7 +155,10 @@ export class BiometricRetentionService {
           kind: 'FACE',
           wipedAt: null,
           enrolledAt: { lte: cutoff },
-          employee: { status: 'PENDING_ENROLLMENT' },
+          OR: [
+            { dedupe: 'COLLISION', verdict: null },
+            { employee: { status: 'PENDING_ENROLLMENT' } },
+          ],
         },
       }),
       tx.biometricExemption.groupBy({
@@ -242,7 +246,10 @@ export class BiometricRetentionService {
           kind: 'FACE',
           wipedAt: null,
           enrolledAt: { lte: cutoff },
-          employee: { status: 'PENDING_ENROLLMENT' },
+          OR: [
+            { dedupe: 'COLLISION', verdict: null },
+            { employee: { status: 'PENDING_ENROLLMENT' } },
+          ],
         },
         data: wipe,
         select: { employeeId: true },

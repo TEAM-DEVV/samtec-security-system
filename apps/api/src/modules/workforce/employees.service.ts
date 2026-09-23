@@ -572,6 +572,26 @@ export class EmployeesService {
   }
 
   /**
+   * Where a worker stands right now, read inside somebody else's
+   * transaction. Biometrics use it when they change nothing about a worker
+   * but still have to report their standing.
+   */
+  async statusOf(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    const employee = await tx.employee.findFirst({
+      where: { id: employeeId, companyId },
+      select: { status: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    return employee.status;
+  }
+
+  /**
    * An approved exemption: the worker may work without a face, so they become
    * `ACTIVE` with nothing enrolled. Every hour they work is then flagged,
    * because they clock in by a supervisor's co-sign.

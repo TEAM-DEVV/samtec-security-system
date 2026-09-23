@@ -14,6 +14,7 @@ import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import type { EmployeeStatus } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
@@ -121,11 +122,17 @@ export class BiometricReviewsService {
       });
       // A face waiting for review is wiped too, but its review stays open:
       // only a second ADMIN ever closes one.
-      await this.wipeEverything(tx, viewer, employeeId, 'REVOKED');
-      const status = await this.employees.clearBiometricsEnrolled(viewer.companyId, employeeId, tx);
+      //
+      // A worker with no face is already working without biometrics, by an
+      // exemption two ADMINs agreed on. Taking their consent back changes
+      // nothing about that, so it stays: one ADMIN must never be able to
+      // undo what two of them decided.
+      const status = face
+        ? await this.wipeAndStandDown(tx, viewer, employeeId)
+        : await this.employees.statusOf(viewer.companyId, employeeId, tx);
 
-      // Only a worker who was really working loses that footing, so only then
-      // is a request filed for a second ADMIN.
+      // Only a worker who was really working by their face loses that
+      // footing, so only then is a request filed for a second ADMIN.
       const filed =
         wasInUse && (await this.fileWithdrawalExemption(tx, viewer, employeeId, body.reason));
       await this.audit.record(
@@ -361,7 +368,7 @@ export class BiometricReviewsService {
           },
         });
         if (row.wipedAt === null) {
-          await this.employees.markBiometricsEnrolled(viewer.companyId, row.employeeId, tx);
+          await this.faceIsInUse(tx, viewer, row.employeeId);
         }
       } else {
         if (body.keepEmployeeId !== row.employeeId && body.keepEmployeeId !== lookalikeId) {
@@ -381,20 +388,25 @@ export class BiometricReviewsService {
               ? row.wipedAt === null
                 ? { dedupe: 'CLEARED' as const, status: 'ACTIVE' as const }
                 : { dedupe: 'CLEARED' as const }
-              : {
-                  status: 'BLOCKED' as const,
-                  templateSealed: null,
-                  keyVersion: null,
-                  wipedAt: row.wipedAt ?? decision.reviewedAt,
-                  wipedByUserId: row.wipedByUserId ?? viewer.userId,
-                }),
+              : // A wipe is never re-signed: a face the sweep took (which
+                // leaves nobody's name on it) keeps its own time and its
+                // empty name, and only the status moves to BLOCKED.
+                row.wipedAt === null
+                ? {
+                    status: 'BLOCKED' as const,
+                    templateSealed: null,
+                    keyVersion: null,
+                    wipedAt: decision.reviewedAt,
+                    wipedByUserId: viewer.userId,
+                  }
+                : { status: 'BLOCKED' as const }),
           },
         });
         if (keepsNewFace) {
           // The other record loses everything it had.
           await this.blockRecord(tx, viewer, loserId);
           if (row.wipedAt === null) {
-            await this.employees.markBiometricsEnrolled(viewer.companyId, row.employeeId, tx);
+            await this.faceIsInUse(tx, viewer, row.employeeId);
           }
         } else {
           // The new record was the duplicate: it keeps only its blocked face.
@@ -439,9 +451,17 @@ export class BiometricReviewsService {
         select: { id: true },
       }),
       // Open means "no verdict yet", not "the face is PENDING": the retention
-      // sweep wipes a face that waited 90 days, and the question stays.
+      // sweep wipes a face that waited 90 days, and the question stays. A
+      // review is about **two** records, so the worker the face looked like
+      // is held as fast as the worker who enrolled it.
       tx.biometricCredential.findFirst({
-        where: { companyId, employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        where: {
+          companyId,
+          kind: 'FACE',
+          dedupe: 'COLLISION',
+          verdict: null,
+          OR: [{ employeeId }, { collisionEmployeeId: employeeId }],
+        },
         select: { id: true },
       }),
       tx.biometricExemption.findFirst({ where: { companyId, employeeId, status: 'REQUESTED' } }),
@@ -533,7 +553,18 @@ export class BiometricReviewsService {
     return true;
   }
 
-  /** Wipes the face in use and switches off every fingerprint key. */
+  /**
+   * Wipes the face in use and switches off every fingerprint key.
+   *
+   * Blocking has one more step than revoking. A record is often blocked
+   * **after** its face is already gone — a withdrawal of consent, or the
+   * retention sweep, wipes a face while its review is still open, and the
+   * design says the reviewer decides all the same. The record must still end
+   * blocked, so the newest face of a record with nothing live is moved from
+   * `REVOKED` to `BLOCKED`, keeping the original wipe untouched: a wipe is
+   * never undone or re-signed (the database refuses that), and `BLOCKED` is
+   * what stops this record for good.
+   */
   private async wipeEverything(
     tx: TransactionClient,
     viewer: SignedInUser,
@@ -552,8 +583,52 @@ export class BiometricReviewsService {
           wipedByUserId: viewer.userId,
         },
       });
+    } else if (to === 'BLOCKED') {
+      const wiped = await tx.biometricCredential.findFirst({
+        where: {
+          companyId: viewer.companyId,
+          employeeId,
+          kind: 'FACE',
+          status: { not: 'BLOCKED' },
+        },
+        orderBy: [{ enrolledAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      });
+      if (wiped) {
+        await tx.biometricCredential.update({
+          where: { id: wiped.id },
+          data: { status: 'BLOCKED' },
+        });
+      }
     }
     await this.endExemptionsAndKeys(tx, viewer, employeeId);
+  }
+
+  /**
+   * The worker's face is now the one they clock in with, so an exemption
+   * they were working under is over — the same step enrolling a face that
+   * passes takes. Nobody holds a face and an exemption at once.
+   */
+  private async faceIsInUse(
+    tx: TransactionClient,
+    viewer: SignedInUser,
+    employeeId: string,
+  ): Promise<void> {
+    await tx.biometricExemption.updateMany({
+      where: { companyId: viewer.companyId, employeeId, status: 'APPROVED' },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
+    await this.employees.markBiometricsEnrolled(viewer.companyId, employeeId, tx);
+  }
+
+  /** Wipes what a worker had and takes them off the biometric footing. */
+  private async wipeAndStandDown(
+    tx: TransactionClient,
+    viewer: SignedInUser,
+    employeeId: string,
+  ): Promise<EmployeeStatus> {
+    await this.wipeEverything(tx, viewer, employeeId, 'REVOKED');
+    return this.employees.clearBiometricsEnrolled(viewer.companyId, employeeId, tx);
   }
 
   /** Switches off the fingerprint keys and ends an approved exemption. */
