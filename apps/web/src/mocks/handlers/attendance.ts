@@ -69,6 +69,7 @@ const ACTIONS_FOR_TYPE: Record<AttendanceException['type'], ExceptionResolutionA
   UNKNOWN_EMPLOYEE: ['DISMISS'],
   INACTIVE_EMPLOYEE: ['DISMISS'],
   OVERLAP: ['KEEP_SEGMENT', 'VOID_ALL'],
+  UNEXPECTED_DEVICE_ENROLLMENT: ['DISMISS'],
 };
 
 /** Every site an exception touches: two for an overlap, otherwise one. */

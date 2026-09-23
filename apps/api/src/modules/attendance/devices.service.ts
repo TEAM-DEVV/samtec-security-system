@@ -5,7 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Device as ApiDevice, DeviceList, DeviceWithSecret } from '@samtec/contracts';
+import type {
+  Device as ApiDevice,
+  DeviceList,
+  DeviceWithSecret,
+  FingerEnrollmentWindow,
+} from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { isUniqueViolation } from '../../common/prisma-errors.js';
@@ -14,13 +19,24 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { Device } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
 import { openSecret, sealSecret } from '../identity/secret-box.js';
+import { EmployeesService } from '../workforce/employees.service.js';
 import { SitesService } from '../workforce/sites.service.js';
 import type {
   ListDevicesQuery,
+  OpenFingerEnrollmentWindowBody,
   RegisterDeviceBody,
   UpdateDeviceBody,
 } from './attendance.schemas.js';
+import { lockCompanyBiometrics } from './attendance-lock.js';
+import { blockedRecord } from './biometric-questions.js';
 import { deviceSecretKey, newDeviceSecret } from './device-secret.js';
+
+/**
+ * How long an ADMIN's fingerprint enrollment window stays open. Long enough
+ * to walk a worker to the terminal, short enough that a forgotten window is
+ * not a standing invitation. The database refuses a longer one.
+ */
+export const FINGER_WINDOW_MINUTES = 30;
 
 /** A kiosk session sets up kiosks, never a terminal or a simulator. */
 const KIOSK_DEVICES_ONLY = 'A kiosk session can only set up a face kiosk.';
@@ -38,6 +54,7 @@ export class DevicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly sites: SitesService,
+    private readonly employees: EmployeesService,
     config: AppConfig,
   ) {
     this.secretKey = deviceSecretKey(config.authSecret);
@@ -192,6 +209,110 @@ export class DevicesService {
   /** The plain secret of a device, for checking its signatures. Null if it cannot be opened. */
   openDeviceSecret(device: Pick<Device, 'secretEncrypted'>): string | null {
     return openSecret(device.secretEncrypted, this.secretKey);
+  }
+
+  /**
+   * Opens the 30 minutes in which one worker may enroll a finger on one
+   * ZKTeco terminal (docs/plan/13 §5).
+   *
+   * This is the whole of the rule that stops a terminal enrolling people by
+   * itself: no window, no finger. It is refused for a device that is not a
+   * terminal, for a worker who is not posted to that terminal's site, and for
+   * a worker who never gave consent — a finger is biometric data like any
+   * other.
+   *
+   * Opening a second window for the same worker on the same terminal closes
+   * the first, so an ADMIN who taps twice does not leave two open.
+   */
+  async openFingerEnrollmentWindow(
+    viewer: SignedInUser,
+    deviceId: string,
+    body: OpenFingerEnrollmentWindowBody,
+  ): Promise<FingerEnrollmentWindow> {
+    const device = await this.findInCompany(viewer, deviceId);
+    if (device.kind !== 'ZKTECO') {
+      throw new ConflictException('Only a ZKTeco terminal has fingerprint enrollment windows.');
+    }
+    const worker = await this.employees.atTheKiosk(viewer.companyId, { id: body.employeeId });
+    if (!worker) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    const posted = await this.employees.isPostedTo(viewer.companyId, worker.id, device.siteId);
+    if (!posted) {
+      throw new ConflictException("This worker is not posted to this terminal's site.");
+    }
+    const consent = await this.prisma.biometricConsent.findFirst({
+      where: { companyId: viewer.companyId, employeeId: worker.id },
+      orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
+      select: { status: true },
+    });
+    if (consent?.status !== 'GIVEN') {
+      throw new ConflictException('This worker has not agreed to biometrics.');
+    }
+    const blocked = await this.prisma.biometricCredential.findFirst({
+      where: blockedRecord(viewer.companyId, worker.id),
+      select: { id: true },
+    });
+    if (blocked) {
+      // The database refuses this too; saying so here makes it a plain
+      // refusal instead of a 500 an ADMIN cannot act on.
+      throw new ConflictException(
+        'This record was blocked as a duplicate, so it can only be terminated.',
+      );
+    }
+
+    const opensAt = new Date();
+    const expiresAt = new Date(opensAt.getTime() + FINGER_WINDOW_MINUTES * 60 * 1000);
+    const window = await this.prisma.$transaction(async (tx) => {
+      // This worker's biometric rows, one request at a time, like every other
+      // biometric write (docs/plan/13 §2). Without it two ADMINs tapping at
+      // once would each close the other's window and then open their own,
+      // leaving two open instead of one.
+      await lockCompanyBiometrics(tx, viewer.companyId);
+      // Close anything still open for this worker on this terminal, so two
+      // taps never leave two windows behind.
+      await tx.fingerEnrollmentWindow.updateMany({
+        where: {
+          companyId: viewer.companyId,
+          deviceId: device.id,
+          employeeId: worker.id,
+          expiresAt: { gt: opensAt },
+        },
+        data: { expiresAt: opensAt },
+      });
+      const opened = await tx.fingerEnrollmentWindow.create({
+        data: {
+          companyId: viewer.companyId,
+          deviceId: device.id,
+          employeeId: worker.id,
+          openedByUserId: viewer.userId,
+          opensAt,
+          expiresAt,
+        },
+        select: { id: true, deviceId: true, employeeId: true, opensAt: true, expiresAt: true },
+      });
+      await this.audit.record(
+        {
+          companyId: viewer.companyId,
+          actorUserId: viewer.userId,
+          action: 'biometric.finger_window_opened',
+          entityType: 'employee',
+          entityId: worker.id,
+          detail: { deviceId: device.id, windowId: opened.id, minutes: FINGER_WINDOW_MINUTES },
+        },
+        tx,
+      );
+      return opened;
+    });
+
+    return {
+      id: window.id,
+      deviceId: window.deviceId,
+      employeeId: window.employeeId,
+      staffNumber: worker.staffNumber,
+      opensAt: window.opensAt.toISOString(),
+      expiresAt: window.expiresAt.toISOString(),
+    };
   }
 
   private async findInCompany(viewer: SignedInUser, deviceId: string): Promise<Device> {

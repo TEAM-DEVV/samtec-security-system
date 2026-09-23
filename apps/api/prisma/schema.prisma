@@ -118,6 +118,8 @@ model Company {
   devicePasskeys       DevicePasskey[]
   clockInAttempts      ClockInAttempt[]
 
+  fingerEnrollmentWindows   FingerEnrollmentWindow[]
+  terminalEnrollmentReports TerminalEnrollmentReport[]
   @@map("companies")
 }
 
@@ -369,6 +371,8 @@ model Employee {
   @@unique([companyId, ghanaCardNumber])
   @@unique([companyId, staffNumber])
   @@index([companyId, status])
+  fingerEnrollmentWindows   FingerEnrollmentWindow[]
+  terminalEnrollmentReports TerminalEnrollmentReport[]
   @@map("employees")
 }
 
@@ -484,6 +488,7 @@ enum AttendanceExceptionType {
   UNKNOWN_EMPLOYEE
   INACTIVE_EMPLOYEE
   OVERLAP
+  UNEXPECTED_DEVICE_ENROLLMENT
 }
 
 enum AttendanceExceptionStatus {
@@ -537,6 +542,8 @@ model Device {
   @@unique([companyId, name])
   @@unique([companyId, serialNumber])
   @@index([siteId])
+  fingerEnrollmentWindows   FingerEnrollmentWindow[]
+  terminalEnrollmentReports TerminalEnrollmentReport[]
   @@map("devices")
 }
 
@@ -818,6 +825,8 @@ model BiometricCredential {
 
   @@index([employeeId])
   @@index([collisionEmployeeId])
+  terminalReports TerminalEnrollmentReport[]
+
   @@index([companyId, dedupe])
   @@map("biometric_credentials")
 }
@@ -921,4 +930,62 @@ model ClockInAttempt {
   @@index([companyId, attemptedAt])
   @@index([employeeId, attemptedAt])
   @@map("clock_in_attempts")
+}
+
+// --- The ZKTeco gateway (Phase 3, docs/plan/13 section 5) --------------------
+
+/// The 30 minutes an ADMIN opens so one worker may enroll a finger on one
+/// terminal. A finger reported outside every window is refused: a terminal
+/// must never be able to enroll somebody by itself.
+model FingerEnrollmentWindow {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  deviceId       String   @map("device_id") @db.Uuid
+  employeeId     String   @map("employee_id") @db.Uuid
+  openedByUserId String   @map("opened_by_user_id") @db.Uuid
+  opensAt        DateTime @default(now()) @map("opens_at") @db.Timestamptz(3)
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  reports  TerminalEnrollmentReport[]
+
+  @@index([deviceId, expiresAt])
+  @@index([employeeId])
+  @@map("finger_enrollment_windows")
+}
+
+/// Every finger a terminal reported, accepted or refused. Append-only: it is
+/// the record of what each terminal claimed, which is what makes a terminal
+/// enrolling somebody by itself visible instead of silent.
+model TerminalEnrollmentReport {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  deviceId      String   @map("device_id") @db.Uuid
+  /// The number the terminal used, exactly as it sent it, even one that matches nobody.
+  deviceUserRef String   @map("device_user_ref")
+  /// Who it matched here, when it matched anybody.
+  employeeId    String?  @map("employee_id") @db.Uuid
+  /// Which finger the terminal used. For the report only.
+  fingerIndex   Int?     @map("finger_index") @db.SmallInt
+  /// The terminal's own time, read as UTC.
+  enrolledAt    DateTime @map("enrolled_at") @db.Timestamptz(3)
+  accepted      Boolean
+  /// The credential this created, when it was accepted.
+  credentialId  String?  @map("credential_id") @db.Uuid
+  /// The window that allowed it, when one did.
+  windowId      String?  @map("window_id") @db.Uuid
+  reportedAt    DateTime @default(now()) @map("reported_at") @db.Timestamptz(3)
+
+  company    Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device     Device                  @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employee   Employee?               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  credential BiometricCredential?    @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  window     FingerEnrollmentWindow? @relation(fields: [windowId], references: [id], onDelete: Restrict)
+
+  @@unique([deviceId, deviceUserRef, enrolledAt])
+  @@index([companyId, reportedAt])
+  @@map("terminal_enrollment_reports")
 }

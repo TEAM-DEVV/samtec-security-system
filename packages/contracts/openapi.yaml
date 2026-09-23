@@ -1497,6 +1497,56 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /devices/{deviceId}/finger-enrollment-windows:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Devices]
+      operationId: openFingerEnrollmentWindow
+      summary: Let one worker enroll a finger on this terminal
+      description: >-
+        **Roles:** ADMIN. Opens a 30-minute window for one worker on one
+        `ZKTECO` terminal. A finger the terminal reports inside that window
+        becomes that worker's, with the duplicate check recorded as
+        `NOT_CHECKED` — this server never sees a terminal's fingerprint
+        template, so it cannot compare one. A finger reported outside any
+        window is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`, because
+        a terminal must never be able to enroll somebody by itself
+        (docs/plan/13 section 5).
+
+        Opening a second window for the same worker on the same terminal
+        replaces the first, so an ADMIN who taps twice does not get two.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenFingerEnrollmentWindowRequest"
+      responses:
+        "201":
+          description: The window is open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FingerEnrollmentWindow"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            The device is not a ZKTeco terminal, or the worker may not be
+            enrolled: they are not posted to this device's site, they have
+            given no consent, or their record is blocked as a duplicate.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
   /ingest/punches:
     post:
       tags: [Ingest]
@@ -1604,6 +1654,97 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HeartbeatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /ingest/roster:
+    post:
+      tags: [Ingest]
+      operationId: getTerminalRoster
+      summary: Who should be on this terminal
+      description: >-
+        **Signed by a `ZKTECO` device** (route name `ingest/roster`). The
+        gateway asks every 5 minutes and compares the answer with the
+        terminal's own user list, adding and removing users to match. It is
+        safe to repeat and changes nothing on the server, so no command table
+        is needed (docs/plan/13 section 5).
+
+        The answer holds everyone posted to this terminal's site who is
+        `ACTIVE` or `PENDING_ENROLLMENT`, and **leaves out anyone whose
+        biometric record is blocked as a duplicate**, so their fingers come
+        off the terminals too. It carries a staff number and a display name
+        and nothing else: never a Ghana Card number, never a template.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalRosterRequest"
+      responses:
+        "200":
+          description: Everyone this terminal should know about.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalRosterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /ingest/enrollments:
+    post:
+      tags: [Ingest]
+      operationId: reportTerminalEnrollments
+      summary: A terminal reports a finger it enrolled
+      description: >-
+        **Signed by a `ZKTECO` device** (route name `ingest/enrollments`).
+        The gateway sends only *that* user enrolled a finger on *this*
+        terminal at *that* time. **The fingerprint template itself is
+        discarded by the gateway and never reaches this API**
+        (docs/plan/13 section 5).
+
+        A finger reported inside a window an ADMIN opened for that worker
+        (`POST /devices/{deviceId}/finger-enrollment-windows`) becomes an
+        `ACTIVE` fingerprint credential whose duplicate check is
+        `NOT_CHECKED`, because this server cannot compare a terminal's
+        templates. **Anything else is refused and raises
+        `UNEXPECTED_DEVICE_ENROLLMENT`** — a terminal never activates
+        anybody by itself.
+
+        Repeating a report changes nothing: the same terminal, user and
+        moment answers `DUPLICATE`.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalEnrollmentsRequest"
+      responses:
+        "200":
+          description: Each report, with what became of it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalEnrollmentsResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -4455,7 +4596,146 @@ components:
           waiting for enrollment, suspended, or after their termination date
           (grouped per person and day).
         - `OVERLAP` — one person on two shifts at the same time (often at two sites).
-      enum: [MISSING_CLOCK_OUT, MISSING_CLOCK_IN, UNKNOWN_EMPLOYEE, INACTIVE_EMPLOYEE, OVERLAP]
+        - `UNEXPECTED_DEVICE_ENROLLMENT` — a ZKTeco terminal reported a finger
+          nobody asked for: outside any window an ADMIN opened, or for a user
+          number that matches nobody (grouped per device, number and day).
+      enum:
+        [
+          MISSING_CLOCK_OUT,
+          MISSING_CLOCK_IN,
+          UNKNOWN_EMPLOYEE,
+          INACTIVE_EMPLOYEE,
+          OVERLAP,
+          UNEXPECTED_DEVICE_ENROLLMENT,
+        ]
+
+    OpenFingerEnrollmentWindowRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+
+    FingerEnrollmentWindow:
+      type: object
+      required: [id, deviceId, employeeId, staffNumber, opensAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        employeeId:
+          type: string
+          format: uuid
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        opensAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: 30 minutes after it opened.
+
+    TerminalRosterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceClockAt:
+          type: string
+          format: date-time
+          description: The terminal's own clock, when the gateway knows it.
+
+    TerminalRosterResponse:
+      type: object
+      required: [users, serverTime]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalRosterUser"
+        serverTime:
+          type: string
+          format: date-time
+
+    TerminalRosterUser:
+      type: object
+      required: [deviceUserRef, staffNumber, displayName]
+      properties:
+        deviceUserRef:
+          type: string
+          description: What the terminal calls this person — the staff number.
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        displayName:
+          type: string
+          description: >-
+            A first name and the surname's initial, as a terminal screen shows
+            it. Never a full name, never a Ghana Card number.
+
+    TerminalEnrollmentsRequest:
+      type: object
+      additionalProperties: false
+      required: [enrollments]
+      properties:
+        enrollments:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TerminalEnrollment"
+
+    TerminalEnrollment:
+      type: object
+      additionalProperties: false
+      required: [deviceUserRef, enrolledAt]
+      properties:
+        deviceUserRef:
+          type: string
+          maxLength: 32
+          description: The terminal's user number or staff number.
+        fingerIndex:
+          type: integer
+          minimum: 0
+          maximum: 9
+          description: Which finger the terminal used. Kept for the report only.
+        enrolledAt:
+          type: string
+          format: date-time
+          description: The terminal's own time, read as UTC.
+
+    TerminalEnrollmentsResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalEnrollmentResult"
+
+    TerminalEnrollmentResult:
+      type: object
+      required: [deviceUserRef, enrolledAt, status]
+      properties:
+        deviceUserRef:
+          type: string
+        enrolledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          description: |
+            - `ACCEPTED` — inside a window an ADMIN opened; the finger is now
+              in use, with its duplicate check recorded as `NOT_CHECKED`.
+            - `DUPLICATE` — this same report was already recorded.
+            - `REFUSED` — no open window, or the user number matches nobody.
+              An `UNEXPECTED_DEVICE_ENROLLMENT` exception is raised, and the
+              gateway is told no more than that.
+          enum: [ACCEPTED, DUPLICATE, REFUSED]
 
     AttendanceExceptionStatus:
       type: string
