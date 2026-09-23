@@ -714,8 +714,13 @@ export class EmployeesService {
    * clock-in — the worker and the supervisor alike — must be, because a
    * kiosk stands at one gate and records the hours worked there.
    */
-  async isPostedTo(companyId: string, employeeId: string, siteId: string): Promise<boolean> {
-    const posted = await this.prisma.siteAssignment.findFirst({
+  async isPostedTo(
+    companyId: string,
+    employeeId: string,
+    siteId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<boolean> {
+    const posted = await db.siteAssignment.findFirst({
       where: { companyId, employeeId, siteId, ...currentAssignmentFilter() },
       select: { id: true },
     });

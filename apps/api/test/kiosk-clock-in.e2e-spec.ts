@@ -257,13 +257,18 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
     });
 
     it('refuses a sample the contract does not allow at all', async () => {
+      // A kiosk running the wrong model is a broken kiosk, and must never
+      // be written down as a worker whose face did not look alive.
       const wrongModel = await identify({
         purpose: 'CLOCK',
         direction: 'IN',
         sample: sampleAt(4.4, { model: 'some-other-model-2' }),
       });
-      expect(wrongModel.status).toBe(200);
-      expect(wrongModel.body.outcome).toBe('LOW_LIVENESS');
+      expect(wrongModel.status).toBe(400);
+      const recorded = await prisma.clockInAttempt.count({
+        where: { deviceId: kiosk.id, outcome: 'LOW_LIVENESS' },
+      });
+      expect(recorded).toBe(1);
 
       const wrongShape = await identify({
         purpose: 'CLOCK',
@@ -559,6 +564,56 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       const refused = await assist(await coSign('SMT-99999')).expect(409);
 
       expect(refused.body.detail).toMatch(/Ask your supervisor/);
+    });
+
+    it('spends one run of three failures on one worker, not on a queue of them', async () => {
+      // The insider's move: scan the supervisor for several absent workers
+      // first, then make the kiosk fail three times, then cash every scan in.
+      const ownKiosk = await registerKiosk('Spent unlock kiosk');
+      const first = await newWorker();
+      const second = await newWorker();
+      await giveFace(first.id, 64.4);
+      await giveFace(second.id, 68.4);
+      const scan = async (staffNumber: string) => {
+        const seen = await signedPost(
+          app,
+          'kiosk/identify',
+          {
+            purpose: 'CO_SIGN',
+            staffNumber,
+            direction: 'IN',
+            sample: sampleAt(SUPERVISOR_FACE),
+          },
+          ownKiosk,
+        ).expect(200);
+        return seen.body.attemptId as string;
+      };
+      const scanOne = await scan(first.staffNumber);
+      const scanTwo = await scan(second.staffNumber);
+      for (let n = 0; n < 3; n += 1) {
+        await signedPost(
+          app,
+          'kiosk/identify',
+          { purpose: 'CLOCK', direction: 'IN', sample: sampleAt(93) },
+          ownKiosk,
+        ).expect(200);
+      }
+      const spend = (attemptId: string) =>
+        signedPost(
+          app,
+          'kiosk/assisted-punches',
+          { coSignAttemptId: attemptId, reason: 'The camera will not read them today.' },
+          ownKiosk,
+        );
+
+      // Both scans were taken **before** the failures, so neither of them is
+      // a supervisor stepping in after a worker struggled.
+      await spend(scanOne).expect(409);
+      await spend(scanTwo).expect(409);
+
+      expect(
+        await prisma.punchEvent.count({ where: { employeeId: { in: [first.id, second.id] } } }),
+      ).toBe(0);
     });
 
     it('needs three failed face attempts before it will help a worker who has a face', async () => {

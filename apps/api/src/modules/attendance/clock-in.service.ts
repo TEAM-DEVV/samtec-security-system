@@ -167,6 +167,12 @@ export class ClockInService {
    */
   async notMe(device: SignedDevice, body: KioskNotMeBody, address: string | null): Promise<void> {
     const attempt = await this.confirmableAttempt(device, body.attemptId);
+    const punched = await this.punchOf(device, attempt.id);
+    if (punched) {
+      // Already a clock-in. Saying "not me" now would turn a recorded shift
+      // into a counted failure, three of which open the fallback.
+      throw new ConflictException(CANNOT_PUNCH);
+    }
     if (attempt.employeeId === null) {
       // A match always names somebody (a database CHECK), so this is only
       // reachable if that stopped being true.
@@ -238,13 +244,16 @@ export class ClockInService {
       // here: two supervisors who both reached the check a moment ago
       // must not both spend the same three failures, and the first
       // punch to commit is what the second one now sees.
-      await this.assertMayBeCoSigned(device, worker.id, worker.status, tx, attempt.id);
       const [result] = results;
       if (result?.status !== 'ACCEPTED') {
         // A resend of a co-sign that already made its punch: nothing new
-        // happened, so nothing new is recorded.
+        // happened, so nothing is checked and nothing is written. The answer
+        // is DUPLICATE, which is what a kiosk retrying needs to hear.
         return;
       }
+      // Only a punch really being made now is checked again, here inside
+      // its own commit, under the company's attendance lock.
+      await this.assertMayBeCoSigned(device, worker.id, worker.status, tx, attempt);
       await this.audit.record(
         {
           companyId: device.companyId,
@@ -307,13 +316,17 @@ export class ClockInService {
   }
 
   /** The supervisor must be an ACTIVE SUPERVISOR posted to this kiosk's site. */
-  private async assertMaySupervise(device: SignedDevice, supervisorId: string): Promise<void> {
+  private async assertMaySupervise(
+    device: SignedDevice,
+    supervisorId: string,
+    db: Reader = this.prisma,
+  ): Promise<void> {
     const supervisor = await this.employees.atTheKiosk(device.companyId, { id: supervisorId });
     const account = supervisor?.user;
     if (supervisor?.status !== 'ACTIVE' || !account?.isActive || account.role !== 'SUPERVISOR') {
       throw new ConflictException(CANNOT_PUNCH);
     }
-    await this.assertPostedHere(device, supervisorId);
+    await this.assertPostedHere(device, supervisorId, db);
   }
 
   /**
@@ -336,9 +349,9 @@ export class ClockInService {
     status: string,
     db: Reader = this.prisma,
     /** The co-sign being made right now, which is not a fallback that already happened. */
-    ownAttemptId?: string,
+    own?: { id: string; attemptedAt: Date },
   ): Promise<void> {
-    await this.assertPostedHere(device, employeeId);
+    await this.assertPostedHere(device, employeeId, db);
     const [exemption, face] = await Promise.all([
       db.biometricExemption.findFirst({
         where: {
@@ -373,7 +386,7 @@ export class ClockInService {
       return;
     }
     if (status === 'ACTIVE' && face) {
-      await this.assertFallbackUnlocked(device, db, ownAttemptId);
+      await this.assertFallbackUnlocked(device, db, own);
       return;
     }
     throw new ConflictException(CANNOT_PUNCH);
@@ -407,11 +420,15 @@ export class ClockInService {
           method: 'PIN_FALLBACK',
           ...(ownAttemptId ? { deviceEventId: { not: ownAttemptId } } : {}),
         },
-        orderBy: { deviceTime: 'desc' },
-        select: { deviceTime: true },
+        // **Server** time, not device time. A co-sign punch carries the
+        // supervisor's scan time, which is *earlier* than the failures that
+        // unlocked it — using that as the boundary would leave those same
+        // failures standing, ready to unlock a second co-sign, and a third.
+        orderBy: { serverTime: 'desc' },
+        select: { serverTime: true },
       }),
     ]);
-    const moments = [staffNumber?.attemptedAt, coSigned?.deviceTime].filter(
+    const moments = [staffNumber?.attemptedAt, coSigned?.serverTime].filter(
       (moment): moment is Date => moment !== undefined,
     );
     return moments.length === 0
@@ -420,8 +437,12 @@ export class ClockInService {
   }
 
   /** Everyone in a kiosk clock-in must be posted to the site the kiosk stands on. */
-  private async assertPostedHere(device: SignedDevice, employeeId: string): Promise<void> {
-    const posted = await this.employees.isPostedTo(device.companyId, employeeId, device.siteId);
+  private async assertPostedHere(
+    device: SignedDevice,
+    employeeId: string,
+    db: Reader = this.prisma,
+  ): Promise<void> {
+    const posted = await this.employees.isPostedTo(device.companyId, employeeId, device.siteId, db);
     if (!posted) {
       throw new ConflictException(CANNOT_PUNCH);
     }
@@ -443,14 +464,23 @@ export class ClockInService {
   private async assertFallbackUnlocked(
     device: SignedDevice,
     db: Reader,
-    ownAttemptId?: string,
+    own?: { id: string; attemptedAt: Date },
   ): Promise<void> {
-    const since = await this.lastFallbackAt(device, db, ownAttemptId);
+    const since = await this.lastFallbackAt(device, db, own?.id);
     const recent = await db.clockInAttempt.findMany({
       where: {
         deviceId: device.id,
         purpose: 'CLOCK',
-        ...(since ? { attemptedAt: { gt: since } } : {}),
+        // After the last fallback, and **before** the supervisor scanned:
+        // "the kiosk has just failed this worker three times" means failures
+        // that already happened when the supervisor stepped in. Without the
+        // upper bound, a kiosk could take its co-sign scans first and
+        // manufacture the failures afterwards, then spend one run of three
+        // on as many absent workers as it liked.
+        attemptedAt: {
+          ...(since ? { gt: since } : {}),
+          ...(own ? { lt: own.attemptedAt } : {}),
+        },
       },
       orderBy: { attemptedAt: 'desc' },
       // One more than needed, so a match cancelled by "Not me" can be
@@ -503,7 +533,21 @@ export class ClockInService {
           },
         ],
       },
-      alsoInTheSameCommit,
+      async (tx, results) => {
+        // Read the cancellation again, here, inside the commit that is
+        // making the punch. A worker who taps "Not me" while this request
+        // is waiting for the company's lock must still win: otherwise the
+        // punch lands under the name they just said was wrong. Throwing
+        // rolls the punch back.
+        const cancelled = await tx.clockInAttempt.findFirst({
+          where: { cancelsAttemptId: attempt.id },
+          select: { id: true },
+        });
+        if (cancelled) {
+          throw new ConflictException(CANNOT_PUNCH);
+        }
+        await alsoInTheSameCommit?.(tx, results);
+      },
     );
     const [result] = answer.results;
     if (!result) {
@@ -522,6 +566,15 @@ export class ClockInService {
       recordedAt: attempt.attemptedAt.toISOString(),
       worker,
     };
+  }
+
+  /** The punch this attempt led to, if it was confirmed on this same device. */
+  private async punchOf(device: SignedDevice, attemptId: string): Promise<string | null> {
+    const punch = await this.prisma.punchEvent.findFirst({
+      where: { companyId: device.companyId, deviceId: device.id, deviceEventId: attemptId },
+      select: { id: true },
+    });
+    return punch?.id ?? null;
   }
 
   /** The worker this staff number belongs to, if it belongs to anybody here. */

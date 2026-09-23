@@ -167,7 +167,10 @@ export type RecordConsentBody = z.infer<typeof recordConsentSchema>;
 
 /** Contract: `FaceSample`. Numbers only: a kiosk can never send an image. */
 export const faceSample = z.strictObject({
-  model: z.string().min(1).max(64),
+  // The contract names one model, and faces from two models can never be
+  // compared. Anything else is refused here, so a broken kiosk is never
+  // written down as a worker whose face did not look real (docs/plan/13 §3).
+  model: z.literal('human-faceres-1'),
   embedding: z.array(z.number()).length(1024),
   real: z.number().min(0).max(1),
   live: z.number().min(0).max(1),

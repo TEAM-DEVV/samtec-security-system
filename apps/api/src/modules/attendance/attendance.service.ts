@@ -454,10 +454,18 @@ export class AttendanceService {
     // confirmed?" column: the punch it led to carries its id, and that one
     // link is also what makes a second confirmation a DUPLICATE.
     const punches = await this.prisma.punchEvent.findMany({
-      where: { companyId: viewer.companyId, deviceEventId: { in: pageRows.map((row) => row.id) } },
-      select: { id: true, deviceEventId: true },
+      where: {
+        companyId: viewer.companyId,
+        // The same device: another device's event that happens to carry
+        // this id is not this attempt's punch.
+        deviceId: { in: [...new Set(pageRows.map((row) => row.deviceId))] },
+        deviceEventId: { in: pageRows.map((row) => row.id) },
+      },
+      select: { id: true, deviceId: true, deviceEventId: true },
     });
-    const punchOf = new Map(punches.map((punch) => [punch.deviceEventId, punch.id]));
+    const punchOf = new Map(
+      punches.map((punch) => [`${punch.deviceId}|${punch.deviceEventId}`, punch.id]),
+    );
     return {
       items: pageRows.map((row) => ({
         id: row.id,
@@ -471,7 +479,7 @@ export class AttendanceService {
         coSignFor: row.coSignForEmployeeId ? (refs.get(row.coSignForEmployeeId) ?? null) : null,
         cancelsAttemptId: row.cancelsAttemptId,
         attemptedAt: row.attemptedAt.toISOString(),
-        punchId: punchOf.get(row.id) ?? null,
+        punchId: punchOf.get(`${row.deviceId}|${row.id}`) ?? null,
       })),
       nextCursor,
     };
