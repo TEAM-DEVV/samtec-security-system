@@ -86,10 +86,14 @@ export function EmployeesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <PageHeader title="Employees" description="Guards and staff on the company payroll." />
+      <PageHeader
+        eyebrow="Workforce"
+        title="Employees"
+        description="Guards and staff on the company payroll."
+      />
 
-      <div className="flex flex-wrap items-start gap-4">
-        <form onSubmit={applySearch} className="grid gap-1.5">
+      <div className="flex flex-wrap items-start gap-4 rounded-2xl border bg-card/60 p-4">
+        <form onSubmit={applySearch} className="grid w-full gap-1.5 sm:w-auto">
           <Label htmlFor="employee-search">Search employees</Label>
           <div className="flex gap-2">
             <Input
@@ -100,7 +104,7 @@ export function EmployeesPage() {
               maxLength={SEARCH_MAX_LENGTH}
               aria-describedby="employee-search-hint"
               aria-invalid={searchTooShort}
-              className="w-64"
+              className="min-w-0 flex-1 sm:w-64 sm:flex-none"
             />
             <Button type="submit" variant="secondary">
               <Search aria-hidden="true" />
@@ -140,11 +144,14 @@ export function EmployeesPage() {
       ) : (
         <Card
           aria-busy={showingOldPage}
-          className={cn('overflow-hidden py-0 transition-opacity', showingOldPage && 'opacity-60')}
+          className={cn(
+            'overflow-hidden rounded-2xl py-0 transition-opacity motion-safe:animate-rise-soft',
+            showingOldPage && 'opacity-60',
+          )}
         >
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableRow className="bg-muted/50 hover:bg-muted/50 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-[0.14em] [&_th]:text-muted-foreground">
                 <TableHead className="pl-4">Staff no.</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Position</TableHead>

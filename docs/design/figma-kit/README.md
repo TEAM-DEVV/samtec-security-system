@@ -6,6 +6,12 @@ files because that is the one format Figma imports as **fully editable
 design** — every text, colour and shape becomes a real Figma layer you can
 restyle. (Figma's own `.fig` format is closed; no outside tool can write it.)
 
+**Note (23 September 2026):** the dashboard has since had its executive design
+pass (display font for headings, the navy sign-in stage, a wider sidebar,
+motion). These artboards show the design before that pass. For the current
+look, import the live app with the `html.to.design` tip below, or update
+`generate.py` and regenerate.
+
 | File | Frame | Size |
 |---|---|---|
 | `00-design-system.svg` | Colours, type scale, components | 1440 × 900 |

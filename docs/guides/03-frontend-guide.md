@@ -157,7 +157,11 @@ export function ThingsPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <PageHeader title="Things" description="One line about what this page lists." />
+      <PageHeader
+        eyebrow="Workforce"
+        title="Things"
+        description="One line about what this page lists."
+      />
 
       {things.error ? (
         <LoadErrorAlert
@@ -208,7 +212,19 @@ The toolkit pieces, all small enough to read in a minute:
 | `<LoadErrorAlert>` | The API's message, the trace ID, and Try again (only when retrying can help) |
 | `<TableLoadingRows>` / `<TableEmptyRow>` | Skeleton rows and the friendly empty state |
 | `<SelectField>` | A labelled drop-down for filters, styled once |
-| `<PageHeader>` | The title every page starts with |
+| `<PageHeader>` | The title every page starts with; `eyebrow` is the small label above it (a domain word such as "Workforce", never a phase number) |
+| `<BrandMark>` | The SAMTEC shield as inline SVG; takes the text colour around it |
+| `<PageTransition>` | Already in the app shell: every page rises in when its address changes |
+
+### Look and motion
+
+The dashboard has one look, defined in `src/index.css`, so new pages need no design work — only these habits:
+
+- **Headings** use the display font automatically (`h1`–`h3`); body text stays in Geist.
+- **Cards that hold data** get `rounded-2xl motion-safe:animate-rise-soft`. When several cards sit side by side, add `stagger-1`, `stagger-2`… so they arrive one after another.
+- **Hero surfaces** (the overview banner, the sign-in stage) use `bg-stage`; cards that link somewhere use `hover-lift`; `text-gradient-gold` is for one phrase, not paragraphs.
+- **Every animation class is prefixed `motion-safe:`** so people who asked their device for less motion get a still page. Never add an animation without it.
+- **Tailwind must see the class names.** Write `stagger-3` in the code; never build it from a variable (`` `stagger-${n}` ``), or the class is missing from the build.
 
 ### 2. Give it a web address
 

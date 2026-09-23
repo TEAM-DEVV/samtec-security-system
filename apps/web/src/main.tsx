@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/app';
 import { MockApiStartError } from './app/mock-api-start-error';
+import { dismissBoot, sessionStorageOrNull } from './lib/boot';
 import { env } from './lib/env';
 import { applyTheme, getTheme } from './lib/theme';
 import './index.css';
@@ -55,3 +56,12 @@ try {
     </StrictMode>,
   );
 }
+
+// The dashboard has rendered: fade the boot screen (index.html) away and let the page take focus.
+dismissBoot({
+  boot: document.getElementById('boot'),
+  root: rootElement,
+  reducedMotion: globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+  elapsedMs: performance.now(),
+  storage: sessionStorageOrNull(),
+});

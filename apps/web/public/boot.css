@@ -1,0 +1,125 @@
+/*
+ * The boot screen: shown by index.html from the very first paint until the
+ * dashboard has rendered (src/main.tsx removes it). It covers the moment the
+ * JavaScript is still loading, which is otherwise a blank white page. A real
+ * file (not an inline style) so the Content-Security-Policy stays strict.
+ */
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  background-color: #13213a;
+  background-image:
+    radial-gradient(70% 55% at 12% 8%, rgba(232, 181, 66, 0.22), transparent 70%),
+    radial-gradient(55% 50% at 88% 92%, rgba(70, 90, 160, 0.55), transparent 72%);
+  color: #f4f6fb;
+  font-family: system-ui, sans-serif; /* the app font has not loaded yet */
+  transition: opacity 0.45s ease;
+}
+
+#boot.is-done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Safety net: if the JavaScript never arrives, the boot screen still gets out of the way. */
+#boot:not(.is-done) {
+  animation: boot-timeout 0.4s ease 8s forwards;
+}
+
+@keyframes boot-timeout {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+#boot .boot-mark {
+  width: 72px;
+  height: 72px;
+  animation: boot-mark 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+#boot .boot-ring {
+  stroke-dasharray: 130;
+  stroke-dashoffset: 130;
+  animation: boot-ring 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.25s forwards;
+}
+
+#boot .boot-word {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  animation: boot-word 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+}
+
+#boot .boot-chain {
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: rgba(244, 246, 251, 0.6);
+  animation: boot-fade 0.8s ease 0.55s both;
+}
+
+@keyframes boot-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes boot-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes boot-word {
+  from {
+    opacity: 0;
+    letter-spacing: 0.6em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 0.32em;
+  }
+}
+
+@keyframes boot-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Less motion: the same selectors as above, later in the file, so they win without !important. */
+@media (prefers-reduced-motion: reduce) {
+  #boot {
+    transition: none;
+  }
+  #boot .boot-mark,
+  #boot .boot-word,
+  #boot .boot-chain {
+    animation: none;
+  }
+  #boot .boot-ring {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  #boot:not(.is-done) {
+    animation: boot-timeout 0.01s linear 8s forwards;
+  }
+}

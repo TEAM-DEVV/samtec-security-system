@@ -78,15 +78,18 @@ function RecordState({ employee }: { employee: EmployeeQuery }) {
 function EmployeeRecord({ employee }: { employee: Employee }) {
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card/60 p-5 motion-safe:animate-rise-soft">
         <div className="flex items-center gap-4">
-          <Avatar aria-hidden="true" className="size-14 border">
-            <AvatarFallback className="bg-primary/10 font-semibold text-lg text-primary">
+          <Avatar
+            aria-hidden="true"
+            className="size-16 ring-2 ring-gold/70 ring-offset-2 ring-offset-background"
+          >
+            <AvatarFallback className="bg-primary font-heading font-semibold text-primary-foreground text-xl">
               {initials(employee.fullName)}
             </AvatarFallback>
           </Avatar>
           <div className="space-y-1">
-            <h1 className="font-semibold text-2xl tracking-tight">{employee.fullName}</h1>
+            <h1 className="font-semibold text-3xl tracking-tight">{employee.fullName}</h1>
             <p className="font-mono text-muted-foreground text-sm">
               {employee.staffNumber} · {employee.position}
             </p>
@@ -96,9 +99,9 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+        <Card className="stagger-1 rounded-2xl motion-safe:animate-rise-soft">
           <CardHeader>
-            <CardTitle>Work</CardTitle>
+            <CardTitle className="font-heading text-lg">Work</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
@@ -139,9 +142,9 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="stagger-2 rounded-2xl motion-safe:animate-rise-soft">
           <CardHeader>
-            <CardTitle>Contact and identity</CardTitle>
+            <CardTitle className="font-heading text-lg">Contact and identity</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">

@@ -46,6 +46,7 @@ export function SystemStatusPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <PageHeader
+        eyebrow="System"
         title="System status"
         description="Checks that the dashboard can reach the SAMTEC API, and that the API can reach its database."
         actions={
@@ -108,7 +109,7 @@ export function SystemStatusPage() {
       {report && (
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle className="font-heading text-lg">Details</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2 text-sm">
@@ -136,9 +137,9 @@ interface StatusCardProps {
 function StatusCard({ title, description, loading, ok, okLabel, failLabel }: StatusCardProps) {
   const Icon = ok ? CircleCheck : CircleX;
   return (
-    <Card>
+    <Card className="rounded-2xl motion-safe:animate-rise-soft">
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className="font-heading text-lg">{title}</CardTitle>
         <CardDescription className="truncate">{description}</CardDescription>
       </CardHeader>
       <CardContent>
@@ -151,7 +152,12 @@ function StatusCard({ title, description, loading, ok, okLabel, failLabel }: Sta
               ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive',
             )}
           >
-            <Icon aria-hidden="true" className="size-5" />
+            <span aria-hidden="true" className="relative flex size-5 items-center justify-center">
+              {ok && (
+                <span className="absolute size-2.5 rounded-full bg-emerald-500 motion-safe:animate-ping-soft" />
+              )}
+              <Icon className="relative size-5" />
+            </span>
             {ok ? okLabel : failLabel}
           </p>
         )}

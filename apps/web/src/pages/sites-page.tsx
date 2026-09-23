@@ -65,9 +65,13 @@ export function SitesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <PageHeader title="Sites" description="Client locations where guards are posted." />
+      <PageHeader
+        eyebrow="Workforce"
+        title="Sites"
+        description="Client locations where guards are posted."
+      />
 
-      <div className="flex flex-wrap items-start gap-4">
+      <div className="flex flex-wrap items-start gap-4 rounded-2xl border bg-card/60 p-4">
         <SelectField id="site-status" label="Status" value={status ?? ''} onChange={applyStatus}>
           <option value="">All statuses</option>
           {SITE_STATUSES.map((value) => (
@@ -97,11 +101,14 @@ export function SitesPage() {
       ) : (
         <Card
           aria-busy={showingOldPage}
-          className={cn('overflow-hidden py-0 transition-opacity', showingOldPage && 'opacity-60')}
+          className={cn(
+            'overflow-hidden rounded-2xl py-0 transition-opacity motion-safe:animate-rise-soft',
+            showingOldPage && 'opacity-60',
+          )}
         >
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableRow className="bg-muted/50 hover:bg-muted/50 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-[0.14em] [&_th]:text-muted-foreground">
                 <TableHead className="pl-4">Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Client</TableHead>
