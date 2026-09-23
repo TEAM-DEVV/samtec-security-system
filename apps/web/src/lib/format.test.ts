@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   firstName,
   formatCedis,
+  formatClock,
   formatDate,
   formatDateTime,
   formatLongDate,
   greetingForNow,
   initials,
 } from './format';
+
+describe('formatClock', () => {
+  it('shows the clock time to the second in Ghana, whatever zone the computer is in', () => {
+    expect(formatClock(Date.parse('2026-09-15T08:30:07Z'))).toBe('08:30:07');
+    expect(formatClock(new Date('2026-09-15T23:59:59Z'))).toBe('23:59:59');
+  });
+});
 
 describe('the test environment', () => {
   it('runs far from Ghana, so time zone mistakes cannot hide', () => {

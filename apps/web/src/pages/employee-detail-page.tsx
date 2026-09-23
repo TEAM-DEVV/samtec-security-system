@@ -2,6 +2,7 @@ import type { Employee } from '@samtec/contracts';
 import { ArrowLeft } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { routes } from '@/app/routes';
+import { BiometricsPanel } from '@/components/biometrics-panel';
 import { DetailRow } from '@/components/detail-row';
 import { EmployeeStatusBadge } from '@/components/employee-status-badge';
 import { LoadErrorAlert } from '@/components/load-error-alert';
@@ -164,6 +165,8 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
           </CardContent>
         </Card>
       </div>
+
+      <BiometricsPanel employeeId={employee.id} employeeStatus={employee.status} />
 
       <p className="text-muted-foreground text-xs">
         Record created {formatDateTime(employee.createdAt)}, last changed{' '}

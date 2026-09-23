@@ -1,6 +1,6 @@
 import type { Device, DeviceList } from '@samtec/contracts';
 import { cn } from 'cn';
-import { Plus, TabletSmartphone } from 'lucide-react';
+import { Plus, ScanFace, TabletSmartphone } from 'lucide-react';
 import { Link } from 'react-router';
 import { routes } from '@/app/routes';
 import { DeviceStatusBadge } from '@/components/attendance-badges';
@@ -54,12 +54,20 @@ export function DevicesPage() {
         title="Devices"
         description="The terminals and kiosks that record clock-ins. Each belongs to one site for life."
         actions={
-          <Button asChild>
-            <Link to={routes.newDevice}>
-              <Plus aria-hidden="true" />
-              Register device
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link to={routes.kioskAttempts()}>
+                <ScanFace aria-hidden="true" />
+                Kiosk attempts
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link to={routes.newDevice}>
+                <Plus aria-hidden="true" />
+                Register device
+              </Link>
+            </Button>
+          </>
         }
       />
 

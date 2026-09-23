@@ -126,6 +126,19 @@ export function formatTime(isoTimestamp: string): string {
   return ghanaTime.format(new Date(isoTimestamp));
 }
 
+const ghanaClock = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+/** The clock time to the second, in Ghana, for a board that refreshes every few seconds: "08:30:07". */
+export function formatClock(date: Date | number): string {
+  return ghanaClock.format(date);
+}
+
 /** Worked minutes as hours and minutes: 725 → "12h 05m". */
 export function formatMinutes(minutes: number): string {
   if (!Number.isInteger(minutes) || minutes < 0) {

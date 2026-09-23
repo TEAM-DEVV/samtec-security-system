@@ -21,6 +21,8 @@ export const routes = {
   attendance: '/attendance',
   /** The signed-in person's own shifts. */
   myAttendance: '/attendance/me',
+  /** The live board of clock-ins and clock-outs (Phase 3). */
+  liveBoard: '/attendance/live',
   /** The attendance exception queue. */
   exceptions: '/attendance/exceptions',
   exception: (exceptionId: string) => `/attendance/exceptions/${encodeURIComponent(exceptionId)}`,
@@ -28,6 +30,11 @@ export const routes = {
   devices: '/devices',
   newDevice: '/devices/new',
   device: (deviceId: string) => `/devices/${encodeURIComponent(deviceId)}`,
+  /** Every face and fingerprint attempt at the kiosks (ADMIN only), or one kiosk's. */
+  kioskAttempts: (deviceId?: string) =>
+    deviceId ? `/devices/attempts?deviceId=${encodeURIComponent(deviceId)}` : '/devices/attempts',
+  /** The duplicate-enrollment queue: faces that looked like someone already enrolled (ADMIN only). */
+  duplicateFaces: '/biometrics/duplicates',
   /** The 6-digit code screen, after a sign-in answered TWO_FACTOR_REQUIRED. */
   twoFactorVerify: '/login/two-factor',
   /** The QR code screen, after a sign-in answered TWO_FACTOR_SETUP_REQUIRED. */

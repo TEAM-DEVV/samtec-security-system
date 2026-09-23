@@ -8,6 +8,8 @@ import {
   ListChecks,
   type LucideIcon,
   MapPin,
+  Radio,
+  ScanFace,
   ShieldAlert,
   TabletSmartphone,
   UserCog,
@@ -77,6 +79,15 @@ export const navItems: NavItem[] = [
     roles: ['GUARD'],
   },
   {
+    label: 'Live board',
+    description: 'Every clock-in as it arrives, refreshed every five seconds.',
+    to: routes.liveBoard,
+    icon: Radio,
+    phase: 3,
+    available: true,
+    roles: pageRoles.liveBoard,
+  },
+  {
     label: 'Exceptions',
     description: 'Clock-ins that need a person: missing punches, unknown numbers, overlaps.',
     to: routes.exceptions,
@@ -93,6 +104,16 @@ export const navItems: NavItem[] = [
     phase: 2,
     available: true,
     roles: pageRoles.devices,
+  },
+  {
+    label: 'Duplicate faces',
+    description:
+      'New faces that looked like someone already enrolled: a second administrator decides.',
+    to: routes.duplicateFaces,
+    icon: ScanFace,
+    phase: 3,
+    available: true,
+    roles: pageRoles.duplicateFaces,
   },
   {
     label: 'Payroll',

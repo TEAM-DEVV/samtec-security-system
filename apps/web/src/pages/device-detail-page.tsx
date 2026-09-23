@@ -186,6 +186,11 @@ function DeviceRecord({ device }: { device: Device }) {
             )}
 
             <div className="flex flex-wrap gap-2">
+              {device.kind === 'FACE_KIOSK' && (
+                <Button asChild variant="outline">
+                  <Link to={routes.kioskAttempts(device.id)}>Attempts on this kiosk</Link>
+                </Button>
+              )}
               {switchedOff ? (
                 <Button
                   variant="outline"

@@ -4,9 +4,12 @@ import { pageRoles, roleAllowed, roleNeedsEmployee } from './roles';
 // These pin the API's role rules. If a rule changes on purpose, change it
 // here and in the API in the same pull request.
 describe('pageRoles', () => {
-  it('keeps user accounts and devices with administrators only', () => {
+  it('keeps user accounts, devices and every biometric decision with administrators only', () => {
     expect(pageRoles.users).toEqual(['ADMIN']);
     expect(pageRoles.devices).toEqual(['ADMIN']);
+    expect(pageRoles.biometricChanges).toEqual(['ADMIN']);
+    expect(pageRoles.duplicateFaces).toEqual(['ADMIN']);
+    expect(pageRoles.kioskAttempts).toEqual(['ADMIN']);
   });
 
   it('lets HR read attendance and the queue but never resolve an exception', () => {
