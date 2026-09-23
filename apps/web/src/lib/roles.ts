@@ -31,7 +31,14 @@ export const pageRoles = {
   sites: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** Creating, changing or terminating an employee (`POST`/`PATCH /employees…`). */
   employeeChanges: ['ADMIN', 'HR_PAYROLL'],
+  /** `GET /users` and every other Users operation: sign-in accounts are an administrator's job. */
+  users: ['ADMIN'],
 } as const satisfies Record<string, readonly UserRole[]>;
+
+/** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */
+export function roleNeedsEmployee(role: UserRole): boolean {
+  return role === 'SUPERVISOR' || role === 'GUARD';
+}
 
 /** True when `role` is one of `allowed`. */
 export function roleAllowed(allowed: readonly UserRole[], role: UserRole): boolean {
