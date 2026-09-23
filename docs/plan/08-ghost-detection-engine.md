@@ -149,13 +149,17 @@ Alerts are suspicions about named people, so the audience is narrow:
 
 ## 7. When the sweep runs
 
-It rides the heartbeat, exactly like the biometric retention sweep: once a
-day, the first heartbeat runs it, guarded by a bookmark row so a burst of
-heartbeats runs it once. There is no scheduler in this stack, and inventing
-one for this would be a second way for things to happen.
+**On demand, by an ADMIN**: `POST /detection/sweep`. That is what the exit
+demo uses, and pressing it twice is safe.
 
-`POST /detection/sweep` (ADMIN) runs it on demand, which is what the exit
-demo uses.
+It does **not** ride the heartbeat, although the retention sweep does. The
+heartbeat lives in the attendance module, so calling detection from it would
+make attendance import detection while detection imports attendance — the
+circle section 1 exists to avoid. The daily run therefore comes from outside
+the application: a Vercel Cron job calling the same endpoint. That needs an
+environment secret the owner sets, so it is an owner task in the roadmap
+rather than something hidden in the code. Until it is set the sweep is a
+button, and `detection_checks` records when it last ran.
 
 A sweep never fails a heartbeat, and a rule that throws is logged by code and
 skipped — one broken rule must not stop the other ten.
