@@ -28,16 +28,19 @@ export function UserCard({ user }: { user: CurrentUser }) {
   }
 
   return (
-    <div className="flex items-center gap-3 border-sidebar-border border-t px-4 py-3">
+    <div className="m-3 flex items-center gap-3 rounded-xl border border-sidebar-border bg-white/[0.04] px-3 py-2.5">
       {/* Decorative: the name is right beside it. */}
-      <Avatar aria-hidden="true" className="size-9 border border-sidebar-border">
+      <Avatar
+        aria-hidden="true"
+        className="size-9 ring-2 ring-gold/60 ring-offset-1 ring-offset-sidebar"
+      >
         <AvatarFallback className="bg-sidebar-primary font-semibold text-sidebar-primary-foreground text-xs">
           {initials(user.fullName)}
         </AvatarFallback>
       </Avatar>
       <p className="min-w-0 flex-1 text-sm leading-tight">
         <span className="block truncate font-medium">{user.fullName}</span>
-        <span className="block truncate text-sidebar-foreground/70 text-xs">
+        <span className="block truncate text-sidebar-foreground/60 text-xs">
           {roleLabels[user.role]}
         </span>
       </p>
@@ -46,7 +49,7 @@ export function UserCard({ user }: { user: CurrentUser }) {
         size="sm"
         onClick={() => void handleSignOut()}
         title={signingOut ? 'Signing out…' : 'Sign out'}
-        className="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        className="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       >
         <LogOut aria-hidden="true" />
         {/* The word shows where there is room; the sr-only copy covers icon-only widths. */}

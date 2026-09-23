@@ -1,11 +1,14 @@
+import { BrandMark } from '@/components/brand-mark';
+
 /**
  * Shown instead of the dashboard when mock mode cannot start its pretend API.
  * The usual cause is a browser that blocks service workers, which MSW needs.
  */
 export function MockApiStartError() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 px-6 py-12 text-sm">
-      <h1 className="font-semibold text-2xl tracking-tight">The mock API could not start</h1>
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 px-6 py-12 text-sm motion-safe:animate-rise">
+      <BrandMark className="size-10 text-primary" />
+      <h1 className="font-semibold text-3xl tracking-tight">The mock API could not start</h1>
       <p>
         Mock mode (<code>pnpm dev:web</code>) runs a pretend API inside the browser with a service
         worker, and this browser did not allow it.
