@@ -32,11 +32,17 @@ import type { FaceSample } from './face-match.js';
 import { FaceProvider, type SealedFace } from './face-provider.js';
 
 /**
- * Consent, the first step of enrollment (docs/plan/13-biometrics-design.md
- * section 2). Nothing about a worker's face may be recorded before this.
+ * What happens on the kiosk: consent, then the face
+ * (docs/plan/13-biometrics-design.md section 2).
  *
- * The rest of enrollment — the capture, the duplicate check, the review, the
- * exemption and the retention sweep — follows in the next pull request.
+ * Consent comes first, always — nothing about a worker's face may be
+ * recorded before it — and every enrollment starts with the last 4 digits of
+ * the Ghana Card the worker is holding, so the person being enrolled is the
+ * person standing there.
+ *
+ * The dashboard side of biometrics (the duplicate review, revoke, withdrawal
+ * and the exemption) lives in `biometric-reviews.service.ts`, and the 90-day
+ * clean-up in `biometric-retention.service.ts`.
  */
 @Injectable()
 export class BiometricsService {
@@ -80,13 +86,13 @@ export class BiometricsService {
     }
 
     await this.checkGhanaCard(caller, device, body);
-    await this.assertNoOpenQuestion(body.employeeId);
 
     // Everything below happens one worker at a time (docs/plan/13 section 2):
     // two kiosks recording the same worker at the same moment would otherwise
     // both find no consent and both write one.
     const consent = await this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, body.employeeId);
+      await this.assertNoOpenQuestion(tx, body.employeeId);
       const current = await this.currentConsent(body.employeeId, tx);
       if (current) {
         return { row: current, created: false };
@@ -136,11 +142,16 @@ export class BiometricsService {
     if (employee.status === 'TERMINATED') {
       throw new ConflictException('This worker has left, so nothing new can be recorded.');
     }
-    await this.assertNoOpenQuestion(body.employeeId);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockCompanyBiometrics(tx, caller.companyId);
+        // The company's lock first, then this worker's row, always in that
+        // order: it is the order the retention sweep takes them in too. The
+        // worker's row is what an exemption request and a review also take,
+        // so the open-question check below cannot be overtaken.
+        await lockWorker(tx, body.employeeId);
+        await this.assertNoOpenQuestion(tx, body.employeeId);
         const consent = await this.consentForEnrollment(tx, body);
         // Every unwiped face of everyone else in the company, whatever its
         // status: a ghost must not hide behind a face waiting for review.
@@ -352,14 +363,18 @@ export class BiometricsService {
    * One open question at a time (docs/plan/13 section 2): while a second
    * ADMIN still has to settle something, nothing new is recorded for this
    * worker. A record blocked as a duplicate is finished for good.
+   *
+   * Always called **after** the worker's row is locked, and with that same
+   * transaction. Reading it outside the lock would let an ADMIN file an
+   * exemption request in the moment between the check and the new row.
    */
-  private async assertNoOpenQuestion(employeeId: string): Promise<void> {
+  private async assertNoOpenQuestion(tx: TransactionClient, employeeId: string): Promise<void> {
     const [face, exemption] = await Promise.all([
-      this.prisma.biometricCredential.findFirst({
+      tx.biometricCredential.findFirst({
         where: { employeeId, kind: 'FACE', status: { in: ['PENDING', 'BLOCKED'] } },
         select: { status: true },
       }),
-      this.prisma.biometricExemption.findFirst({
+      tx.biometricExemption.findFirst({
         where: { employeeId, status: 'REQUESTED' },
         select: { id: true },
       }),
