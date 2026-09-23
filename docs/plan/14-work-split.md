@@ -61,6 +61,16 @@ rules: [Biometrics design](13-biometrics-design.md) sections 2, 3 and 7.
    at the camera and types the worker's staff number →
    `POST /kiosk/identify` with `purpose: CO_SIGN` → `POST /kiosk/assisted-punches`.
 
+**Which screens need somebody signed in**
+
+Two different doors, and mixing them up costs an afternoon:
+
+| Screen | What the request carries |
+|---|---|
+| Set-up (`POST /devices`) | An ADMIN's access token. No signature — there is no device yet |
+| Consent, enrollment | The ADMIN's token **and** the device's signature. The ADMIN signs in on the kiosk; that session works on kiosk screens only |
+| Clock in, "Not me", confirm, co-sign | The **device's signature alone**. No token, ever — the guard at the gate has no account |
+
 **The three things that are easy to get wrong**
 
 - **Signing.** Every `kiosk/…` call is signed by the device:
@@ -68,8 +78,12 @@ rules: [Biometrics design](13-biometrics-design.md) sections 2, 3 and 7.
   is the name (`kiosk/identify`), not the URL, and `<body>` is the **exact
   JSON text sent** — serialise once, sign that string, send that string.
   Headers: `X-Samtec-Device`, `X-Samtec-Timestamp`, `X-Samtec-Signature`.
-  Copy the shape from `apps/api/src/modules/attendance/device-signature.ts`;
-  a shared test vector is in `apps/api/test/`.
+  The one definition is `apps/api/src/modules/attendance/device-signature.ts`
+  — read `signRequest` there and copy its shape exactly. There is no shared
+  test vector yet, and writing one is part of this job (design section 8,
+  row 6): a fixed secret, timestamp, route and body with the signature they
+  must produce, checked by a test on **both** sides, so the two
+  implementations can never drift apart without a test going red.
 - **Liveness is the kiosk's job.** Human 3.3.6, pinned, face models only, from
   the kiosk's own origin. One face at least 224 pixels, `real` and `live` at
   least 0.60, a random LEFT or RIGHT head turn completed within 20 seconds,
