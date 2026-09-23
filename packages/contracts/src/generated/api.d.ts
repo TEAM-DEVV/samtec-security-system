@@ -754,6 +754,7 @@ export interface paths {
         /**
          * Tell the API a device is alive
          * @description **Signed by a device** (see `ingestPunches`). Marks the device as seen, records how far its clock is off (`deviceClockAt`), and lets the API notice clock-ins that never got a clock-out. Send one every few minutes. The answer carries the server's clock, so the device can correct its own.
+         *     The heartbeat also carries the **biometric retention sweep**: once a day, the first heartbeat switches off the fingerprint keys of anyone past their termination date, and wipes the face templates of anyone who left 90 days ago (and of a face that has waited 90 days for a duplicate review). The review itself stays open, a record blocked as a duplicate stays blocked, and no row is ever deleted. The work is done 50 people at a time, so a heartbeat is never slow, and the answer is the same either way.
          */
         post: operations["sendHeartbeat"];
         delete?: never;

@@ -1,0 +1,718 @@
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { PrismaClient } from '../src/generated/prisma/client.js';
+import { BiometricRetentionService } from '../src/modules/attendance/biometric-retention.service.js';
+import { signRequest } from '../src/modules/attendance/device-signature.js';
+import { TokensService } from '../src/modules/identity/tokens.service.js';
+import {
+  type AttendanceCompany,
+  createAttendanceCompany,
+  signedPost,
+} from './attendance-fixture.js';
+import { createDbTestApp } from './create-db-test-app.js';
+import { openFixtureDb } from './db-fixture.js';
+
+/**
+ * The people rules of Phase 3 on a real database (docs/plan/13 section 2):
+ * the duplicate review, revoke, withdrawal of consent and the two-ADMIN
+ * exemption. One rule runs under all of them: nobody settles a question about
+ * their own action, and nothing puts a worker to work on one person's say-so.
+ */
+const databaseUrl = process.env.TEST_DATABASE_URL;
+
+describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
+  let prisma: PrismaClient;
+  let app: NestExpressApplication;
+  let company: AttendanceCompany;
+  let kiosk: { id: string; secret: string };
+  /** The ADMIN who does the enrolling, on the dashboard and on the kiosk. */
+  let enroller = '';
+  let enrollerOnKiosk = '';
+  /** A second ADMIN, who decides what the first one may not. */
+  let reviewer = '';
+
+  const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
+  const api = () => request(app.getHttpServer());
+
+  const kioskPost = (route: 'kiosk/consents' | 'kiosk/face-enrollments', body: unknown) => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const text = JSON.stringify(body);
+    return api()
+      .post(`/api/v1/${route}`)
+      .set('Content-Type', 'application/json')
+      .set(...bearer(enrollerOnKiosk))
+      .set('X-Samtec-Device', kiosk.id)
+      .set('X-Samtec-Timestamp', timestamp)
+      .set('X-Samtec-Signature', signRequest(kiosk.secret, timestamp, route, text))
+      .send(text);
+  };
+
+  let starters = 0;
+  const newStarter = async () => {
+    starters += 1;
+    const n = String(starters).padStart(4, '0');
+    return prisma.employee.create({
+      data: {
+        companyId: company.companyId,
+        staffNumber: `SMT-73${n.slice(1)}`,
+        firstName: 'Rules',
+        lastName: `Starter ${starters}`,
+        phone: `+23320666${n}`,
+        ghanaCardNumber: `GHA-6${n.padStart(8, '0')}-${starters % 10}`,
+        position: 'Security Guard',
+        status: 'PENDING_ENROLLMENT',
+        hireDate: new Date('2026-01-05T00:00:00Z'),
+      },
+    });
+  };
+
+  const cardLast4 = async (employeeId: string) => {
+    const row = await prisma.employee.findFirstOrThrow({ where: { id: employeeId } });
+    return row.ghanaCardNumber.replace(/\D/g, '').slice(-4);
+  };
+
+  /** Faces far enough apart to be different people (a step of 0.4 scores about 0.27). */
+  let faces = 0;
+  const anotherFace = () => {
+    faces += 1;
+    return faces * 0.4;
+  };
+  const sampleAt = (level: number) => ({
+    model: 'human-faceres-1',
+    embedding: Array.from({ length: 1024 }, () => level),
+    real: 0.9,
+    live: 0.9,
+  });
+
+  /** Consent and then a face, exactly as the kiosk does it. */
+  const enroll = async (employeeId: string, level: number) => {
+    const consent = await kioskPost('kiosk/consents', {
+      employeeId,
+      ghanaCardLast4: await cardLast4(employeeId),
+      textVersion: 'bio-v1',
+    });
+    if (consent.status >= 400) {
+      return consent;
+    }
+    return kioskPost('kiosk/face-enrollments', {
+      employeeId,
+      consentId: consent.body.id,
+      samples: [sampleAt(level), sampleAt(level), sampleAt(level)],
+    });
+  };
+
+  const panel = (token: string, employeeId: string) =>
+    api()
+      .get(`/api/v1/employees/${employeeId}/biometrics`)
+      .set(...bearer(token));
+
+  const resolve = (token: string, credentialId: string, body: object) =>
+    api()
+      .post(`/api/v1/biometric-collisions/${credentialId}/resolve`)
+      .set(...bearer(token))
+      .send(body);
+
+  beforeAll(async () => {
+    prisma = openFixtureDb(databaseUrl as string);
+    company = await createAttendanceCompany(prisma);
+    app = await createDbTestApp(databaseUrl as string);
+
+    const tokens = app.get(TokensService);
+    const sign = (userId: string, onKiosk: boolean) =>
+      tokens.signAccessToken({
+        userId,
+        companyId: company.companyId,
+        role: 'ADMIN',
+        employeeId: null,
+        onKiosk,
+      });
+    enroller = await sign(company.adminUserId, false);
+    enrollerOnKiosk = await sign(company.adminUserId, true);
+    reviewer = await sign(company.secondAdminUserId, false);
+
+    const registered = await api()
+      .post('/api/v1/devices')
+      .set(...bearer(enroller))
+      .send({ name: 'People rules kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
+      .expect(201);
+    kiosk = { id: registered.body.device.id, secret: registered.body.secret };
+  }, 120_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await prisma?.$disconnect();
+  });
+
+  describe('the Biometrics panel', () => {
+    it('says what a worker has, and never a template or a score', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+
+      const shown = await panel(enroller, worker.id).expect(200);
+
+      expect(shown.body.consent.status).toBe('GIVEN');
+      expect(shown.body.face.status).toBe('ACTIVE');
+      expect(shown.body.face.dedupe).toBe('PASSED');
+      expect(shown.body.face.deviceName).toBe('People rules kiosk');
+      expect(shown.body.exemption).toBeNull();
+      expect(JSON.stringify(shown.body)).not.toMatch(/templateSealed|embedding|similarity|score/i);
+    });
+
+    it('shows a supervisor the reason for an exemption, never the words', async () => {
+      const worker = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'CANNOT_ENROLL', note: 'The scanner cannot read this worker.' })
+        .expect(200);
+      await prisma.siteAssignment.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: worker.id,
+          siteId: company.siteA,
+          startsOn: new Date('2026-01-05T00:00:00Z'),
+        },
+      });
+      const supervisor = await app.get(TokensService).signAccessToken({
+        userId: company.supervisorUserId,
+        companyId: company.companyId,
+        role: 'SUPERVISOR',
+        employeeId: company.supervisorEmployeeId,
+        onKiosk: false,
+      });
+
+      const toAdmin = await panel(enroller, worker.id).expect(200);
+      const toSupervisor = await panel(supervisor, worker.id).expect(200);
+
+      expect(toAdmin.body.exemption.note).toBe('The scanner cannot read this worker.');
+      // A worker's reasons are their own: the supervisor sees only the code.
+      expect(toSupervisor.body.exemption.reason).toBe('CANNOT_ENROLL');
+      expect(toSupervisor.body.exemption.note).toBeNull();
+    });
+  });
+
+  describe('the duplicate review', () => {
+    /** A ghost enrolled with a real guard's face: the queue's whole reason to exist. */
+    const aGhostAndAGuard = async () => {
+      const face = anotherFace();
+      const guard = await newStarter();
+      await enroll(guard.id, face);
+      const ghost = await newStarter();
+      const enrolled = await enroll(ghost.id, face);
+      expect(enrolled.body.dedupe).toBe('COLLISION');
+      return { guard, ghost, credentialId: enrolled.body.credentialId as string };
+    };
+
+    it('lists what is waiting, with both names and how alike they were', async () => {
+      const { guard, ghost, credentialId } = await aGhostAndAGuard();
+
+      const queue = await api()
+        .get('/api/v1/biometric-collisions')
+        .set(...bearer(reviewer))
+        .expect(200);
+
+      const mine = queue.body.items.find(
+        (item: { credentialId: string }) => item.credentialId === credentialId,
+      );
+      expect(mine.status).toBe('OPEN');
+      expect(mine.employee.id).toBe(ghost.id);
+      expect(mine.lookedLike.id).toBe(guard.id);
+      expect(mine.similarity).toBeGreaterThan(0.5);
+      expect(mine.resolution).toBeNull();
+    });
+
+    it('is never decided by the ADMIN who enrolled the face', async () => {
+      const { credentialId } = await aGhostAndAGuard();
+
+      const refused = await resolve(enroller, credentialId, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'They are brothers, I checked.',
+      }).expect(403);
+
+      expect(refused.body.detail).toMatch(/enrolled this face/);
+    });
+
+    it('clears two people who only look alike', async () => {
+      const { ghost, credentialId } = await aGhostAndAGuard();
+
+      const decided = await resolve(reviewer, credentialId, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Two brothers, both cards checked in person.',
+      }).expect(200);
+
+      expect(decided.body.status).toBe('RESOLVED');
+      expect(decided.body.resolution.verdict).toBe('DIFFERENT_PEOPLE');
+      const shown = await panel(reviewer, ghost.id).expect(200);
+      expect(shown.body.face.status).toBe('ACTIVE');
+      expect(shown.body.face.dedupe).toBe('CLEARED');
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: ghost.id } })).status).toBe(
+        'ACTIVE',
+      );
+    });
+
+    it('blocks the ghost for good when one person has two records', async () => {
+      const { guard, ghost, credentialId } = await aGhostAndAGuard();
+
+      await resolve(reviewer, credentialId, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: guard.id,
+        note: 'One man, two records. The card belongs to the older record.',
+      }).expect(200);
+
+      const blocked = await panel(reviewer, ghost.id).expect(200);
+      expect(blocked.body.face.status).toBe('BLOCKED');
+      const ghostRow = await prisma.employee.findUniqueOrThrow({ where: { id: ghost.id } });
+      expect(ghostRow.status).toBe('PENDING_ENROLLMENT');
+      expect(ghostRow.biometricEnrolledAt).toBeNull();
+      // The guard keeps working; the ghost can only be terminated now.
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: guard.id } })).status).toBe(
+        'ACTIVE',
+      );
+      expect((await enroll(ghost.id, anotherFace())).status).toBe(409);
+
+      // ...and the decision is final.
+      const again = await resolve(reviewer, credentialId, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Changed my mind about this one.',
+      }).expect(409);
+      expect(again.body.detail).toMatch(/already been decided/);
+    });
+
+    it('keeps the real guard when the ghost was enrolled with their face first', async () => {
+      const face = anotherFace();
+      const ghost = await newStarter();
+      await enroll(ghost.id, face);
+      const guard = await newStarter();
+      const guardFace = await enroll(guard.id, face);
+      expect(guardFace.body.dedupe).toBe('COLLISION');
+
+      await resolve(reviewer, guardFace.body.credentialId, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: guard.id,
+        note: 'The card belongs to the newer record, not the older one.',
+      }).expect(200);
+
+      const guardPanel = await panel(reviewer, guard.id).expect(200);
+      const ghostPanel = await panel(reviewer, ghost.id).expect(200);
+      expect(guardPanel.body.face.status).toBe('ACTIVE');
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: guard.id } })).status).toBe(
+        'ACTIVE',
+      );
+      expect(ghostPanel.body.face.status).toBe('BLOCKED');
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: ghost.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+    });
+
+    it('refuses a third person as the record to keep', async () => {
+      const { credentialId } = await aGhostAndAGuard();
+      const stranger = await newStarter();
+
+      const refused = await resolve(reviewer, credentialId, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: stranger.id,
+        note: 'Neither of the two.',
+      }).expect(400);
+
+      expect(JSON.stringify(refused.body)).toMatch(/keepEmployeeId/);
+    });
+  });
+
+  describe('revoking and withdrawing', () => {
+    it('wipes the face and sends the worker back to waiting', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+
+      const after = await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Enrolled the wrong person by mistake.' })
+        .expect(200);
+
+      expect(after.body.face.status).toBe('REVOKED');
+      const row = await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } });
+      expect(row.status).toBe('PENDING_ENROLLMENT');
+      expect(row.biometricEnrolledAt).toBeNull();
+      // Nothing left to remove the second time.
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Trying again.' })
+        .expect(409);
+    });
+
+    it('never wipes away a question a second ADMIN owes an answer to', async () => {
+      const face = anotherFace();
+      const guard = await newStarter();
+      await enroll(guard.id, face);
+      const ghost = await newStarter();
+      await enroll(ghost.id, face);
+
+      const refused = await api()
+        .post(`/api/v1/employees/${ghost.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Let me just clear this one.' })
+        .expect(409);
+
+      expect(refused.body.detail).toMatch(/duplicate review/);
+    });
+
+    it('files a request for a second ADMIN when a working worker withdraws', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+
+      const after = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-consents/withdraw`)
+        .set(...bearer(enroller))
+        .send({ reason: 'The worker asked in writing to come off biometrics.' })
+        .expect(200);
+
+      // The face goes at once, and nobody works on one person's say-so.
+      expect(after.body.face.status).toBe('REVOKED');
+      expect(after.body.consent.status).toBe('WITHDRAWN');
+      expect(after.body.exemption.status).toBe('REQUESTED');
+      expect(after.body.exemption.reason).toBe('CONSENT_WITHDRAWN');
+      expect(after.body.exemption.requestedByUserId).toBe(company.adminUserId);
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+
+      // The ADMIN who recorded it cannot decide it...
+      const refused = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(enroller))
+        .send({ decision: 'APPROVE', note: 'I recorded it, so I will approve it.' })
+        .expect(403);
+      expect(refused.body.detail).toMatch(/cannot decide their own request/);
+
+      // ...and only the second one puts the worker back to work.
+      const approved = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(200);
+      expect(approved.body.exemption.status).toBe('APPROVED');
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'ACTIVE',
+      );
+    });
+
+    it('never activates anybody by itself', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-consents/withdraw`)
+        .set(...bearer(enroller))
+        .send({ reason: 'Withdrawn in writing.' })
+        .expect(200);
+
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+      // A rejection leaves them waiting, free to enrol again later.
+      const rejected = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'REJECT', note: 'They will enrol again next week.' })
+        .expect(200);
+      expect(rejected.body.exemption.status).toBe('REJECTED');
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+    });
+
+    it('keeps whoever removed a face from deciding about that worker', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+      // This time the second ADMIN is the one who wipes the face.
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
+        .set(...bearer(reviewer))
+        .send({ reason: 'Wrong person enrolled.' })
+        .expect(200);
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'The worker now refuses biometrics.' })
+        .expect(200);
+
+      const refused = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'I removed the face, so I will approve this.' })
+        .expect(403);
+
+      expect(refused.body.detail).toMatch(/removed a face/);
+    });
+  });
+
+  describe('exemptions', () => {
+    it('is only for a worker with no face on record', async () => {
+      const worker = await newStarter();
+      await enroll(worker.id, anotherFace());
+
+      const refused = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'They changed their mind about biometrics.' })
+        .expect(409);
+
+      expect(refused.body.detail).toMatch(/waiting to be enrolled|face on record/);
+    });
+
+    it('stops consent and enrollment while it waits', async () => {
+      const worker = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'The worker refuses, in writing.' })
+        .expect(200);
+
+      expect((await enroll(worker.id, anotherFace())).status).toBe(409);
+    });
+
+    it('takes two ADMINs, and the second one puts the worker to work', async () => {
+      const worker = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'The worker refuses, in writing.' })
+        .expect(200);
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'PENDING_ENROLLMENT',
+      );
+
+      const approved = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(200);
+
+      expect(approved.body.exemption.reviewedByUserId).toBe(company.secondAdminUserId);
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
+        'ACTIVE',
+      );
+    });
+
+    it('ends when the worker enrols a face after all', async () => {
+      const worker = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'CANNOT_ENROLL', note: 'The camera could not read the face.' })
+        .expect(200);
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(200);
+
+      const enrolled = await enroll(worker.id, anotherFace());
+
+      expect(enrolled.status).toBe(201);
+      const shown = await panel(reviewer, worker.id).expect(200);
+      expect(shown.body.exemption.status).toBe('ENDED');
+      expect(shown.body.face.status).toBe('ACTIVE');
+    });
+  });
+
+  /**
+   * The retention sweep (docs/plan/13 section 2). It takes `now` from the
+   * heartbeat, which is what lets these tests look 91 days ahead instead of
+   * waiting for them.
+   */
+  describe('the retention sweep', () => {
+    const DAY = 86_400_000;
+    const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
+    const inDays = (days: number) => new Date(Date.now() + days * DAY);
+    const sweeper = () => app.get(BiometricRetentionService);
+
+    /** The sweep runs once a day; a test that wants it again says so. */
+    const dueAgain = () =>
+      prisma.attendanceCheck.updateMany({
+        where: { companyId: company.companyId },
+        data: { retentionCheckedAt: null },
+      });
+
+    const giveKey = (employeeId: string) =>
+      prisma.devicePasskey.create({
+        data: {
+          companyId: company.companyId,
+          employeeId,
+          deviceId: kiosk.id,
+          credentialId: `key-${employeeId}`,
+          publicKey: Buffer.from([1, 2, 3]),
+          backedUp: false,
+          registeredByUserId: company.adminUserId,
+        },
+      });
+
+    const giveAttempt = (employeeId: string) =>
+      prisma.clockInAttempt.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: kiosk.id,
+          purpose: 'CLOCK',
+          direction: 'IN',
+          outcome: 'MATCHED',
+          employeeId,
+          clientAddress: '41.66.10.7',
+        },
+      });
+
+    const terminate = (employeeId: string, days: number) =>
+      prisma.employee.update({
+        where: { id: employeeId },
+        data: {
+          status: 'TERMINATED',
+          terminationDate: daysAgo(days),
+          terminationReason: 'RESIGNED',
+        },
+      });
+
+    const faceOf = (employeeId: string) =>
+      prisma.biometricCredential.findFirstOrThrow({
+        where: { employeeId, kind: 'FACE' },
+        orderBy: [{ enrolledAt: 'desc' }],
+      });
+
+    beforeAll(async () => {
+      // Fingerprint keys are only saved on a kiosk that has them switched on.
+      await prisma.device.update({ where: { id: kiosk.id }, data: { passkeysEnabled: true } });
+    });
+
+    it('wipes a leaver’s face and everything that described them, 90 days on', async () => {
+      const gone = await newStarter();
+      await enroll(gone.id, anotherFace());
+      await giveKey(gone.id);
+      const attempt = await giveAttempt(gone.id);
+      await terminate(gone.id, 91);
+      const exempted = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${exempted.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'CANNOT_ENROLL', note: 'The scanner never read this worker.' })
+        .expect(200);
+      await terminate(exempted.id, 91);
+      await dueAgain();
+
+      const result = await sweeper().sweep(company.companyId, new Date());
+
+      expect(result.ran).toBe(true);
+      const face = await faceOf(gone.id);
+      expect(face.status).toBe('REVOKED');
+      expect(face.templateSealed).toBeNull();
+      expect(face.keyVersion).toBeNull();
+      expect(face.wipedAt).not.toBeNull();
+      // Nobody did it by hand: that is how the sweep signs its work.
+      expect(face.wipedByUserId).toBeNull();
+      const key = await prisma.devicePasskey.findFirstOrThrow({ where: { employeeId: gone.id } });
+      expect(key.revokedAt).not.toBeNull();
+      expect(key.revokedByUserId).toBeNull();
+      const cleared = await prisma.clockInAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
+      expect(cleared.clientAddress).toBeNull();
+      // The facts stay; only the words and the address go.
+      expect(cleared.outcome).toBe('MATCHED');
+      const exemption = await prisma.biometricExemption.findFirstOrThrow({
+        where: { employeeId: exempted.id },
+      });
+      expect(exemption.note).toBeNull();
+      expect(exemption.reason).toBe('CANNOT_ENROLL');
+      const stillGone = await prisma.employee.findFirstOrThrow({ where: { id: gone.id } });
+      expect(stillGone.status).toBe('TERMINATED');
+      expect(stillGone.biometricEnrolledAt).toBeNull();
+    });
+
+    it('switches a leaver’s keys off at once, and keeps the face for 90 days', async () => {
+      const recent = await newStarter();
+      await enroll(recent.id, anotherFace());
+      await giveKey(recent.id);
+      await terminate(recent.id, 10);
+      await dueAgain();
+
+      await sweeper().sweep(company.companyId, new Date());
+
+      const key = await prisma.devicePasskey.findFirstOrThrow({ where: { employeeId: recent.id } });
+      expect(key.revokedAt).not.toBeNull();
+      const face = await faceOf(recent.id);
+      expect(face.status).toBe('ACTIVE');
+      expect(face.templateSealed).not.toBeNull();
+    });
+
+    it('wipes a face that waited 90 days for a review, and leaves the review open', async () => {
+      const level = anotherFace();
+      const first = await newStarter();
+      await enroll(first.id, level);
+      const twin = await newStarter();
+      await enroll(twin.id, level);
+      const waiting = await faceOf(twin.id);
+      expect(waiting.status).toBe('PENDING');
+      await dueAgain();
+
+      await sweeper().sweep(company.companyId, inDays(91));
+
+      const wiped = await faceOf(twin.id);
+      expect(wiped.status).toBe('REVOKED');
+      expect(wiped.templateSealed).toBeNull();
+      // The question stays: only a second ADMIN ever answers it.
+      expect(wiped.verdict).toBeNull();
+      const queue = await api()
+        .get('/api/v1/biometric-collisions?status=OPEN&limit=50')
+        .set(...bearer(reviewer))
+        .expect(200);
+      expect(
+        queue.body.items.some((item: { credentialId: string }) => item.credentialId === waiting.id),
+      ).toBe(true);
+      // The worker it matched keeps their own face: only the waiting one goes.
+      const kept = await faceOf(first.id);
+      expect(kept.status).toBe('ACTIVE');
+    });
+
+    it('leaves a record blocked as a duplicate exactly as it is', async () => {
+      const level = anotherFace();
+      const real = await newStarter();
+      await enroll(real.id, level);
+      const ghost = await newStarter();
+      await enroll(ghost.id, level);
+      const ghostFace = await faceOf(ghost.id);
+      await resolve(reviewer, ghostFace.id, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: real.id,
+        note: 'The same man twice: one Ghana Card, two names.',
+      }).expect(200);
+      const blocked = await faceOf(ghost.id);
+      expect(blocked.status).toBe('BLOCKED');
+      await terminate(ghost.id, 91);
+      await dueAgain();
+
+      await sweeper().sweep(company.companyId, inDays(91));
+
+      const after = await faceOf(ghost.id);
+      expect(after.status).toBe('BLOCKED');
+      expect(after.wipedAt?.toISOString()).toBe(blocked.wipedAt?.toISOString());
+      expect(after.wipedByUserId).toBe(blocked.wipedByUserId);
+    });
+
+    it('runs on a heartbeat, and only once a day', async () => {
+      await dueAgain();
+
+      await signedPost(app, 'ingest/heartbeat', {}, kiosk).expect(200);
+
+      const first = await prisma.attendanceCheck.findUniqueOrThrow({
+        where: { companyId: company.companyId },
+      });
+      expect(first.retentionCheckedAt).not.toBeNull();
+
+      await signedPost(app, 'ingest/heartbeat', {}, kiosk).expect(200);
+
+      const second = await prisma.attendanceCheck.findUniqueOrThrow({
+        where: { companyId: company.companyId },
+      });
+      expect(second.retentionCheckedAt?.toISOString()).toBe(
+        first.retentionCheckedAt?.toISOString(),
+      );
+      expect((await sweeper().sweep(company.companyId, new Date())).ran).toBe(false);
+    });
+  });
+});

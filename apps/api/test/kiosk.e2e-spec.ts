@@ -39,7 +39,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
 
   /** A kiosk ADMIN request: the ADMIN's token and the kiosk's signature together. */
   const kioskPost = (
-    route: 'kiosk/consents',
+    route: 'kiosk/consents' | 'kiosk/face-enrollments',
     body: unknown,
     options: { token?: string; device?: { id: string; secret: string } } = {},
   ) => {
@@ -349,6 +349,210 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         },
         { device: newKey },
       ).expect(401);
+    });
+  });
+
+  describe('enrolling a face', () => {
+    /**
+     * This block does a lot of signed calls, so it uses a kiosk of its own:
+     * the per-device limit of 60 a minute is then never in the way.
+     */
+    let enrolmentKiosk: { id: string; secret: string };
+
+    beforeAll(async () => {
+      enrolmentKiosk = await registerDevice('Enrolment kiosk', 'FACE_KIOSK');
+      await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${enrolmentKiosk.id}`)
+        .set(...bearer(dashboardAdmin))
+        .send({ status: 'ACTIVE' })
+        .expect(200);
+    }, 60_000);
+
+    /**
+     * A face is 1,024 numbers. These are flat lists, where a step of 0.4
+     * between two faces scores about 0.27 — far enough apart to be different
+     * people, while the same level is the same face.
+     */
+    const faceAt = (level: number) => Array.from({ length: 1024 }, () => level);
+    /** A face nobody else in this test file has. */
+    let faces = 0;
+    const anotherFace = () => {
+      faces += 1;
+      return faces * 0.4;
+    };
+    const sampleAt = (level: number, extra: Record<string, unknown> = {}) => ({
+      model: 'human-faceres-1',
+      embedding: faceAt(level),
+      real: 0.9,
+      live: 0.9,
+      ...extra,
+    });
+    /** Three frames of one face, as the kiosk sends them. */
+    const captureOf = (level: number) => [sampleAt(level), sampleAt(level + 0.01), sampleAt(level)];
+
+    /**
+     * Consent first, then the face: the whole enrollment as it really runs.
+     * It hands back the finished answer, so each test checks the status itself.
+     */
+    const enroll = async (
+      employeeId: string,
+      level: number,
+      options: { samples?: unknown[]; consentId?: string } = {},
+    ) => {
+      const consent = await kioskPost(
+        'kiosk/consents',
+        {
+          employeeId,
+          ghanaCardLast4: await cardLast4(employeeId),
+          textVersion: 'bio-v1',
+        },
+        { device: enrolmentKiosk },
+      );
+      // Consent comes first, so its refusal is the answer.
+      if (consent.status >= 400) {
+        return consent;
+      }
+      return kioskPost(
+        'kiosk/face-enrollments',
+        {
+          employeeId,
+          consentId: options.consentId ?? consent.body.id,
+          samples: options.samples ?? captureOf(level),
+        },
+        { device: enrolmentKiosk },
+      );
+    };
+
+    it('stores the face, activates the worker and keeps no picture', async () => {
+      const worker = await newStarter();
+
+      const enrolled = await enroll(worker.id, anotherFace());
+
+      expect(enrolled.status).toBe(201);
+      expect(enrolled.body.dedupe).toBe('PASSED');
+      expect(enrolled.body.employeeStatus).toBe('ACTIVE');
+      const row = await prisma.biometricCredential.findUniqueOrThrow({
+        where: { id: enrolled.body.credentialId },
+      });
+      expect(row.status).toBe('ACTIVE');
+      expect(row.faceModel).toBe('human-faceres-1');
+      expect(row.templateSealed).not.toBeNull();
+      // Sealed numbers, never the numbers themselves and never a picture.
+      expect(Buffer.from(row.templateSealed ?? []).includes(Buffer.from('0.4'))).toBe(false);
+      const after = await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } });
+      expect(after.status).toBe('ACTIVE');
+      expect(after.biometricEnrolledAt).not.toBeNull();
+    });
+
+    it('refuses a capture that is not one real, live face', async () => {
+      const worker = await newStarter();
+
+      const mine = anotherFace();
+      const notLive = await enroll(worker.id, mine, {
+        samples: [sampleAt(mine), sampleAt(mine, { live: 0.1 }), sampleAt(mine)],
+      });
+      expect(notLive.status).toBe(400);
+      expect(JSON.stringify(notLive.body)).toMatch(/samples\.1/);
+
+      const twoPeople = await enroll(worker.id, mine, {
+        samples: [sampleAt(mine), sampleAt(mine), sampleAt(mine + 1)],
+      });
+      expect(twoPeople.status).toBe(400);
+      expect(JSON.stringify(twoPeople.body)).toMatch(/not the same face/);
+    });
+
+    it("needs this worker's own current consent", async () => {
+      const worker = await newStarter();
+      const other = await newStarter();
+      const theirConsent = await kioskPost('kiosk/consents', {
+        employeeId: other.id,
+        ghanaCardLast4: await cardLast4(other.id),
+        textVersion: 'bio-v1',
+      });
+      expect(theirConsent.status).toBe(201);
+
+      // This worker has not agreed to anything yet.
+      const noConsent = await kioskPost('kiosk/face-enrollments', {
+        employeeId: worker.id,
+        consentId: theirConsent.body.id,
+        samples: captureOf(anotherFace()),
+      });
+      expect(noConsent.status).toBe(409);
+
+      // Their own consent exists, but the kiosk named somebody else's.
+      const wrongConsent = await enroll(worker.id, anotherFace(), {
+        consentId: theirConsent.body.id,
+      });
+      expect(wrongConsent.status).toBe(400);
+    });
+
+    it('catches the same face enrolled under two names', async () => {
+      const oneFace = anotherFace();
+      const guard = await newStarter();
+      expect((await enroll(guard.id, oneFace)).status).toBe(201);
+      const ghost = await newStarter();
+
+      // The ghost is enrolled with the guard's own face.
+      const second = await enroll(ghost.id, oneFace);
+
+      expect(second.status).toBe(201);
+      expect(second.body.dedupe).toBe('COLLISION');
+      expect(second.body.employeeStatus).toBe('PENDING_ENROLLMENT');
+      const row = await prisma.biometricCredential.findUniqueOrThrow({
+        where: { id: second.body.credentialId },
+      });
+      expect(row.status).toBe('PENDING');
+      expect(row.collisionEmployeeId).toBe(guard.id);
+      expect(Number(row.collisionSimilarity)).toBeGreaterThanOrEqual(0.5);
+      // The kiosk is told nothing about who they looked like, or how closely.
+      expect(JSON.stringify(second.body)).not.toContain(guard.id);
+      expect(JSON.stringify(second.body)).not.toMatch(/similarity|score/i);
+      const after = await prisma.employee.findUniqueOrThrow({ where: { id: ghost.id } });
+      expect(after.status).toBe('PENDING_ENROLLMENT');
+    });
+
+    it('is refused while a second ADMIN owes an answer', async () => {
+      const oneFace = anotherFace();
+      const guard = await newStarter();
+      expect((await enroll(guard.id, oneFace)).status).toBe(201);
+      const ghost = await newStarter();
+      expect((await enroll(ghost.id, oneFace)).status).toBe(201);
+
+      // The ghost now has an open review: nothing more is recorded for them,
+      // so nobody can capture again until a score slips under the threshold.
+      expect((await enroll(ghost.id, anotherFace())).status).toBe(409);
+    });
+
+    it("replaces a worker's own face, wiping the old one", async () => {
+      const worker = await newStarter();
+      const first = await enroll(worker.id, anotherFace());
+      expect(first.status).toBe(201);
+
+      const second = await enroll(worker.id, anotherFace());
+
+      expect(second.status).toBe(201);
+      expect(second.body.dedupe).toBe('PASSED');
+      const old = await prisma.biometricCredential.findUniqueOrThrow({
+        where: { id: first.body.credentialId },
+      });
+      expect(old.status).toBe('REVOKED');
+      expect(old.templateSealed).toBeNull();
+      expect(
+        await prisma.biometricCredential.count({
+          where: { employeeId: worker.id, kind: 'FACE', wipedAt: null },
+        }),
+      ).toBe(1);
+    });
+
+    it('leaves a suspended worker suspended', async () => {
+      const worker = await newStarter();
+      await prisma.employee.update({ where: { id: worker.id }, data: { status: 'SUSPENDED' } });
+
+      const enrolled = await enroll(worker.id, anotherFace());
+
+      expect(enrolled.status).toBe(201);
+      expect(enrolled.body.dedupe).toBe('PASSED');
+      expect(enrolled.body.employeeStatus).toBe('SUSPENDED');
     });
   });
 

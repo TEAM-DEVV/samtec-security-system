@@ -538,6 +538,86 @@ export class EmployeesService {
   }
 
   /**
+   * Biometrics moved: the worker now has a face in use (docs/plan/13 section
+   * 2). Only this module writes the employees table, so the attendance module
+   * calls in instead of reaching across. A `PENDING_ENROLLMENT` worker becomes
+   * `ACTIVE`; a `SUSPENDED` or `TERMINATED` one is left exactly as they are.
+   */
+  async markBiometricsEnrolled(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, {
+      biometricEnrolledAt: new Date(),
+      activate: true,
+    });
+  }
+
+  /**
+   * The worker no longer has a face (a revoke, a withdrawal, a new enrollment
+   * that has not passed yet, or a record blocked as a duplicate). An `ACTIVE`
+   * worker goes back to `PENDING_ENROLLMENT` and is not paid for co-signed
+   * hours until a second ADMIN settles it.
+   */
+  async clearBiometricsEnrolled(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, {
+      biometricEnrolledAt: null,
+      activate: false,
+    });
+  }
+
+  /**
+   * An approved exemption: the worker may work without a face, so they become
+   * `ACTIVE` with nothing enrolled. Every hour they work is then flagged,
+   * because they clock in by a supervisor's co-sign.
+   */
+  async activateWithoutBiometrics(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<EmployeeStatus> {
+    return this.moveForBiometrics(companyId, employeeId, tx, { activate: true });
+  }
+
+  private async moveForBiometrics(
+    companyId: string,
+    employeeId: string,
+    tx: Prisma.TransactionClient,
+    change: { biometricEnrolledAt?: Date | null; activate: boolean },
+  ): Promise<EmployeeStatus> {
+    const employee = await tx.employee.findFirst({
+      where: { id: employeeId, companyId },
+      select: { status: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    // Biometrics only ever move a worker between these two states. Somebody
+    // suspended or gone is never changed by anything biometric.
+    const status =
+      change.activate && employee.status === 'PENDING_ENROLLMENT'
+        ? 'ACTIVE'
+        : !change.activate && employee.status === 'ACTIVE'
+          ? 'PENDING_ENROLLMENT'
+          : employee.status;
+    await tx.employee.update({
+      where: { id: employeeId },
+      data: {
+        status,
+        ...(change.biometricEnrolledAt === undefined
+          ? {}
+          : { biometricEnrolledAt: change.biometricEnrolledAt }),
+      },
+    });
+    return status;
+  }
+
+  /**
    * What the biometric flows need to know about a worker (docs/plan/13). The
    * attendance module asks for this instead of reading the employees table,
    * and the Ghana Card number itself never leaves this module.

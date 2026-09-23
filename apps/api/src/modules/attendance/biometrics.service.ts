@@ -1,19 +1,35 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { BiometricConsent as ApiConsent, BiometricConsentText } from '@samtec/contracts';
+import type {
+  BiometricConsent as ApiConsent,
+  BiometricConsentText,
+  FaceEnrollmentResult,
+} from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
+import { newUuidV7 } from '../../common/ids.js';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { BiometricConsent } from '../../generated/prisma/client.js';
+import type { BiometricConsent, Prisma } from '../../generated/prisma/client.js';
+import type { EmployeeStatus } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
 import { SignInThrottleService } from '../identity/sign-in-throttle.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
-import type { RecordConsentBody } from './attendance.schemas.js';
+import type { EnrollFaceBody, RecordConsentBody } from './attendance.schemas.js';
+import {
+  ATTENDANCE_TRANSACTION_OPTIONS as BIOMETRIC_TRANSACTION_OPTIONS,
+  isLockTimeout,
+  lockCompanyBiometrics,
+} from './attendance-lock.js';
 import { CONSENT_TEXT, CONSENT_TEXT_SHA256, CONSENT_TEXT_VERSION } from './consent-text.js';
 import type { SignedDevice } from './device-signature.guard.js';
+import type { FaceSample } from './face-match.js';
+import { FaceProvider, type SealedFace } from './face-provider.js';
 
 /**
  * Consent, the first step of enrollment (docs/plan/13-biometrics-design.md
@@ -24,11 +40,14 @@ import type { SignedDevice } from './device-signature.guard.js';
  */
 @Injectable()
 export class BiometricsService {
+  private readonly logger = new Logger('Biometrics');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly throttle: SignInThrottleService,
+    private readonly faces: FaceProvider,
   ) {}
 
   /** The one official wording, so the kiosk and the dashboard always agree. */
@@ -97,6 +116,200 @@ export class BiometricsService {
       return { row, created: true };
     });
     return { consent: toApiConsent(consent.row), created: consent.created };
+  }
+
+  /**
+   * Enrollment: three frames of one face, checked against everyone else in
+   * the company, then stored as encrypted numbers (docs/plan/13 section 2).
+   *
+   * The whole thing is one transaction under the company's biometrics lock,
+   * so two enrollments at the same moment take turns and each sees the
+   * other's face. Punches never wait for it: they have a lock of their own.
+   */
+  async enrollFace(
+    caller: SignedInUser,
+    device: SignedDevice,
+    body: EnrollFaceBody,
+  ): Promise<FaceEnrollmentResult> {
+    const sample = this.checkCapture(body.samples);
+    const employee = await this.employees.forBiometrics(caller, body.employeeId);
+    if (employee.status === 'TERMINATED') {
+      throw new ConflictException('This worker has left, so nothing new can be recorded.');
+    }
+    await this.assertNoOpenQuestion(body.employeeId);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockCompanyBiometrics(tx, caller.companyId);
+        const consent = await this.consentForEnrollment(tx, body);
+        // Every unwiped face of everyone else in the company, whatever its
+        // status: a ghost must not hide behind a face waiting for review.
+        const others = await tx.biometricCredential.findMany({
+          where: {
+            companyId: caller.companyId,
+            kind: 'FACE',
+            wipedAt: null,
+            employeeId: { not: body.employeeId },
+          },
+          select: {
+            id: true,
+            companyId: true,
+            employeeId: true,
+            keyVersion: true,
+            templateSealed: true,
+          },
+        });
+        const duplicate = this.faces.findDuplicate(sample, asSealedFaces(others), body.employeeId);
+        if (duplicate.unreadable.length > 0) {
+          // A face that cannot be opened is a face nobody compared against,
+          // so the answer would be a guess. Refuse instead (docs/plan/13 §3).
+          this.logger.error({
+            reason: 'unreadable_faces',
+            credentialIds: duplicate.unreadable,
+            companyId: caller.companyId,
+          });
+          throw new BiometricsUnavailableException();
+        }
+
+        // One face at a time: the old one is wiped before the new one lands.
+        await this.wipeLiveFace(tx, caller, body.employeeId, 'REVOKED');
+        // The template is sealed to this row, so the id comes first.
+        const credentialId = newUuidV7();
+        const dedupe = duplicate.result ? 'COLLISION' : 'PASSED';
+        await tx.biometricCredential.create({
+          data: {
+            id: credentialId,
+            companyId: caller.companyId,
+            employeeId: body.employeeId,
+            kind: 'FACE',
+            deviceId: device.id,
+            templateSealed: new Uint8Array(
+              this.faces.seal(sample.embedding, {
+                companyId: caller.companyId,
+                employeeId: body.employeeId,
+                credentialId,
+              }),
+            ),
+            keyVersion: this.faces.keyVersion,
+            faceModel: this.faces.model,
+            consentId: consent.id,
+            enrolledByUserId: caller.userId,
+            dedupe,
+            status: dedupe === 'PASSED' ? 'ACTIVE' : 'PENDING',
+            ...(duplicate.result
+              ? {
+                  collisionEmployeeId: duplicate.result.employeeId,
+                  collisionSimilarity: duplicate.result.score,
+                }
+              : {}),
+          },
+        });
+
+        // A face in use activates the worker and ends any exemption; a face
+        // waiting for review leaves them pending, unpaid until it is settled.
+        const employeeStatus =
+          dedupe === 'PASSED'
+            ? await this.facePassed(tx, caller, body.employeeId)
+            : await this.employees.clearBiometricsEnrolled(caller.companyId, body.employeeId, tx);
+
+        await this.audit.record(
+          {
+            companyId: caller.companyId,
+            actorUserId: caller.userId,
+            action: 'biometric.face_enrolled',
+            entityType: 'employee',
+            entityId: body.employeeId,
+            detail: { credentialId, deviceId: device.id, dedupe },
+          },
+          tx,
+        );
+        return { credentialId, dedupe, employeeStatus };
+      }, BIOMETRIC_TRANSACTION_OPTIONS);
+    } catch (error) {
+      throw isLockTimeout(error) ? new BiometricsBusyException() : error;
+    }
+  }
+
+  /**
+   * The three frames: each must look like a real, live face the server knows
+   * how to read, and they must be the same person from start to finish.
+   */
+  private checkCapture(samples: FaceSample[]): FaceSample {
+    samples.forEach((frame, index) => {
+      const problem = this.faces.check(frame);
+      if (problem === 'WRONG_MODEL' || problem === 'WRONG_SHAPE') {
+        throw fieldProblem(
+          `samples.${index}`,
+          'This kiosk is sending face numbers this server cannot read.',
+        );
+      }
+      if (problem === 'LOW_LIVENESS') {
+        throw fieldProblem(`samples.${index}`, 'This frame did not look like a real, live face.');
+      }
+    });
+    if (!this.faces.framesAgree(samples.map((frame) => frame.embedding))) {
+      throw fieldProblem('samples', 'The three frames are not the same face. Capture again.');
+    }
+    // The last frame is the centred one the kiosk takes after the head turn.
+    return samples[samples.length - 1] as FaceSample;
+  }
+
+  /** The consent this enrollment stands on: the worker's own, current, and the one the kiosk named. */
+  private async consentForEnrollment(
+    tx: TransactionClient,
+    body: EnrollFaceBody,
+  ): Promise<{ id: string }> {
+    const current = await this.currentConsent(body.employeeId, tx);
+    if (!current) {
+      throw new ConflictException('This worker has not agreed to biometrics yet.');
+    }
+    if (current.id !== body.consentId) {
+      throw fieldProblem('consentId', 'This is not the consent this worker just gave.');
+    }
+    return current;
+  }
+
+  /** A face that passed: the worker is enrolled, and any exemption is over. */
+  private async facePassed(
+    tx: TransactionClient,
+    caller: SignedInUser,
+    employeeId: string,
+  ): Promise<EmployeeStatus> {
+    await tx.biometricExemption.updateMany({
+      where: { employeeId, status: 'APPROVED' },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
+    return this.employees.markBiometricsEnrolled(caller.companyId, employeeId, tx);
+  }
+
+  /**
+   * Wipes the worker's face in use, if there is one: the numbers go, the row
+   * stays as evidence. `BLOCKED` is for a proven duplicate and is final.
+   */
+  private async wipeLiveFace(
+    tx: TransactionClient,
+    caller: SignedInUser,
+    employeeId: string,
+    to: 'REVOKED' | 'BLOCKED',
+  ): Promise<boolean> {
+    const live = await tx.biometricCredential.findFirst({
+      where: { employeeId, kind: 'FACE', wipedAt: null },
+      select: { id: true },
+    });
+    if (!live) {
+      return false;
+    }
+    await tx.biometricCredential.update({
+      where: { id: live.id },
+      data: {
+        status: to,
+        templateSealed: null,
+        keyVersion: null,
+        wipedAt: new Date(),
+        wipedByUserId: caller.userId,
+      },
+    });
+    return true;
   }
 
   /**
@@ -192,7 +405,56 @@ export class BiometricsService {
 }
 
 /** The part of Prisma a transaction hands to this service. */
-type TransactionClient = Parameters<Parameters<PrismaService['$transaction']>[0]>[0];
+type TransactionClient = Prisma.TransactionClient;
+
+/** The rows the matcher needs, straight from the database. */
+function asSealedFaces(
+  rows: Array<{
+    id: string;
+    companyId: string;
+    employeeId: string;
+    keyVersion: number | null;
+    templateSealed: Uint8Array | null;
+  }>,
+): SealedFace[] {
+  return rows.flatMap((row) =>
+    row.templateSealed && row.keyVersion !== null
+      ? [
+          {
+            credentialId: row.id,
+            companyId: row.companyId,
+            employeeId: row.employeeId,
+            keyVersion: row.keyVersion,
+            templateSealed: row.templateSealed,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The answer while another enrollment in the same company holds the lock. */
+export class BiometricsBusyException extends HttpException {
+  readonly retryAfterSeconds = 5;
+
+  constructor() {
+    super(
+      'Another enrollment for this company is in progress. Try again in a few seconds.',
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+  }
+}
+
+/** The answer when a stored face cannot be opened, so nobody could be compared with it. */
+export class BiometricsUnavailableException extends HttpException {
+  readonly retryAfterSeconds = 5;
+
+  constructor() {
+    super(
+      'The face check is unavailable: a stored face could not be read. An administrator has to look into it.',
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+  }
+}
 
 /**
  * Takes the worker's row for the rest of the transaction, the way every

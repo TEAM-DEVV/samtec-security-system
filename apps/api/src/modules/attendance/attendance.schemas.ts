@@ -164,3 +164,54 @@ export const recordConsentSchema = z.strictObject({
   textVersion: z.string().min(1).max(32),
 });
 export type RecordConsentBody = z.infer<typeof recordConsentSchema>;
+
+/** Contract: `FaceSample`. Numbers only: a kiosk can never send an image. */
+const faceSample = z.strictObject({
+  model: z.string().min(1).max(64),
+  embedding: z.array(z.number()).length(1024),
+  real: z.number().min(0).max(1),
+  live: z.number().min(0).max(1),
+});
+
+/** Contract: `EnrollFaceRequest`. Three frames, half a second apart. */
+export const enrollFaceSchema = z.strictObject({
+  employeeId: z.uuid(),
+  consentId: z.uuid(),
+  samples: z.array(faceSample).length(3),
+});
+export type EnrollFaceBody = z.infer<typeof enrollFaceSchema>;
+
+/** Contract: `BiometricReasonRequest`. Why a face was removed; kept with the audit record. */
+export const biometricReasonSchema = z.strictObject({
+  reason: z.string().trim().min(3).max(500),
+});
+export type BiometricReasonBody = z.infer<typeof biometricReasonSchema>;
+
+/** Contract: `RequestExemptionRequest`. The code is enough: never write down religion or health. */
+export const requestExemptionSchema = z.strictObject({
+  reason: z.enum(['DECLINED', 'CANNOT_ENROLL']),
+  note,
+});
+export type RequestExemptionBody = z.infer<typeof requestExemptionSchema>;
+
+/** Contract: `ReviewExemptionRequest`. A second ADMIN decides, with a note. */
+export const reviewExemptionSchema = z.strictObject({
+  decision: z.enum(['APPROVE', 'REJECT']),
+  note,
+});
+export type ReviewExemptionBody = z.infer<typeof reviewExemptionSchema>;
+
+/** Contract: `ResolveCollisionRequest`, one shape per verdict. */
+export const resolveCollisionSchema = z.discriminatedUnion('verdict', [
+  z.strictObject({ verdict: z.literal('DIFFERENT_PEOPLE'), note }),
+  z.strictObject({ verdict: z.literal('SAME_PERSON'), keepEmployeeId: z.uuid(), note }),
+]);
+export type ResolveCollisionBody = z.infer<typeof resolveCollisionSchema>;
+
+/** Contract: the `listBiometricCollisions` query. Open reviews first, by default. */
+export const listCollisionsQuerySchema = z.strictObject({
+  status: z.enum(['OPEN', 'RESOLVED']).optional(),
+  limit,
+  cursor: cursor.optional(),
+});
+export type ListCollisionsQuery = z.infer<typeof listCollisionsQuerySchema>;
