@@ -165,7 +165,14 @@ export class DevicesService {
     const device = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.device.update({
         where: { id: deviceId },
-        data: { secretEncrypted: sealSecret(secret, this.secretKey) },
+        data: {
+          secretEncrypted: sealSecret(secret, this.secretKey),
+          // A kiosk re-keys itself after losing its storage, but the new key
+          // does nothing until an ADMIN switches the device on again from the
+          // dashboard. So a kiosk session can never make a working key, not
+          // even out of a kiosk that was already running (docs/plan/13 §3).
+          ...(viewer.onKiosk ? { status: 'INACTIVE' as const } : {}),
+        },
       });
       await this.audit.record(
         {

@@ -325,15 +325,30 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         .expect(200);
       await kioskPost('kiosk/consents', consent, { device: waiting }).expect(201);
 
-      // It may rotate its own secret, never a terminal's.
-      await request(app.getHttpServer())
-        .post(`/api/v1/devices/${made.body.device.id}/rotate-secret`)
-        .set(...bearer(kioskAdmin))
-        .expect(200);
+      // It may rotate a kiosk secret, never a terminal's...
       await request(app.getHttpServer())
         .post(`/api/v1/devices/${terminal.id}/rotate-secret`)
         .set(...bearer(kioskAdmin))
         .expect(403);
+      // ...and the rotated kiosk waits to be switched on again, so a kiosk
+      // session can never make a working key out of a kiosk already running.
+      const running = await registerDevice('Kiosk already running', 'FACE_KIOSK');
+      const rotated = await request(app.getHttpServer())
+        .post(`/api/v1/devices/${running.id}/rotate-secret`)
+        .set(...bearer(kioskAdmin))
+        .expect(200);
+      expect(rotated.body.device.status).toBe('INACTIVE');
+      const newKey = { id: running.id, secret: rotated.body.secret };
+      const someone = await newStarter();
+      await kioskPost(
+        'kiosk/consents',
+        {
+          employeeId: someone.id,
+          ghanaCardLast4: await cardLast4(someone.id),
+          textVersion: 'bio-v1',
+        },
+        { device: newKey },
+      ).expect(401);
     });
   });
 
@@ -442,6 +457,51 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       await answer(wrong).expect(429);
       await answer(right).expect(429);
       expect(await prisma.biometricConsent.count({ where: { employeeId: worker.id } })).toBe(0);
+    });
+
+    it('counts wrong answers that all arrive at the same moment', async () => {
+      const worker = await newStarter();
+      const right = await cardLast4(worker.id);
+      const wrong = right === '0000' ? '1111' : '0000';
+
+      // Twenty at once: only the five the rule allows may reach the card.
+      const answers = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          kioskPost('kiosk/consents', {
+            employeeId: worker.id,
+            ghanaCardLast4: wrong,
+            textVersion: 'bio-v1',
+          }),
+        ),
+      );
+      const reachedTheCard = answers.filter((answer) => answer.status === 400).length;
+
+      expect(reachedTheCard).toBe(5);
+      expect(answers.filter((answer) => answer.status === 429)).toHaveLength(15);
+    });
+
+    it('records one consent when two kiosks ask at the same moment', async () => {
+      const worker = await newStarter();
+      const second = await registerDevice('Second kiosk at the site', 'FACE_KIOSK');
+      await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${second.id}`)
+        .set(...bearer(dashboardAdmin))
+        .send({ status: 'ACTIVE' })
+        .expect(200);
+      const body = {
+        employeeId: worker.id,
+        ghanaCardLast4: await cardLast4(worker.id),
+        textVersion: 'bio-v1',
+      };
+
+      const [first, other] = await Promise.all([
+        kioskPost('kiosk/consents', body),
+        kioskPost('kiosk/consents', body, { device: second }),
+      ]);
+
+      expect([first.status, other.status].sort()).toEqual([200, 201]);
+      expect(first.body.id).toBe(other.body.id);
+      expect(await prisma.biometricConsent.count({ where: { employeeId: worker.id } })).toBe(1);
     });
 
     it('records nothing for a worker who has left', async () => {

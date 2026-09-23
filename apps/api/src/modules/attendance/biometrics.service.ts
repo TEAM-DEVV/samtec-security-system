@@ -63,12 +63,15 @@ export class BiometricsService {
     await this.checkGhanaCard(caller, device, body);
     await this.assertNoOpenQuestion(body.employeeId);
 
-    const current = await this.currentConsent(body.employeeId);
-    if (current && current.textVersion === CONSENT_TEXT_VERSION) {
-      return { consent: toApiConsent(current), created: false };
-    }
-
+    // Everything below happens one worker at a time (docs/plan/13 section 2):
+    // two kiosks recording the same worker at the same moment would otherwise
+    // both find no consent and both write one.
     const consent = await this.prisma.$transaction(async (tx) => {
+      await lockWorker(tx, body.employeeId);
+      const current = await this.currentConsent(body.employeeId, tx);
+      if (current) {
+        return { row: current, created: false };
+      }
       const row = await tx.biometricConsent.create({
         data: {
           companyId: caller.companyId,
@@ -91,22 +94,23 @@ export class BiometricsService {
         },
         tx,
       );
-      return row;
+      return { row, created: true };
     });
-    return { consent: toApiConsent(consent), created: true };
+    return { consent: toApiConsent(consent.row), created: consent.created };
   }
 
   /**
-   * The card check, with its own patience: five wrong answers for one worker
-   * within an hour and that worker waits for the rest of the hour, so nobody
-   * can sit at a kiosk trying digits.
+   * The card check, with its own patience: an attempt is taken before the
+   * digits are looked at, so five wrong answers for one worker inside an hour
+   * mean a wait even when they all arrive at once. A right answer wipes the
+   * slate, so an honest ADMIN who mistypes is never stuck.
    */
   private async checkGhanaCard(
     caller: SignedInUser,
     device: SignedDevice,
     body: RecordConsentBody,
   ): Promise<void> {
-    await this.throttle.assertNotLocked('ghana-card', body.employeeId);
+    await this.throttle.claimAttempt('ghana-card', body.employeeId);
     const matches = await this.employees.ghanaCardLast4Matches(
       caller,
       body.employeeId,
@@ -116,7 +120,6 @@ export class BiometricsService {
       await this.throttle.recordSuccess('ghana-card', body.employeeId);
       return;
     }
-    await this.throttle.recordFailure('ghana-card', body.employeeId);
     // The digits themselves are never written down, here or in the log.
     await this.audit.record({
       companyId: caller.companyId,
@@ -165,14 +168,39 @@ export class BiometricsService {
     }
   }
 
-  /** The worker's latest consent row, whichever way it went. */
-  private async currentConsent(employeeId: string): Promise<BiometricConsent | null> {
-    const latest = await this.prisma.biometricConsent.findFirst({
+  /**
+   * The consent this worker is standing on right now: their latest row, and
+   * only when it is a GIVEN one to exactly these words. A row with the same
+   * version label but a different hash is not the same consent, so the worker
+   * is asked again rather than told they already agreed.
+   */
+  private async currentConsent(
+    employeeId: string,
+    tx: TransactionClient,
+  ): Promise<BiometricConsent | null> {
+    const latest = await tx.biometricConsent.findFirst({
       where: { employeeId },
       orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
     });
-    return latest?.status === 'GIVEN' ? latest : null;
+    if (latest?.status !== 'GIVEN') {
+      return null;
+    }
+    const sameWords =
+      latest.textVersion === CONSENT_TEXT_VERSION && latest.textSha256 === CONSENT_TEXT_SHA256;
+    return sameWords ? latest : null;
   }
+}
+
+/** The part of Prisma a transaction hands to this service. */
+type TransactionClient = Parameters<Parameters<PrismaService['$transaction']>[0]>[0];
+
+/**
+ * Takes the worker's row for the rest of the transaction, the way every
+ * biometric write does (docs/plan/13 section 2). Everything else for this
+ * worker waits, so two kiosks can never both decide there is no consent yet.
+ */
+async function lockWorker(tx: TransactionClient, employeeId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM employees WHERE id = ${employeeId}::uuid FOR NO KEY UPDATE`;
 }
 
 function toApiConsent(row: BiometricConsent): ApiConsent {

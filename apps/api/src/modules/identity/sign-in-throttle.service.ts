@@ -108,6 +108,60 @@ export class SignInThrottleService {
     return rows[0]?.locked_until != null;
   }
 
+  /**
+   * Takes one attempt **before** it is judged, and throws 429 when this key
+   * has no attempts left. Counting and deciding happen in the one statement,
+   * so a burst of requests sent at the same moment cannot all read "not
+   * locked yet" and each get a free guess — which is exactly what a plain
+   * `assertNotLocked` then `recordFailure` pair allows.
+   *
+   * Use this where the thing being guessed is short (the last 4 digits of a
+   * Ghana Card); `recordSuccess` still wipes the slate on a right answer.
+   */
+  async claimAttempt(kind: ThrottleKind, value: string): Promise<void> {
+    const keyHash = this.hashKey(kind, value);
+    const { windowMinutes, lockMinutes } = WINDOWS[kind];
+    const rows = await this.prisma.$queryRaw<
+      Array<{ failed_count: number; locked_until: Date | null }>
+    >`
+      INSERT INTO sign_in_throttles (key_hash, failed_count, window_starts_at, locked_until, created_at, updated_at)
+      VALUES (${keyHash}, 1, now(), NULL, now(), now())
+      ON CONFLICT (key_hash) DO UPDATE SET
+        failed_count = CASE
+          WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
+            THEN 1
+          ELSE sign_in_throttles.failed_count + 1
+        END,
+        window_starts_at = CASE
+          WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
+            THEN now()
+          ELSE sign_in_throttles.window_starts_at
+        END,
+        locked_until = CASE
+          WHEN sign_in_throttles.window_starts_at < now() - ${windowMinutes} * interval '1 minute'
+            THEN NULL
+          WHEN sign_in_throttles.failed_count + 1 > ${MAX_FAILURES}
+            THEN now() + ${lockMinutes} * interval '1 minute'
+          ELSE sign_in_throttles.locked_until
+        END,
+        updated_at = now()
+      RETURNING failed_count, locked_until
+    `;
+    // The count decides, and it came from the same statement that wrote it:
+    // attempts beyond the allowance are refused however many arrive at once.
+    const row = rows[0];
+    if (!row || row.failed_count <= MAX_FAILURES) {
+      return;
+    }
+    const waitSeconds = row.locked_until
+      ? Math.max(1, Math.ceil((row.locked_until.getTime() - Date.now()) / 1000))
+      : WINDOWS[kind].lockMinutes * 60;
+    throw new RateLimitException(
+      `Too many attempts. Try again in ${waitSeconds} seconds.`,
+      waitSeconds,
+    );
+  }
+
   /** A correct password or code wipes that key's slate clean. */
   async recordSuccess(kind: ThrottleKind, value: string): Promise<void> {
     await this.prisma.signInThrottle

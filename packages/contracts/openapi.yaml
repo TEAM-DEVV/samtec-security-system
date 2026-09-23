@@ -2089,8 +2089,9 @@ paths:
         the kiosk and taps "I agree". The ADMIN first checks the worker's
         physical Ghana Card: the last 4 digits must match the employee
         record (a wrong answer is a `400` on `ghanaCardLast4` and is
-        audited). After 5 wrong answers for one worker within an hour, that
-        worker waits for the rest of the hour (`429`). The full number never
+        audited). After 5 wrong answers in a row for one worker within an
+        hour, that worker waits an hour (`429`); a right answer clears the
+        count. The full number never
         reaches the kiosk. This check catches mistakes (the wrong person in
         front of the kiosk); it cannot stop a dishonest ADMIN, who can read
         the full number on the dashboard, which is why every enrollment is

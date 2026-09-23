@@ -39,6 +39,8 @@ const CHALLENGE_GONE = 'This sign-in has expired. Sign in with your password aga
 const LINK_GONE = 'This link has expired or was already used. Ask an administrator for a new one.';
 /** A half-done sign-in is finished where it started, never moved across. */
 const WRONG_PLACE = 'Finish signing in where you started.';
+/** A kiosk stands at a guard post: only enrollment happens there. */
+const KIOSK_ADMINS_ONLY = 'Only an administrator signs in on a kiosk.';
 
 /** What `login` can decide. The controller turns each kind into its HTTP shape. */
 export type LoginOutcome =
@@ -95,7 +97,7 @@ export class AuthService {
     // A kiosk stands at a guard post: only an ADMIN has anything to do on it
     // (docs/plan/13 section 2), so nobody else may start a session there.
     if (place === 'KIOSK' && user.role !== 'ADMIN') {
-      throw new ForbiddenException('Only an administrator signs in on a kiosk.');
+      throw new ForbiddenException(KIOSK_ADMINS_ONLY);
     }
 
     if (user.twoFactorEnabledAt) {
@@ -424,6 +426,11 @@ export class AuthService {
     place: SignInPlace,
   ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
     const onKiosk = place === 'KIOSK';
+    // Checked here, not only at the password step: every sign-in, however many
+    // steps it took, ends up in this one place.
+    if (onKiosk && user.role !== 'ADMIN') {
+      throw new ForbiddenException(KIOSK_ADMINS_ONLY);
+    }
     const refreshToken = onKiosk ? null : (await this.createSessionRow(user.id)).refreshToken;
     await this.audit.record({
       companyId: user.companyId,
@@ -486,7 +493,11 @@ export class AuthService {
   ): Promise<{ challenge: AuthChallenge; user: User }> {
     // A sign-in started on a kiosk is finished on that kiosk, and one started
     // on the dashboard on the dashboard. The token says which.
-    if (placeOfToken(token) !== place) {
+    const started = placeOfToken(token);
+    if (started === null) {
+      throw new UnauthorizedException(CHALLENGE_GONE);
+    }
+    if (started !== place) {
       throw new ForbiddenException(WRONG_PLACE);
     }
     const challenge = await this.prisma.authChallenge.findUnique({
