@@ -26,6 +26,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<NestE
     PORT: 3000,
     DATABASE_URL: 'postgresql://samtec@localhost:5432/samtec_test',
     CORS_ORIGINS: ['http://localhost:5173'],
+    KIOSK_ORIGINS: ['http://localhost:5174'],
     AUTH_SECRET: 'test-only-auth-secret-at-least-32-chars!',
   });
   const databaseUp = options.databaseUp ?? true;

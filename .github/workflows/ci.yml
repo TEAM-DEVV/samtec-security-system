@@ -132,7 +132,9 @@ jobs:
 
       - name: Sign in and read employees through the running API
         run: |
+          # Signing in says which page it came from, the way a browser does.
           TOKEN=$(curl --silent --fail -X POST -H 'Content-Type: application/json' \
+            -H 'Origin: http://localhost:5173' \
             -d '{"email":"supervisor@samtec.example","password":"demo-password"}' \
             http://localhost:3000/api/v1/auth/login \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
@@ -143,6 +145,11 @@ jobs:
             assert all('ghanaCardNumber' not in item for item in page['items']), 'identity data leaked into a list'; \
             print('employees list OK:', [item['staffNumber'] for item in page['items']])"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3000/api/v1/employees)" = "401"
+          # A sign-in from any other address is refused, with no password checked.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -H 'Origin: https://not-ours.example' \
+            -d '{"email":"supervisor@samtec.example","password":"demo-password"}' \
+            http://localhost:3000/api/v1/auth/login)" = "403"
 
   audit:
     name: Dependency audit

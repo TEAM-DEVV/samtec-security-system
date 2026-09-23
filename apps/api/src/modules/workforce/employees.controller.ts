@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Employee, EmployeeList } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import { EmployeesService } from './employees.service.js';
 import {
   type CreateEmployeeBody,
@@ -23,6 +23,9 @@ import {
 export class EmployeesController {
   constructor(private readonly employees: EmployeesService) {}
 
+  // The kiosk picks the worker to enroll from this list. It carries no Ghana
+  // Card numbers, so a shared screen never shows one.
+  @OnKiosk()
   @Get()
   @Roles('ADMIN', 'HR_PAYROLL', 'SUPERVISOR')
   list(

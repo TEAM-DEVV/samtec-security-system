@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import type { Site, SiteList } from '@samtec/contracts';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import { SitesService } from './sites.service.js';
 import { idSchema, type ListSitesQuery, listSitesQuerySchema } from './workforce.schemas.js';
 
@@ -11,6 +11,8 @@ import { idSchema, type ListSitesQuery, listSitesQuerySchema } from './workforce
 export class SitesController {
   constructor(private readonly sites: SitesService) {}
 
+  // The kiosk asks which site it stands at when it registers itself.
+  @OnKiosk()
   @Get()
   @Roles('ADMIN', 'HR_PAYROLL', 'SUPERVISOR')
   list(

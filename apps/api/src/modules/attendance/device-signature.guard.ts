@@ -38,7 +38,7 @@ export interface SignedDevice {
 /** At most this many signed requests per device per minute. */
 export const DEVICE_REQUESTS_PER_MINUTE = 60;
 
-const SIGNED_ROUTE_KEY = 'samtec:signedRoute';
+export const SIGNED_ROUTE_KEY = 'samtec:signedRoute';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Every way a device can fail answers exactly this, so nobody learns which device IDs exist. */
 const NOT_TRUSTED = 'The device signature is not valid.';

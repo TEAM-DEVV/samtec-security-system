@@ -34,9 +34,15 @@ export class TokensService {
     this.boxKey = deriveKey(config.authSecret, 'secret-box');
   }
 
-  /** Signs a 15-minute access token that says who the caller is. */
+  /** Signs a 15-minute access token that says who the caller is, and where from. */
   async signAccessToken(user: SignedInUser): Promise<string> {
-    return new SignJWT({ role: user.role, cid: user.companyId, eid: user.employeeId })
+    return new SignJWT({
+      role: user.role,
+      cid: user.companyId,
+      eid: user.employeeId,
+      // Only a kiosk session carries this, so an older token is a dashboard one.
+      ...(user.onKiosk ? { kio: true } : {}),
+    })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(user.userId)
       .setIssuer(JWT_ISSUER)
@@ -65,6 +71,7 @@ export class TokensService {
         role: payload.role as SignedInUser['role'],
         companyId: payload.cid,
         employeeId: typeof payload.eid === 'string' ? payload.eid : null,
+        onKiosk: payload.kio === true,
       };
     } catch {
       return null;

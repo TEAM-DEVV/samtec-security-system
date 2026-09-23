@@ -154,3 +154,13 @@ export const resolveExceptionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('VOID_ALL'), note }),
 ]);
 export type ResolveExceptionBody = z.infer<typeof resolveExceptionSchema>;
+
+// --- Biometrics (Phase 3) -----------------------------------------------------
+
+/** Contract: `RecordConsentRequest`. The 4 digits are read off the worker's own card. */
+export const recordConsentSchema = z.strictObject({
+  employeeId: z.uuid(),
+  ghanaCardLast4: z.string().regex(/^[0-9]{4}$/),
+  textVersion: z.string().min(1).max(32),
+});
+export type RecordConsentBody = z.infer<typeof recordConsentSchema>;

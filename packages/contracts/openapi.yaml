@@ -175,8 +175,10 @@ paths:
         - An `Origin` in `CORS_ORIGINS` (the dashboard) is a normal sign-in,
           with the refresh cookie.
         - An `Origin` in `KIOSK_ORIGINS` (the kiosk app) is a **kiosk
-          sign-in**. It never gets a refresh cookie, so a shared device never
-          stays signed in. Its access token works only for what the kiosk
+          sign-in**, and only an ADMIN may start one (any other role answers
+          `403`), because a kiosk stands at a guard post and only enrollment
+          happens on it. It never gets a refresh cookie, so a shared device
+          never stays signed in. Its access token works only for what the kiosk
           screens need: `GET /auth/me`, `GET /sites`, `GET /employees`,
           `GET /devices`, `POST /devices` and
           `POST /devices/{deviceId}/rotate-secret` (for a `FACE_KIOSK` only),
@@ -2079,15 +2081,17 @@ paths:
       summary: Record a worker's consent before enrollment
       description: >-
         **An ADMIN on a `FACE_KIOSK` device:** needs both a kiosk sign-in's
-        access token (a dashboard token answers `403`) and the device's
+        access token (a dashboard token answers `401`, like a missing
+        signature) and the device's
         signature (route name `kiosk/consents`). The same holds for every
         kiosk ADMIN operation. The
         worker reads the consent text from `GET /biometrics/consent-text` on
         the kiosk and taps "I agree". The ADMIN first checks the worker's
         physical Ghana Card: the last 4 digits must match the employee
         record (a wrong answer is a `400` on `ghanaCardLast4` and is
-        audited). After 5 wrong answers for one worker within an hour, that
-        worker waits for the rest of the hour (`429`). The full number never
+        audited). After 5 wrong answers in a row for one worker within an
+        hour, that worker waits an hour (`429`); a right answer clears the
+        count. The full number never
         reaches the kiosk. This check catches mistakes (the wrong person in
         front of the kiosk); it cannot stop a dishonest ADMIN, who can read
         the full number on the dashboard, which is why every enrollment is

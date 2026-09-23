@@ -24,10 +24,18 @@ function isBareOrigin(value: string): boolean {
   );
 }
 
-const corsOrigin = z.string().refine(isBareOrigin, {
+const bareOrigin = z.string().refine(isBareOrigin, {
   error:
-    'Each CORS origin must be a bare address like https://dashboard.example.com, with no path and no trailing slash',
+    'Each origin must be a bare address like https://dashboard.example.com, with no path and no trailing slash',
 });
+
+/** Turns "a, b" into ["a", "b"], ignoring stray spaces and empty entries. */
+const originList = z.string().transform((value) =>
+  value
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0),
+);
 
 /**
  * The AUTH_SECRET used when none is set. Only for development on a developer's
@@ -54,13 +62,15 @@ export const envSchema = z
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:5173')
-      .transform((value) =>
-        value
-          .split(',')
-          .map((origin) => origin.trim())
-          .filter((origin) => origin.length > 0),
-      )
-      .pipe(z.array(corsOrigin).min(1, 'CORS_ORIGINS needs at least one website address')),
+      .pipe(originList)
+      .pipe(z.array(bareOrigin).min(1, 'CORS_ORIGINS needs at least one website address')),
+    /**
+     * The addresses the kiosk app is served from (docs/plan/13 section 2). A
+     * sign-in from one of these gets no refresh cookie and a token that only
+     * works on the kiosk screens. Empty until a kiosk is deployed, and never
+     * an address that is also in CORS_ORIGINS.
+     */
+    KIOSK_ORIGINS: z.string().default('').pipe(originList).pipe(z.array(bareOrigin)),
     /**
      * The one secret behind sign-in. Access tokens are signed with a key
      * derived from it, and authenticator secrets are encrypted with another.
@@ -94,6 +104,27 @@ export const envSchema = z
         code: 'custom',
         path: ['CORS_ORIGINS'],
         message: 'In production, every CORS origin must start with https://',
+      });
+    }
+    // A production kiosk is always served over HTTPS, like the dashboard.
+    if (
+      env.NODE_ENV === 'production' &&
+      env.KIOSK_ORIGINS.some((origin) => !origin.startsWith('https://'))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['KIOSK_ORIGINS'],
+        message: 'In production, every kiosk origin must start with https://',
+      });
+    }
+    // One address can never be both, or a kiosk sign-in could get a dashboard
+    // session (or the other way round) depending on which list was read first.
+    const shared = env.KIOSK_ORIGINS.filter((origin) => env.CORS_ORIGINS.includes(origin));
+    if (shared.length > 0) {
+      context.addIssue({
+        code: 'custom',
+        path: ['KIOSK_ORIGINS'],
+        message: `CORS_ORIGINS and KIOSK_ORIGINS must not share an address: ${shared.join(', ')}`,
       });
     }
     // The built-in development secret is public knowledge, so production
