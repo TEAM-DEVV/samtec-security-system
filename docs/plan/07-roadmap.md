@@ -68,7 +68,7 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Enrollment on the kiosk by an ADMIN: 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep on the heartbeat
 - [x] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, the live clock-ins board and the kiosk attempt log
 - [ ] **Samuel:** the kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens. Every route it needs is merged — see [14 · Who builds what next](14-work-split.md)
-- [ ] Fingerprint through the device's own sensor (passkeys): face then finger, and staff number then finger (flagged)
+- [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
 - [x] **Samuel:** dashboard — live clock-ins board (`/attendance/live`), the employee Biometrics panel, the duplicate-enrollment queue (`/biometrics/duplicates`), and kiosk attempts per device (`/devices/attempts`). Built against the mock API. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
@@ -76,7 +76,13 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 ## Phase 4 · Payroll engine (weeks 8 to 10): the crown jewel
 
-**Goal: Ghana-correct, locked, auditable pay.**
+**Samuel builds this, end to end** — database, API and screens. See
+[Who builds what next](14-work-split.md).
+
+**Goal: Ghana-correct, locked, auditable pay.** Every design question that was
+open is now decided in [Payroll engine (Ghana)](09-payroll-engine-ghana.md);
+the house style for a backend module is in
+[16 · How a backend module is built here](16-building-a-backend-module.md).
 
 - Close a period, calculate a draft run, copy every input into its lines
 - PAYE bands and SSNIT rates from versioned tables, per [Payroll engine (Ghana)](09-payroll-engine-ghana.md), with golden tests
@@ -85,6 +91,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 
 ## Phase 5 · Ghost detection (weeks 11 and 12)
 
+**Francis builds this, end to end.** It merges **after** payroll, because its
+rules read payroll data.
+
 **Goal: the feature that sets SAMTEC apart.**
 
 - Rules engine and nightly sweep, per [Ghost detection engine](08-ghost-detection-engine.md)
@@ -92,6 +101,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - **Exit demo:** the three planted ghosts in the seed data are all caught live; a written false-positive discussion for the report
 
 ## Phase 6 · Dashboard and reports polish (week 13)
+
+Reports, the payslip downloads and the guard's own payslip: **Samuel**. The
+final visual pass: **Francis**.
 
 - Live attendance board and key figures: headcount present, absence rate, payroll cost trend
 - CSV and PDF reports; guards can view their own payslips

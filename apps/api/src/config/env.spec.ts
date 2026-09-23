@@ -48,6 +48,23 @@ describe('parseEnv', () => {
     ).toThrow(/must not share an address/);
   });
 
+  it('keeps every kiosk address on one host, because a fingerprint key belongs to one', () => {
+    // Two ports of the same host are one kiosk app served twice.
+    expect(
+      parseEnv({ ...minimalEnv, KIOSK_ORIGINS: 'http://localhost:5174,http://localhost:5175' })
+        .KIOSK_ORIGINS,
+    ).toHaveLength(2);
+
+    // Two hosts would sign in and clock in by face, then fail at the sensor
+    // with nothing to explain it. The API refuses to start instead.
+    expect(() =>
+      parseEnv({
+        ...minimalEnv,
+        KIOSK_ORIGINS: 'http://localhost:5174,http://kiosk.samtec.example',
+      }),
+    ).toThrow(/must be the same host/);
+  });
+
   it('wants https for the kiosk in production, like the dashboard', () => {
     expect(() =>
       parseEnv({ ...productionEnv, KIOSK_ORIGINS: 'http://kiosk.samtec.example' }),

@@ -117,6 +117,20 @@ export const envSchema = z
         message: 'In production, every kiosk origin must start with https://',
       });
     }
+    // Every kiosk address must be the same host. A fingerprint key belongs to
+    // one domain, and the server can only pick one — so a second host here
+    // would sign in and clock in by face, then fail at the sensor with
+    // nothing to explain it (docs/plan/13 §4). Different ports are fine.
+    // An address that is not a URL at all has already been reported by
+    // `bareOrigin`; saying so twice would only bury the first message.
+    const hosts = [...new Set(env.KIOSK_ORIGINS.map(hostOf).filter((host) => host !== null))];
+    if (hosts.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['KIOSK_ORIGINS'],
+        message: `Every kiosk origin must be the same host, because fingerprint keys belong to one: ${hosts.join(', ')}`,
+      });
+    }
     // One address can never be both, or a kiosk sign-in could get a dashboard
     // session (or the other way round) depending on which list was read first.
     const shared = env.KIOSK_ORIGINS.filter((origin) => env.CORS_ORIGINS.includes(origin));
@@ -137,6 +151,15 @@ export const envSchema = z
       });
     }
   });
+
+/** The host part of an address, or `null` when it is not an address at all. */
+function hostOf(origin: string): string | null {
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return null;
+  }
+}
 
 export type Env = z.infer<typeof envSchema>;
 
