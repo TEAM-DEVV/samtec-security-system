@@ -141,7 +141,7 @@ export class BiometricRetentionService {
         by: ['employeeId'],
         orderBy: { employeeId: 'asc' },
         take: PEOPLE_PER_SWEEP,
-        where: { companyId, wipedAt: null, employee: left },
+        where: { companyId, kind: 'FACE', wipedAt: null, employee: left },
       }),
       // A face still live 90 days after enrollment, on a worker who never
       // started: either a review nobody answered or a hire that went away.
@@ -206,11 +206,9 @@ export class BiometricRetentionService {
    * `REVOKED`, never `BLOCKED`: only a SAME_PERSON decision blocks a record,
    * and a blocked one is already wiped, so the sweep passes it by.
    *
-   * A leaver loses **every** credential, the face and any terminal finger,
-   * so nothing of theirs can match anywhere ever again. A terminal finger
-   * holds no numbers here — the ZKTeco device holds those, and the roster
-   * (pull request 9) takes it off the device — so for it this is only the
-   * record being switched off.
+   * Faces only, exactly as the design says. A terminal finger keeps nothing
+   * on this server (the ZKTeco device holds it), and it is the roster in
+   * pull request 9 that takes a leaver off the device.
    */
   private async wipeFaces(
     tx: Prisma.TransactionClient,
@@ -230,6 +228,7 @@ export class BiometricRetentionService {
         where: {
           companyId,
           employeeId: { in: people },
+          kind: 'FACE',
           wipedAt: null,
           employee: { status: 'TERMINATED', terminationDate: { lte: cutoff } },
         },

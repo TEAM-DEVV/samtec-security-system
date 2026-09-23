@@ -64,9 +64,9 @@ export class BiometricReviewsService {
     await this.employees.forBiometrics(viewer, employeeId);
     return this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, employeeId);
-      await this.assertNothingOpen(tx, employeeId);
-      const face = await liveFace(tx, employeeId);
-      const keys = await liveKeys(tx, employeeId);
+      await this.assertNothingOpen(tx, viewer.companyId, employeeId);
+      const face = await liveFace(tx, viewer.companyId, employeeId);
+      const keys = await liveKeys(tx, viewer.companyId, employeeId);
       if (!face && keys === 0) {
         throw new ConflictException('This worker has no face and no fingerprint keys to remove.');
       }
@@ -103,11 +103,11 @@ export class BiometricReviewsService {
     await this.employees.forBiometrics(viewer, employeeId);
     return this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, employeeId);
-      const consent = await currentConsent(tx, employeeId);
+      const consent = await currentConsent(tx, viewer.companyId, employeeId);
       if (!consent) {
         throw new ConflictException('There is no consent to withdraw.');
       }
-      const face = await liveFace(tx, employeeId);
+      const face = await liveFace(tx, viewer.companyId, employeeId);
       const wasInUse = face?.status === 'ACTIVE';
       await tx.biometricConsent.create({
         data: {
@@ -161,9 +161,14 @@ export class BiometricReviewsService {
       if (employee.status !== 'PENDING_ENROLLMENT') {
         throw new ConflictException('Only a worker still waiting to be enrolled can be exempted.');
       }
-      await this.assertNothingOpen(tx, employeeId);
+      await this.assertNothingOpen(tx, viewer.companyId, employeeId);
       const anyFace = await tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', status: { in: ['PENDING', 'ACTIVE'] } },
+        where: {
+          companyId: viewer.companyId,
+          employeeId,
+          kind: 'FACE',
+          status: { in: ['PENDING', 'ACTIVE'] },
+        },
         select: { id: true },
       });
       if (anyFace) {
@@ -210,7 +215,7 @@ export class BiometricReviewsService {
     return this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, employeeId);
       const waiting = await tx.biometricExemption.findFirst({
-        where: { employeeId, status: 'REQUESTED' },
+        where: { companyId: viewer.companyId, employeeId, status: 'REQUESTED' },
       });
       if (!waiting) {
         throw new ConflictException('There is no exemption request waiting for this worker.');
@@ -222,7 +227,12 @@ export class BiometricReviewsService {
       // "this worker really cannot be enrolled", which is a judgement on the
       // enroller's own attempt (docs/plan/13 §2).
       const enrolled = await tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', enrolledByUserId: viewer.userId },
+        where: {
+          companyId: viewer.companyId,
+          employeeId,
+          kind: 'FACE',
+          enrolledByUserId: viewer.userId,
+        },
         select: { id: true },
       });
       if (enrolled) {
@@ -418,19 +428,23 @@ export class BiometricReviewsService {
   }
 
   /** Nothing new happens while a second ADMIN owes an answer. */
-  private async assertNothingOpen(tx: TransactionClient, employeeId: string): Promise<void> {
+  private async assertNothingOpen(
+    tx: TransactionClient,
+    companyId: string,
+    employeeId: string,
+  ): Promise<void> {
     const [blocked, review, exemption] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', status: 'BLOCKED' },
+        where: { companyId, employeeId, kind: 'FACE', status: 'BLOCKED' },
         select: { id: true },
       }),
       // Open means "no verdict yet", not "the face is PENDING": the retention
       // sweep wipes a face that waited 90 days, and the question stays.
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        where: { companyId, employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
         select: { id: true },
       }),
-      tx.biometricExemption.findFirst({ where: { employeeId, status: 'REQUESTED' } }),
+      tx.biometricExemption.findFirst({ where: { companyId, employeeId, status: 'REQUESTED' } }),
     ]);
     if (blocked) {
       throw new ConflictException(
@@ -462,11 +476,16 @@ export class BiometricReviewsService {
   ): Promise<void> {
     const [wiped, withdrew] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { employeeId: { in: employeeIds }, wipedByUserId: viewer.userId },
+        where: {
+          companyId: viewer.companyId,
+          employeeId: { in: employeeIds },
+          wipedByUserId: viewer.userId,
+        },
         select: { id: true },
       }),
       tx.biometricConsent.findFirst({
         where: {
+          companyId: viewer.companyId,
           employeeId: { in: employeeIds },
           status: 'WITHDRAWN',
           recordedByUserId: viewer.userId,
@@ -497,7 +516,7 @@ export class BiometricReviewsService {
     reason: string,
   ): Promise<boolean> {
     const open = await tx.biometricExemption.findFirst({
-      where: { employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
+      where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
     });
     if (open) {
       return false;
@@ -521,7 +540,7 @@ export class BiometricReviewsService {
     employeeId: string,
     to: 'REVOKED' | 'BLOCKED',
   ): Promise<void> {
-    const face = await liveFace(tx, employeeId);
+    const face = await liveFace(tx, viewer.companyId, employeeId);
     if (face) {
       await tx.biometricCredential.update({
         where: { id: face.id },
@@ -544,16 +563,23 @@ export class BiometricReviewsService {
     employeeId: string,
   ): Promise<void> {
     await tx.devicePasskey.updateMany({
-      where: { employeeId, revokedAt: null },
+      where: { companyId: viewer.companyId, employeeId, revokedAt: null },
       data: { revokedAt: new Date(), revokedByUserId: viewer.userId },
     });
     await tx.biometricExemption.updateMany({
-      where: { employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
+      where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
       data: { status: 'ENDED', endedAt: new Date() },
     });
   }
 
-  /** Everything a record blocked as a duplicate loses. */
+  /**
+   * Everything a record blocked as a duplicate loses.
+   *
+   * It blocks the **record**, not one particular capture: whatever face that
+   * worker holds right now goes, along with their keys and any exemption.
+   * That is the point of the decision — this employee record is a ghost — so
+   * it stays right even if the worker enrolled again while the review waited.
+   */
   private async blockRecord(
     tx: TransactionClient,
     viewer: SignedInUser,
@@ -571,21 +597,21 @@ export class BiometricReviewsService {
   ): Promise<EmployeeBiometrics> {
     const [consent, face, keys, exemption] = await Promise.all([
       tx.biometricConsent.findFirst({
-        where: { employeeId },
+        where: { companyId: viewer.companyId, employeeId },
         orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
       }),
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE' },
+        where: { companyId: viewer.companyId, employeeId, kind: 'FACE' },
         orderBy: [{ enrolledAt: 'desc' }, { id: 'desc' }],
         include: { device: true },
       }),
       tx.devicePasskey.findMany({
-        where: { employeeId },
+        where: { companyId: viewer.companyId, employeeId },
         orderBy: [{ registeredAt: 'desc' }],
         include: { device: true },
       }),
       tx.biometricExemption.findFirst({
-        where: { employeeId },
+        where: { companyId: viewer.companyId, employeeId },
         orderBy: [{ requestedAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
@@ -629,21 +655,25 @@ export class BiometricReviewsService {
 type TransactionClient = Prisma.TransactionClient;
 
 /** The worker's face in use, if there is one. */
-async function liveFace(tx: TransactionClient, employeeId: string) {
+async function liveFace(tx: TransactionClient, companyId: string, employeeId: string) {
   return tx.biometricCredential.findFirst({
-    where: { employeeId, kind: 'FACE', wipedAt: null },
+    where: { companyId, employeeId, kind: 'FACE', wipedAt: null },
   });
 }
 
 /** How many fingerprint keys are still live. */
-async function liveKeys(tx: TransactionClient, employeeId: string): Promise<number> {
-  return tx.devicePasskey.count({ where: { employeeId, revokedAt: null } });
+async function liveKeys(
+  tx: TransactionClient,
+  companyId: string,
+  employeeId: string,
+): Promise<number> {
+  return tx.devicePasskey.count({ where: { companyId, employeeId, revokedAt: null } });
 }
 
 /** The worker's standing consent, if they have one. */
-async function currentConsent(tx: TransactionClient, employeeId: string) {
+async function currentConsent(tx: TransactionClient, companyId: string, employeeId: string) {
   const latest = await tx.biometricConsent.findFirst({
-    where: { employeeId },
+    where: { companyId, employeeId },
     orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
   });
   return latest?.status === 'GIVEN' ? latest : null;

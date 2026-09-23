@@ -92,8 +92,8 @@ export class BiometricsService {
     // both find no consent and both write one.
     const consent = await this.prisma.$transaction(async (tx) => {
       await lockWorker(tx, body.employeeId);
-      await this.assertNoOpenQuestion(tx, body.employeeId);
-      const current = await this.currentConsent(body.employeeId, tx);
+      await this.assertNoOpenQuestion(tx, caller.companyId, body.employeeId);
+      const current = await this.currentConsent(caller.companyId, body.employeeId, tx);
       if (current) {
         return { row: current, created: false };
       }
@@ -151,8 +151,8 @@ export class BiometricsService {
         // worker's row is what an exemption request and a review also take,
         // so the open-question check below cannot be overtaken.
         await lockWorker(tx, body.employeeId);
-        await this.assertNoOpenQuestion(tx, body.employeeId);
-        const consent = await this.consentForEnrollment(tx, body);
+        await this.assertNoOpenQuestion(tx, caller.companyId, body.employeeId);
+        const consent = await this.consentForEnrollment(tx, caller.companyId, body);
         // Every unwiped face of everyone else in the company, whatever its
         // status: a ghost must not hide behind a face waiting for review.
         const others = await tx.biometricCredential.findMany({
@@ -268,9 +268,10 @@ export class BiometricsService {
   /** The consent this enrollment stands on: the worker's own, current, and the one the kiosk named. */
   private async consentForEnrollment(
     tx: TransactionClient,
+    companyId: string,
     body: EnrollFaceBody,
   ): Promise<{ id: string }> {
-    const current = await this.currentConsent(body.employeeId, tx);
+    const current = await this.currentConsent(companyId, body.employeeId, tx);
     if (!current) {
       throw new ConflictException('This worker has not agreed to biometrics yet.');
     }
@@ -303,8 +304,12 @@ export class BiometricsService {
     employeeId: string,
     to: 'REVOKED' | 'BLOCKED',
   ): Promise<boolean> {
+    // `ACTIVE` only. A face waiting for a duplicate review is wiped by two
+    // things alone — a withdrawal of consent and the retention sweep — and
+    // enrolling again is refused long before this line. The filter makes
+    // that impossible rather than merely unreached.
     const live = await tx.biometricCredential.findFirst({
-      where: { employeeId, kind: 'FACE', wipedAt: null },
+      where: { companyId: caller.companyId, employeeId, kind: 'FACE', status: 'ACTIVE' },
       select: { id: true },
     });
     if (!live) {
@@ -368,21 +373,25 @@ export class BiometricsService {
    * transaction. Reading it outside the lock would let an ADMIN file an
    * exemption request in the moment between the check and the new row.
    */
-  private async assertNoOpenQuestion(tx: TransactionClient, employeeId: string): Promise<void> {
+  private async assertNoOpenQuestion(
+    tx: TransactionClient,
+    companyId: string,
+    employeeId: string,
+  ): Promise<void> {
     const [blocked, review, exemption] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', status: 'BLOCKED' },
+        where: { companyId, employeeId, kind: 'FACE', status: 'BLOCKED' },
         select: { id: true },
       }),
       // A review is open while it has no verdict — **not** while the face is
       // PENDING. After 90 days the retention sweep wipes such a face, which
       // makes it REVOKED, and the question it asks is still unanswered.
       tx.biometricCredential.findFirst({
-        where: { employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
+        where: { companyId, employeeId, kind: 'FACE', dedupe: 'COLLISION', verdict: null },
         select: { id: true },
       }),
       tx.biometricExemption.findFirst({
-        where: { employeeId, status: 'REQUESTED' },
+        where: { companyId, employeeId, status: 'REQUESTED' },
         select: { id: true },
       }),
     ]);
@@ -410,11 +419,12 @@ export class BiometricsService {
    * is asked again rather than told they already agreed.
    */
   private async currentConsent(
+    companyId: string,
     employeeId: string,
     tx: TransactionClient,
   ): Promise<BiometricConsent | null> {
     const latest = await tx.biometricConsent.findFirst({
-      where: { employeeId },
+      where: { companyId, employeeId },
       orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
     });
     if (latest?.status !== 'GIVEN') {

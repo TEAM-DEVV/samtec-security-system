@@ -511,6 +511,80 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       expect(after.status).toBe('PENDING_ENROLLMENT');
     });
 
+    it('catches two kiosks enrolling the same face at the same moment', async () => {
+      const level = anotherFace();
+      const one = await newStarter();
+      const two = await newStarter();
+      // Consent first for both, so the two enrollments really do overlap.
+      const consents = await Promise.all([
+        kioskPost(
+          'kiosk/consents',
+          { employeeId: one.id, ghanaCardLast4: await cardLast4(one.id), textVersion: 'bio-v1' },
+          { device: enrolmentKiosk },
+        ),
+        kioskPost(
+          'kiosk/consents',
+          { employeeId: two.id, ghanaCardLast4: await cardLast4(two.id), textVersion: 'bio-v1' },
+          { device: enrolmentKiosk },
+        ),
+      ]);
+      expect(consents.map((answer) => answer.status)).toEqual([201, 201]);
+
+      const [first, second] = await Promise.all([
+        kioskPost(
+          'kiosk/face-enrollments',
+          { employeeId: one.id, consentId: consents[0].body.id, samples: captureOf(level) },
+          { device: enrolmentKiosk },
+        ),
+        kioskPost(
+          'kiosk/face-enrollments',
+          { employeeId: two.id, consentId: consents[1].body.id, samples: captureOf(level) },
+          { device: enrolmentKiosk },
+        ),
+      ]);
+
+      // Both are stored, but the second one to get the company's lock saw the
+      // first one's face: exactly one of them is a duplicate to review.
+      expect([first?.status, second?.status]).toEqual([201, 201]);
+      const results = [first?.body.dedupe, second?.body.dedupe].sort();
+      expect(results).toEqual(['COLLISION', 'PASSED']);
+      const waiting = await prisma.biometricCredential.count({
+        where: { employeeId: { in: [one.id, two.id] }, dedupe: 'COLLISION', verdict: null },
+      });
+      expect(waiting).toBe(1);
+    }, 60_000);
+
+    it('stores one face when the same worker is enrolled twice at once', async () => {
+      const worker = await newStarter();
+      const consent = await kioskPost(
+        'kiosk/consents',
+        {
+          employeeId: worker.id,
+          ghanaCardLast4: await cardLast4(worker.id),
+          textVersion: 'bio-v1',
+        },
+        { device: enrolmentKiosk },
+      );
+      expect(consent.status).toBe(201);
+      const body = (level: number) => ({
+        employeeId: worker.id,
+        consentId: consent.body.id,
+        samples: captureOf(level),
+      });
+
+      const answers = await Promise.all([
+        kioskPost('kiosk/face-enrollments', body(anotherFace()), { device: enrolmentKiosk }),
+        kioskPost('kiosk/face-enrollments', body(anotherFace()), { device: enrolmentKiosk }),
+      ]);
+
+      // Both may be accepted — the second replaces the first, as enrolling
+      // again always does — but the worker still ends with exactly one face.
+      expect(answers.every((answer) => answer.status === 201)).toBe(true);
+      const live = await prisma.biometricCredential.count({
+        where: { employeeId: worker.id, kind: 'FACE', wipedAt: null },
+      });
+      expect(live).toBe(1);
+    }, 60_000);
     it('is refused while a second ADMIN owes an answer', async () => {
       const oneFace = anotherFace();
       const guard = await newStarter();
