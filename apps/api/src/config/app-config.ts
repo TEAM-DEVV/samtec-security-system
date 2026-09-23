@@ -12,6 +12,8 @@ export class AppConfig {
   readonly port: number;
   readonly databaseUrl: string;
   readonly corsOrigins: readonly string[];
+  /** Where the kiosk app is served from; a sign-in from there is a kiosk session. */
+  readonly kioskOrigins: readonly string[];
   /** The master secret behind sign-in. Never log it. */
   readonly authSecret: string;
   /** Which biometric provider attendance uses; only the mock exists until Phase 3. */
@@ -26,6 +28,7 @@ export class AppConfig {
     this.port = env.PORT;
     this.databaseUrl = env.DATABASE_URL;
     this.corsOrigins = env.CORS_ORIGINS;
+    this.kioskOrigins = env.KIOSK_ORIGINS;
     this.authSecret = env.AUTH_SECRET;
     this.biometricProvider = env.BIOMETRIC_PROVIDER ?? 'mock';
     this.allowSimulatorDevices =

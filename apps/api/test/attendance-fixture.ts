@@ -188,7 +188,14 @@ export async function tokensFor(app: NestExpressApplication, company: Attendance
     userId: string,
     role: 'ADMIN' | 'HR_PAYROLL' | 'SUPERVISOR' | 'GUARD',
     employeeId: string | null,
-  ) => tokens.signAccessToken({ userId, companyId: company.companyId, role, employeeId });
+  ) =>
+    tokens.signAccessToken({
+      userId,
+      companyId: company.companyId,
+      role,
+      employeeId,
+      onKiosk: false,
+    });
   return {
     admin: await sign(company.adminUserId, 'ADMIN', null),
     hr: await sign(company.hrUserId, 'HR_PAYROLL', null),

@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  */
 
 /** The routes a device may call. Signing the route name (not the URL) means hosting rewrites can never break a signature, and a signature can never be moved to another endpoint. */
-export type SignedRoute = 'ingest/punches' | 'ingest/heartbeat';
+export type SignedRoute = 'ingest/punches' | 'ingest/heartbeat' | 'kiosk/consents';
 
 export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
 
@@ -20,6 +20,8 @@ export type DeviceKind = 'MOCK' | 'ZKTECO' | 'FACE_KIOSK';
  *   Never a kiosk: a kiosk's punches are made by the server from a face match
  *   (docs/plan/13 §3), so a stolen kiosk key can never post raw punches.
  * - `ingest/heartbeat` takes every kind.
+ * - every `kiosk/…` route takes a face kiosk only, and also needs an ADMIN
+ *   signed in on that kiosk (docs/plan/13 §2).
  */
 export function kindMayUse(
   route: SignedRoute,
@@ -31,6 +33,8 @@ export function kindMayUse(
       return kind === 'ZKTECO' || (kind === 'MOCK' && simulatorAllowed);
     case 'ingest/heartbeat':
       return true;
+    case 'kiosk/consents':
+      return kind === 'FACE_KIOSK';
   }
 }
 

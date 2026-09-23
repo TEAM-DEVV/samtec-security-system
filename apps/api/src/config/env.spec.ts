@@ -27,8 +27,34 @@ describe('parseEnv', () => {
     'https://dashboard.samtec.example/app',
     'dashboard.samtec.example',
     'ftp://dashboard.samtec.example',
-  ])('rejects %s as a CORS origin, because browsers never send that form', (origin) => {
-    expect(() => parseEnv({ ...minimalEnv, CORS_ORIGINS: origin })).toThrow(/CORS origin/);
+  ])('rejects %s as an origin, because browsers never send that form', (origin) => {
+    expect(() => parseEnv({ ...minimalEnv, CORS_ORIGINS: origin })).toThrow(/bare address/);
+    expect(() => parseEnv({ ...minimalEnv, KIOSK_ORIGINS: origin })).toThrow(/bare address/);
+  });
+
+  it('starts with no kiosk address, and keeps the kiosk apart from the dashboard', () => {
+    expect(parseEnv(minimalEnv).KIOSK_ORIGINS).toEqual([]);
+    expect(
+      parseEnv({ ...minimalEnv, KIOSK_ORIGINS: 'http://localhost:5174' }).KIOSK_ORIGINS,
+    ).toEqual(['http://localhost:5174']);
+
+    // One address can never be both: the API refuses to start.
+    expect(() =>
+      parseEnv({
+        ...minimalEnv,
+        CORS_ORIGINS: 'http://localhost:5173,http://localhost:5174',
+        KIOSK_ORIGINS: 'http://localhost:5174',
+      }),
+    ).toThrow(/must not share an address/);
+  });
+
+  it('wants https for the kiosk in production, like the dashboard', () => {
+    expect(() =>
+      parseEnv({ ...productionEnv, KIOSK_ORIGINS: 'http://kiosk.samtec.example' }),
+    ).toThrow(/every kiosk origin must start with https/);
+    expect(
+      parseEnv({ ...productionEnv, KIOSK_ORIGINS: 'https://kiosk.samtec.example' }).KIOSK_ORIGINS,
+    ).toEqual(['https://kiosk.samtec.example']);
   });
 
   const productionEnv = {
