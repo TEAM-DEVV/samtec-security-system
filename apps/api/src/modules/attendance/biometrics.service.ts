@@ -26,6 +26,8 @@ import {
   isLockTimeout,
   lockCompanyBiometrics,
 } from './attendance-lock.js';
+import { blockedRecord, openReview } from './biometric-questions.js';
+import { standDown } from './biometric-standing.js';
 import { CONSENT_TEXT, CONSENT_TEXT_SHA256, CONSENT_TEXT_VERSION } from './consent-text.js';
 import type { SignedDevice } from './device-signature.guard.js';
 import type { FaceSample } from './face-match.js';
@@ -221,7 +223,7 @@ export class BiometricsService {
         const employeeStatus =
           dedupe === 'PASSED'
             ? await this.facePassed(tx, caller, body.employeeId)
-            : await this.employees.clearBiometricsEnrolled(caller.companyId, body.employeeId, tx);
+            : await standDown(tx, this.employees, caller.companyId, body.employeeId);
 
         await this.audit.record(
           {
@@ -380,22 +382,11 @@ export class BiometricsService {
   ): Promise<void> {
     const [blocked, review, exemption] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { companyId, employeeId, kind: 'FACE', status: 'BLOCKED' },
+        where: blockedRecord(companyId, employeeId),
         select: { id: true },
       }),
-      // A review is open while it has no verdict — **not** while the face is
-      // PENDING. After 90 days the retention sweep wipes such a face, which
-      // makes it REVOKED, and the question it asks is still unanswered. It
-      // holds both records: the one that enrolled the face and the one it
-      // looked like.
       tx.biometricCredential.findFirst({
-        where: {
-          companyId,
-          kind: 'FACE',
-          dedupe: 'COLLISION',
-          verdict: null,
-          OR: [{ employeeId }, { collisionEmployeeId: employeeId }],
-        },
+        where: openReview(companyId, employeeId),
         select: { id: true },
       }),
       tx.biometricExemption.findFirst({

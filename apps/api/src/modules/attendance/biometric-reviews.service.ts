@@ -12,6 +12,7 @@ import type {
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { EmployeeStatus } from '../../generated/prisma/enums.js';
@@ -24,6 +25,8 @@ import type {
   ResolveCollisionBody,
   ReviewExemptionBody,
 } from './attendance.schemas.js';
+import { blockedRecord, openReview } from './biometric-questions.js';
+import { standDown } from './biometric-standing.js';
 
 /** What the face and the fingerprint keys of one worker look like from the dashboard. */
 type FaceRow = Prisma.BiometricCredentialGetPayload<{ include: { device: true } }>;
@@ -71,8 +74,7 @@ export class BiometricReviewsService {
       if (!face && keys === 0) {
         throw new ConflictException('This worker has no face and no fingerprint keys to remove.');
       }
-      await this.wipeEverything(tx, viewer, employeeId, 'REVOKED');
-      await this.employees.clearBiometricsEnrolled(viewer.companyId, employeeId, tx);
+      await this.wipeAndStandDown(tx, viewer, employeeId);
       await this.audit.record(
         {
           companyId: viewer.companyId,
@@ -183,15 +185,24 @@ export class BiometricReviewsService {
           'This worker has a face on record. Remove it first if they no longer agree.',
         );
       }
-      await tx.biometricExemption.create({
-        data: {
-          companyId: viewer.companyId,
-          employeeId,
-          reason: body.reason,
-          note: body.note,
-          requestedByUserId: viewer.userId,
-        },
-      });
+      try {
+        await tx.biometricExemption.create({
+          data: {
+            companyId: viewer.companyId,
+            employeeId,
+            reason: body.reason,
+            note: body.note,
+            requestedByUserId: viewer.userId,
+          },
+        });
+      } catch (error) {
+        // One open exemption per worker is a database rule of its own. If it
+        // fires, another ADMIN filed one a moment ago: say so plainly.
+        if (isUniqueViolation(error, 'employee_id')) {
+          throw new ConflictException('This worker already has an exemption on record.');
+        }
+        throw error;
+      }
       await this.audit.record(
         {
           companyId: viewer.companyId,
@@ -249,6 +260,15 @@ export class BiometricReviewsService {
       }
       await this.assertHandsOff(tx, viewer, [employeeId]);
 
+      if (body.decision === 'APPROVE') {
+        // Approving checks the rules again, not only when somebody asked
+        // (docs/plan/13 §2). A duplicate review opened since then is the one
+        // that matters: approving would put a record back to work while a
+        // second ADMIN still owes an answer about whether it is a real
+        // person at all. Rejecting is always allowed.
+        await this.assertNoOpenReview(tx, viewer.companyId, employeeId);
+      }
+
       if (body.decision === 'REJECT') {
         await tx.biometricExemption.update({
           where: { id: waiting.id },
@@ -302,7 +322,10 @@ export class BiometricReviewsService {
         companyId: viewer.companyId,
         kind: 'FACE',
         dedupe: { in: open ? ['COLLISION'] : ['CLEARED', 'COLLISION'] },
-        ...(open ? { verdict: null } : { verdict: { not: null } }),
+        // A blocked face is never decided, so it is not a question anybody
+        // can still answer: the queue must not offer one that would only
+        // fail. The record it belongs to is finished either way.
+        ...(open ? { verdict: null, status: { not: 'BLOCKED' } } : { verdict: { not: null } }),
         ...(after ? { enrolledAt: { lt: new Date(after) } } : {}),
       },
       orderBy: [{ enrolledAt: 'desc' }, { id: 'desc' }],
@@ -347,10 +370,19 @@ export class BiometricReviewsService {
       if (row.verdict !== null) {
         throw new ConflictException('This review has already been decided.');
       }
+      if (row.status === 'BLOCKED') {
+        // Another review reached this record first and blocked it. The
+        // database will not let a blocked face be decided, and it does not
+        // need to be: the record is finished, so this question is over.
+        throw new ConflictException(
+          'This record was blocked as a duplicate by another review, so this one is closed.',
+        );
+      }
       if (row.enrolledByUserId === viewer.userId) {
         throw new ForbiddenException('The ADMIN who enrolled this face cannot decide its review.');
       }
       await this.assertHandsOff(tx, viewer, [row.employeeId, lookalikeId]);
+      await this.assertPairNotDecided(tx, viewer, row.employeeId, lookalikeId, body);
 
       const decision = this.decisionOf(viewer, null, body.note);
       if (body.verdict === 'DIFFERENT_PEOPLE') {
@@ -410,7 +442,8 @@ export class BiometricReviewsService {
           }
         } else {
           // The new record was the duplicate: it keeps only its blocked face.
-          await this.endExemptionsAndKeys(tx, viewer, row.employeeId);
+          await this.revokeKeys(tx, viewer, row.employeeId);
+          await this.endExemptions(tx, viewer, row.employeeId);
           await this.employees.clearBiometricsEnrolled(viewer.companyId, row.employeeId, tx);
         }
       }
@@ -439,32 +472,71 @@ export class BiometricReviewsService {
     });
   }
 
-  /** Nothing new happens while a second ADMIN owes an answer. */
-  private async assertNothingOpen(
+  /**
+   * The same two records are never decided two ways. The database says so at
+   * commit; this says it first, in words an ADMIN can act on, instead of
+   * letting a trigger surface as a bare 500.
+   *
+   * It happens for real: two brothers cleared as different people, then one
+   * of them enrolls again and the reviewer, having looked at both Ghana
+   * Cards properly, wants to call it the other way. The answer is that the
+   * first decision stands until somebody changes the records themselves.
+   */
+  private async assertPairNotDecided(
+    tx: TransactionClient,
+    viewer: SignedInUser,
+    employeeId: string,
+    lookalikeId: string,
+    body: ResolveCollisionBody,
+  ): Promise<void> {
+    const earlier = await tx.biometricCredential.findFirst({
+      where: {
+        companyId: viewer.companyId,
+        kind: 'FACE',
+        verdict: { not: null },
+        OR: [
+          { employeeId, collisionEmployeeId: lookalikeId },
+          { employeeId: lookalikeId, collisionEmployeeId: employeeId },
+        ],
+      },
+      orderBy: [{ resolvedAt: 'desc' }],
+      select: { verdict: true, keptEmployeeId: true },
+    });
+    if (!earlier) {
+      return;
+    }
+    const sameAnswer =
+      earlier.verdict === body.verdict &&
+      (body.verdict === 'DIFFERENT_PEOPLE' || earlier.keptEmployeeId === body.keepEmployeeId);
+    if (!sameAnswer) {
+      throw new ConflictException(
+        earlier.verdict === 'DIFFERENT_PEOPLE'
+          ? 'These two records were already decided to be different people. That decision stands.'
+          : 'These two records were already decided to be one person, and which one to keep. That decision stands.',
+      );
+    }
+  }
+
+  /**
+   * A record blocked as a duplicate is finished, and a duplicate review
+   * about this worker is a question only a second ADMIN can settle. Both
+   * refuse everything new for that worker, whichever side of the review they
+   * are on.
+   */
+  private async assertNoOpenReview(
     tx: TransactionClient,
     companyId: string,
     employeeId: string,
   ): Promise<void> {
-    const [blocked, review, exemption] = await Promise.all([
+    const [blocked, review] = await Promise.all([
       tx.biometricCredential.findFirst({
-        where: { companyId, employeeId, kind: 'FACE', status: 'BLOCKED' },
+        where: blockedRecord(companyId, employeeId),
         select: { id: true },
       }),
-      // Open means "no verdict yet", not "the face is PENDING": the retention
-      // sweep wipes a face that waited 90 days, and the question stays. A
-      // review is about **two** records, so the worker the face looked like
-      // is held as fast as the worker who enrolled it.
       tx.biometricCredential.findFirst({
-        where: {
-          companyId,
-          kind: 'FACE',
-          dedupe: 'COLLISION',
-          verdict: null,
-          OR: [{ employeeId }, { collisionEmployeeId: employeeId }],
-        },
+        where: openReview(companyId, employeeId),
         select: { id: true },
       }),
-      tx.biometricExemption.findFirst({ where: { companyId, employeeId, status: 'REQUESTED' } }),
     ]);
     if (blocked) {
       throw new ConflictException(
@@ -476,6 +548,18 @@ export class BiometricReviewsService {
         'A second ADMIN has to finish the duplicate review for this worker first.',
       );
     }
+  }
+
+  /** Nothing new happens while a second ADMIN owes an answer. */
+  private async assertNothingOpen(
+    tx: TransactionClient,
+    companyId: string,
+    employeeId: string,
+  ): Promise<void> {
+    await this.assertNoOpenReview(tx, companyId, employeeId);
+    const exemption = await tx.biometricExemption.findFirst({
+      where: { companyId, employeeId, status: 'REQUESTED' },
+    });
     if (exemption) {
       throw new ConflictException(
         'A second ADMIN has to decide this worker’s exemption request first.',
@@ -528,16 +612,36 @@ export class BiometricReviewsService {
       : { status, reviewedAt, reviewedByUserId: viewer.userId, reviewNote: note };
   }
 
-  /** Files the request a withdrawal leaves behind, unless one is already waiting. */
+  /**
+   * Files the request a withdrawal leaves behind, unless something already
+   * stands in its way.
+   *
+   * The face still goes — the law does not wait — but the request is not
+   * filed while a duplicate review about this worker is open. Filing it
+   * would hand a second ADMIN a question that, once approved, puts the
+   * record back to work with no biometric at all, while the older question
+   * of whether this record is even a real person is still unanswered. The
+   * worker asks for an exemption again once the review is settled.
+   */
   private async fileWithdrawalExemption(
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
   ): Promise<boolean> {
-    const open = await tx.biometricExemption.findFirst({
-      where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
-    });
-    if (open) {
+    const [open, review] = await Promise.all([
+      tx.biometricExemption.findFirst({
+        where: {
+          companyId: viewer.companyId,
+          employeeId,
+          status: { in: ['REQUESTED', 'APPROVED'] },
+        },
+      }),
+      tx.biometricCredential.findFirst({
+        where: openReview(viewer.companyId, employeeId),
+        select: { id: true },
+      }),
+    ]);
+    if (open || review) {
       return false;
     }
     await tx.biometricExemption.create({
@@ -604,7 +708,13 @@ export class BiometricReviewsService {
         });
       }
     }
-    await this.endExemptionsAndKeys(tx, viewer, employeeId);
+    await this.revokeKeys(tx, viewer, employeeId);
+    if (to === 'BLOCKED') {
+      // Only a blocked record loses its exemption. A revoke or a withdrawal
+      // takes the face away; the exemption is the *other* footing, agreed by
+      // two ADMINs, and one ADMIN must never be able to take it.
+      await this.endExemptions(tx, viewer, employeeId);
+    }
   }
 
   /**
@@ -624,18 +734,23 @@ export class BiometricReviewsService {
     await this.employees.markBiometricsEnrolled(viewer.companyId, employeeId, tx);
   }
 
-  /** Wipes what a worker had and takes them off the biometric footing. */
+  /**
+   * Wipes what a worker had and takes them off the biometric footing —
+   * without knocking away the other one. A worker who still holds an
+   * exemption two ADMINs approved keeps working by co-sign; only somebody
+   * with neither a face nor an exemption goes back to waiting.
+   */
   private async wipeAndStandDown(
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
   ): Promise<EmployeeStatus> {
     await this.wipeEverything(tx, viewer, employeeId, 'REVOKED');
-    return this.employees.clearBiometricsEnrolled(viewer.companyId, employeeId, tx);
+    return standDown(tx, this.employees, viewer.companyId, employeeId);
   }
 
-  /** Switches off the fingerprint keys and ends an approved exemption. */
-  private async endExemptionsAndKeys(
+  /** Switches off every fingerprint key the worker still has. */
+  private async revokeKeys(
     tx: TransactionClient,
     viewer: SignedInUser,
     employeeId: string,
@@ -644,6 +759,14 @@ export class BiometricReviewsService {
       where: { companyId: viewer.companyId, employeeId, revokedAt: null },
       data: { revokedAt: new Date(), revokedByUserId: viewer.userId },
     });
+  }
+
+  /** Ends the exemption a blocked record no longer has any footing for. */
+  private async endExemptions(
+    tx: TransactionClient,
+    viewer: SignedInUser,
+    employeeId: string,
+  ): Promise<void> {
     await tx.biometricExemption.updateMany({
       where: { companyId: viewer.companyId, employeeId, status: { in: ['REQUESTED', 'APPROVED'] } },
       data: { status: 'ENDED', endedAt: new Date() },

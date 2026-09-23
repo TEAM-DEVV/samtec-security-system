@@ -682,6 +682,100 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       expect(refused.body.detail).toMatch(/removed a face/);
     });
 
+    it('closes a review whose record another review blocked, and frees the worker it held', async () => {
+      // One face, three records: the honest guard M, a ghost L, and a second
+      // ghost G. L's review names M; G's review names L.
+      const oneFace = anotherFace();
+      const guard = await newStarter();
+      expect((await enroll(guard.id, oneFace)).status).toBe(201);
+      const firstGhost = await newStarter();
+      expect((await enroll(firstGhost.id, oneFace)).status).toBe(201);
+      const held = await faceOf(firstGhost.id);
+      expect(held.dedupe).toBe('COLLISION');
+
+      // The guard takes their consent back, which the law always allows. No
+      // request is filed for a second ADMIN while that review is open.
+      await api()
+        .post(`/api/v1/employees/${guard.id}/biometric-consents/withdraw`)
+        .set(...bearer(enroller))
+        .send({ reason: 'The worker asked for their face to be removed.' })
+        .expect(200);
+      expect(await prisma.biometricExemption.count({ where: { employeeId: guard.id } })).toBe(0);
+
+      // The second ghost now collides with the first ghost's waiting face.
+      const secondGhost = await newStarter();
+      expect((await enroll(secondGhost.id, oneFace)).status).toBe(201);
+      const second = await faceOf(secondGhost.id);
+      expect(second.collisionEmployeeId).toBe(firstGhost.id);
+
+      // Deciding the second review blocks the first ghost's record — the very
+      // face the first review was about.
+      await resolve(reviewer, second.id, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: secondGhost.id,
+        note: 'The older of the two is not a person.',
+      }).expect(200);
+      expect((await faceOf(firstGhost.id)).status).toBe('BLOCKED');
+
+      // That first review can never be decided now, and says so plainly
+      // instead of failing. It has also left the queue.
+      const closed = await resolve(reviewer, held.id, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Trying to answer a question about a blocked record.',
+      }).expect(409);
+      expect(closed.body.detail).toMatch(/blocked as a duplicate by another review/);
+      const queue = await api()
+        .get('/api/v1/biometric-collisions?status=OPEN&limit=50')
+        .set(...bearer(reviewer))
+        .expect(200);
+      expect(
+        queue.body.items.some((item: { credentialId: string }) => item.credentialId === held.id),
+      ).toBe(false);
+
+      // And the honest guard is free again: the question that held them is
+      // over, so they can enrol like anybody else.
+      const again = await enroll(guard.id, anotherFace());
+      expect(again.status).toBe(201);
+      expect(again.body.employeeStatus).toBe('ACTIVE');
+    });
+
+    it('refuses a second, opposite decision about the same two records', async () => {
+      const oneFace = anotherFace();
+      const elder = await newStarter();
+      expect((await enroll(elder.id, oneFace)).status).toBe(201);
+      const brother = await newStarter();
+      expect((await enroll(brother.id, oneFace)).status).toBe(201);
+      const first = await faceOf(brother.id);
+      await resolve(reviewer, first.id, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Two brothers, both Ghana Cards checked in person.',
+      }).expect(200);
+
+      // The younger brother enrols again later, and the pair collides again.
+      await api()
+        .post(`/api/v1/employees/${brother.id}/biometrics/revoke`)
+        .set(...bearer(enroller))
+        .send({ reason: 'The camera reads him badly; taking it again.' })
+        .expect(200);
+      expect((await enroll(brother.id, oneFace)).status).toBe(201);
+      const second = await faceOf(brother.id);
+      expect(second.dedupe).toBe('COLLISION');
+
+      // A reviewer who now wants to call it the other way is told why not,
+      // instead of the database refusing it with nothing to read.
+      const refused = await resolve(reviewer, second.id, {
+        verdict: 'SAME_PERSON',
+        keepEmployeeId: elder.id,
+        note: 'On second thoughts I think this is one man.',
+      }).expect(409);
+
+      expect(refused.body.detail).toMatch(/already decided to be different people/);
+      // The same answer as before still goes through.
+      await resolve(reviewer, second.id, {
+        verdict: 'DIFFERENT_PEOPLE',
+        note: 'Two brothers, as before.',
+      }).expect(200);
+    });
     it('is refused while an exemption request waits', async () => {
       const worker = await newStarter();
       await enroll(worker.id, anotherFace());
@@ -823,6 +917,77 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       );
     });
 
+    it('holds a worker up while a face of theirs only waits for review', async () => {
+      const worker = await newStarter();
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'CANNOT_ENROLL', note: 'Three visits, no usable capture.' })
+        .expect(200);
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(200);
+      const stillActive = async () =>
+        (await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status;
+      expect(await stillActive()).toBe('ACTIVE');
+
+      // The kiosk manages a capture at last, and it collides with somebody.
+      const oneFace = anotherFace();
+      const other = await newStarter();
+      expect((await enroll(other.id, oneFace)).status).toBe(201);
+      const enrolled = await enroll(worker.id, oneFace);
+      expect(enrolled.status).toBe(201);
+      expect(enrolled.body.dedupe).toBe('COLLISION');
+
+      // A face that has not passed proves nothing yet, so the footing two
+      // ADMINs gave this worker is still what they stand on.
+      expect(enrolled.body.employeeStatus).toBe('ACTIVE');
+      expect(await stillActive()).toBe('ACTIVE');
+
+      // Nor does one ADMIN take it away by recording a withdrawal.
+      const withdrawn = await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-consents/withdraw`)
+        .set(...bearer(enroller))
+        .send({ reason: 'The worker no longer agrees to biometrics at all.' })
+        .expect(200);
+
+      expect(withdrawn.body.exemption.status).toBe('APPROVED');
+      expect(withdrawn.body.face.status).toBe('REVOKED');
+      expect(await stillActive()).toBe('ACTIVE');
+    });
+
+    it('is never approved while a duplicate review about the worker is open', async () => {
+      const oneFace = anotherFace();
+      const guard = await newStarter();
+      expect((await enroll(guard.id, oneFace)).status).toBe(201);
+      const ghost = await newStarter();
+      expect((await enroll(ghost.id, oneFace)).status).toBe(201);
+      // A request filed before the review opened, or by any other route.
+      await prisma.biometricExemption.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: guard.id,
+          reason: 'CONSENT_WITHDRAWN',
+          requestedByUserId: company.adminUserId,
+        },
+      });
+
+      const refused = await api()
+        .post(`/api/v1/employees/${guard.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(409);
+
+      expect(refused.body.detail).toMatch(/duplicate review/);
+      // Rejecting is always possible, so the request is never stuck.
+      await api()
+        .post(`/api/v1/employees/${guard.id}/biometric-exemption/review`)
+        .set(...bearer(reviewer))
+        .send({ decision: 'REJECT', note: 'Settle the duplicate question first.' })
+        .expect(200);
+    });
     it('is only for a worker with no face on record', async () => {
       const worker = await newStarter();
       await enroll(worker.id, anotherFace());
