@@ -167,6 +167,18 @@ model User {
   /// is refused, so an overheard code cannot be replayed.
   twoFactorLastUsedStep    BigInt?   @map("two_factor_last_used_step")
 
+  /// Phase 7: an ADMIN account made, promoted, reset or switched back on by one
+  /// administrator waits for a second to confirm it, and cannot be used until
+  /// then (docs/plan/06, "Two administrators"). All four are empty for every
+  /// other role (a database CHECK). A confirmer is never the requester and
+  /// never the account itself (another CHECK). Empty `adminConfirmedByUserId`
+  /// with a date means nobody else was needed: the company's only
+  /// administrator, the setup script, or an account older than the rule.
+  adminRequestedByUserId String?   @map("admin_requested_by_user_id") @db.Uuid
+  adminRequestedAt       DateTime? @map("admin_requested_at") @db.Timestamptz(3)
+  adminConfirmedByUserId String?   @map("admin_confirmed_by_user_id") @db.Uuid
+  adminConfirmedAt       DateTime? @map("admin_confirmed_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -174,6 +186,10 @@ model User {
   employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   sessions   UserSession[]
   challenges AuthChallenge[]
+  adminRequestedBy User?  @relation("AdminRequestedBy", fields: [adminRequestedByUserId], references: [id], onDelete: Restrict)
+  adminConfirmedBy User?  @relation("AdminConfirmedBy", fields: [adminConfirmedByUserId], references: [id], onDelete: Restrict)
+  adminsRequested  User[] @relation("AdminRequestedBy")
+  adminsConfirmed  User[] @relation("AdminConfirmedBy")
 
   @@unique([companyId, email])
   @@map("users")

@@ -80,6 +80,16 @@ export class UsersController {
     return this.users.reactivate(caller, userId);
   }
 
+  /** The second administrator's half of an ADMIN account change (docs/plan/06). */
+  @Post(':userId/confirm-admin')
+  @HttpCode(200)
+  confirmAdmin(
+    @Caller() caller: SignedInUser,
+    @Param('userId', { schema: userIdSchema }) userId: string,
+  ): Promise<UserAccount> {
+    return this.users.confirmAdmin(caller, userId);
+  }
+
   @Post(':userId/reset-sign-in')
   @HttpCode(200)
   async resetSignIn(

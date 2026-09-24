@@ -103,6 +103,9 @@ function AccountRecord({ account }: { account: UserAccount }) {
   const reactivate = $api.useMutation('post', '/users/{userId}/reactivate', {
     onSuccess: refresh,
   });
+  const confirmAdmin = $api.useMutation('post', '/users/{userId}/confirm-admin', {
+    onSuccess: refresh,
+  });
   const reset = $api.useMutation('post', '/users/{userId}/reset-sign-in', {
     // The response holds the one-time token: forget it the moment this page closes.
     gcTime: 0,
@@ -133,14 +136,30 @@ function AccountRecord({ account }: { account: UserAccount }) {
     deactivate.reset();
     reactivate.reset();
     reset.reset();
+    confirmAdmin.reset();
     run();
   }
 
   const pathParams = { params: { path: { userId: account.id } } };
   const switchedOff = account.status === 'DEACTIVATED';
-  const actionError = deactivate.error ?? reactivate.error ?? reset.error;
+  const actionError = deactivate.error ?? reactivate.error ?? reset.error ?? confirmAdmin.error;
   const actionProblem = actionError ? describeApiError(actionError) : undefined;
-  const actionPending = deactivate.isPending || reactivate.isPending || reset.isPending;
+  const actionPending =
+    deactivate.isPending || reactivate.isPending || reset.isPending || confirmAdmin.isPending;
+  // Phase 7: an administrator account waits for a **different** administrator.
+  // The API refuses the one who made the change; the button is hidden only
+  // where the answer is already known (your own account, or your own change).
+  const waiting = account.status === 'AWAITING_CONFIRMATION';
+  const yourOwnChange = account.adminConfirmation?.requestedByUserId === session?.user.id;
+  // Who asked, by name. Somebody about to confirm should see whose change
+  // they are vouching for; any administrator may read any account here.
+  const requesterId = account.adminConfirmation?.requestedByUserId ?? undefined;
+  const requester = $api.useQuery(
+    'get',
+    '/users/{userId}',
+    { params: { path: { userId: requesterId ?? '' } } },
+    { enabled: waiting && requesterId !== undefined && !yourOwnChange },
+  );
 
   return (
     <>
@@ -227,6 +246,48 @@ function AccountRecord({ account }: { account: UserAccount }) {
             </dl>
 
             {freshLink && <PasswordLinkPanel passwordSetup={freshLink} email={account.email} />}
+
+            {waiting && (
+              <Alert>
+                <AlertTitle>Waiting for a second administrator</AlertTitle>
+                <AlertDescription>
+                  {selfAccount || yourOwnChange ? (
+                    <p>
+                      {selfAccount
+                        ? 'Another administrator must confirm your account before you can use it.'
+                        : 'You made this change, so another administrator must confirm it.'}{' '}
+                      Until then this account cannot sign in at all.
+                    </p>
+                  ) : (
+                    <>
+                      <p>
+                        {requester.data
+                          ? `${requester.data.fullName} asked for this`
+                          : 'Another administrator asked for this'}
+                        {account.adminConfirmation?.requestedAt
+                          ? ` on ${formatDateTime(account.adminConfirmation.requestedAt)}.`
+                          : '.'}{' '}
+                        Check in person that this account belongs to the person it names. That check
+                        is the whole point: it is what stops one person quietly holding two
+                        administrator accounts.
+                      </p>
+                      <p className="mt-3">
+                        <Button
+                          aria-disabled={actionPending}
+                          onClick={() => {
+                            if (!actionPending) {
+                              startAction(() => confirmAdmin.mutate(pathParams));
+                            }
+                          }}
+                        >
+                          {confirmAdmin.isPending ? 'Confirming…' : 'Confirm this administrator'}
+                        </Button>
+                      </p>
+                    </>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
 
             {selfAccount ? (
               <p className="text-muted-foreground text-xs">

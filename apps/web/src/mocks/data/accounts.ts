@@ -14,6 +14,16 @@ export const mockAccounts: UserAccount[] = mockUsers.map((user) => ({
   status: 'ACTIVE',
   twoFactorEnabled: user.twoFactorEnabled,
   employeeId: user.employeeId,
+  // Every seeded administrator was confirmed when the company was set up.
+  adminConfirmation:
+    user.role === 'ADMIN'
+      ? {
+          requestedByUserId: null,
+          requestedAt: '2026-09-01T08:00:00Z',
+          confirmedByUserId: null,
+          confirmedAt: '2026-09-01T08:00:00Z',
+        }
+      : null,
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
 }));
