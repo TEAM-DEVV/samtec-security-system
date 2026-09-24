@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { paidBeyondPresence } from '../../common/paid-beyond-presence.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 
 /**
@@ -61,7 +62,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A payslip paying more hours than the recorded shifts support.',
     severity: 'CRITICAL',
     thresholds: { toleranceMinutes: 60 },
-    built: false,
+    built: true,
   },
   {
     code: 'R4',
@@ -85,7 +86,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'Punches or pay after the day the worker left.',
     severity: 'CRITICAL',
     thresholds: {},
-    built: false,
+    built: true,
   },
   {
     code: 'R7',
@@ -661,6 +662,134 @@ export function deviceAnomaly(
     }
   }
   return findings;
+}
+
+// --- R3 · Paid without presence -----------------------------------------------
+
+/** One payslip line, beside the shifts the attendance tables hold for it. */
+export interface PaidPeriod {
+  lineId: string;
+  runId: string;
+  employeeId: string;
+  /** The period, as `YYYY-MM`, for a reader. */
+  period: string;
+  periodStartsOn: Date;
+  periodEndsOn: Date;
+  /** What the line paid for: its regular minutes plus its overtime minutes. */
+  paidMinutes: number;
+  /** Confirmed shifts inside the period, **counted again** at sweep time. */
+  presentMinutes: number;
+  /** Of those, the minutes a person typed in. */
+  manualMinutes: number;
+  /** Of those, the minutes a co-sign or a staff number made. */
+  fallbackMinutes: number;
+}
+
+/**
+ * A payslip paying for more hours than the shifts behind it support.
+ *
+ * The line's own `punchedMinutes` is deliberately **not** what it is compared
+ * against — that number was copied onto the line by the same run that paid
+ * it, so comparing a line with itself would prove nothing. The present
+ * minutes here are counted afresh from the attendance tables, which is what
+ * lets the rule see a line that was edited, a shift that was voided after the
+ * money went out, or a run built on segments that have been disputed since.
+ *
+ * Every `CONFIRMED` segment counts, whatever its basis, or the rule would
+ * fire on every honest correction an ADMIN made through the exception queue
+ * (docs/plan/08 §3). The split is carried in the evidence instead, so a
+ * checker sees at a glance whether the hours rest on a face or on somebody's
+ * word.
+ */
+export function paidWithoutPresence(
+  lines: readonly PaidPeriod[],
+  thresholds: { toleranceMinutes: number },
+  _now: Date,
+): Finding[] {
+  return lines
+    .map((line) => ({
+      line,
+      beyond: paidBeyondPresence(
+        line.paidMinutes,
+        line.presentMinutes,
+        thresholds.toleranceMinutes,
+      ),
+    }))
+    .filter(({ beyond }) => beyond > 0)
+    .map(({ line, beyond }) => ({
+      ruleCode: 'R3' as const,
+      // One per line, ever. A line freezes when its run is submitted, so
+      // asking again next week cannot give a different answer.
+      dedupeKey: `R3:${line.lineId}`,
+      employeeId: line.employeeId,
+      windowFrom: line.periodStartsOn,
+      windowTo: line.periodEndsOn,
+      evidence: {
+        period: line.period,
+        runId: line.runId,
+        lineId: line.lineId,
+        paidMinutes: line.paidMinutes,
+        presentMinutes: line.presentMinutes,
+        beyondToleranceMinutes: beyond,
+        manualMinutes: line.manualMinutes,
+        fallbackMinutes: line.fallbackMinutes,
+      },
+    }));
+}
+
+// --- R6 · Terminated but active -----------------------------------------------
+
+/** Somebody who has left, and whatever has happened on their record since. */
+export interface AfterLeaving {
+  employeeId: string;
+  siteId?: string;
+  /** The last day they were employed. */
+  leftOn: Date;
+  /** Punches the server received after that day ended. */
+  punchesAfter: number;
+  /** The last of them, as `YYYY-MM-DD`. */
+  lastPunchOn?: string;
+  /** Periods that **begin** after they left and still paid them, as `YYYY-MM`. */
+  paidPeriodsAfter: readonly string[];
+}
+
+/**
+ * A worker who has left and whose record is still moving.
+ *
+ * There is no threshold and no tolerance: one punch, or one payslip, for
+ * somebody who is no longer employed is the whole finding. It is the plainest
+ * of the eleven, and the one a defence audience understands with no
+ * explanation at all.
+ *
+ * A period that **contains** the leaving day is not counted. Somebody who
+ * left on the 12th is paid for the first twelve days of that month and that
+ * payslip is correct; only a period beginning after they had gone is a
+ * question.
+ */
+export function terminatedButActive(
+  people: readonly AfterLeaving[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  return people
+    .filter((person) => person.punchesAfter > 0 || person.paidPeriodsAfter.length > 0)
+    .map((person) => ({
+      ruleCode: 'R6' as const,
+      // Keyed by the month it is noticed. The first alert is the question; if
+      // it is still happening next month that is a second question, not the
+      // same one left unanswered.
+      dedupeKey: `R6:${person.employeeId}:${isoMonth(now)}`,
+      employeeId: person.employeeId,
+      siteId: person.siteId,
+      windowFrom: person.leftOn,
+      windowTo: now,
+      evidence: {
+        leftOn: isoDate(person.leftOn),
+        punchesAfter: person.punchesAfter,
+        ...(person.lastPunchOn === undefined ? {} : { lastPunchOn: person.lastPunchOn }),
+        paidPeriodsAfter: [...person.paidPeriodsAfter],
+      },
+    }));
 }
 
 /**

@@ -16,6 +16,7 @@ import type {
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { DEFAULT_PRESENCE_TOLERANCE_MINUTES } from '../../common/paid-beyond-presence.js';
 import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -23,6 +24,7 @@ import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prism
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { deriveKey } from '../identity/secret-box.js';
+import { PayrollFactsService } from '../payroll/payroll-facts.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   ListAlertsQuery,
@@ -39,10 +41,12 @@ import {
   identityCollision,
   neverSeen,
   orphanPunches,
+  paidWithoutPresence,
   RECURRENCE_CAP,
   RULE_CATALOGUE,
   robotRegularity,
   SEVERITY_WEIGHT,
+  terminatedButActive,
 } from './detection-rules.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,6 +82,7 @@ export class DetectionService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceFactsService,
+    private readonly payroll: PayrollFactsService,
     private readonly config: AppConfig,
   ) {}
 
@@ -436,6 +441,73 @@ export class DetectionService {
           minimumClockIns: thresholds.minimumClockIns ?? 5,
           supervisorCoSigns: thresholds.supervisorCoSigns ?? 20,
         },
+        now,
+      );
+    }
+    if (code === 'R3') {
+      const lines = await this.payroll.paidLines(companyId);
+      if (lines.length === 0) {
+        return [];
+      }
+      // One entry per period, however many lines sit in it, so the attendance
+      // module is asked once a month and not once a payslip.
+      const periods = [
+        ...new Map(
+          lines.map((line) => [
+            line.periodId,
+            { periodId: line.periodId, startsOn: line.periodStartsOn, endsOn: line.periodEndsOn },
+          ]),
+        ).values(),
+      ];
+      const present = await this.attendance.presentMinutesPerPeriod(companyId, periods);
+      return paidWithoutPresence(
+        lines.map((line) => {
+          const seen = present.get(`${line.periodId}:${line.employeeId}`);
+          return {
+            ...line,
+            // Nothing found means nothing worked. A period with no confirmed
+            // shift at all is the loudest case this rule has, not a gap to
+            // pass over.
+            presentMinutes: seen?.minutes ?? 0,
+            manualMinutes: seen?.manualMinutes ?? 0,
+            fallbackMinutes: seen?.fallbackMinutes ?? 0,
+          };
+        }),
+        {
+          toleranceMinutes: thresholds.toleranceMinutes ?? DEFAULT_PRESENCE_TOLERANCE_MINUTES,
+        },
+        now,
+      );
+    }
+    if (code === 'R6') {
+      const leavers = await this.employees.whoHasLeft(companyId);
+      if (leavers.length === 0) {
+        return [];
+      }
+      const [punches, lines] = await Promise.all([
+        this.attendance.punchesAfterLeaving(companyId, leavers),
+        this.payroll.paidLines(companyId),
+      ]);
+      const left = new Map(leavers.map((leaver) => [leaver.employeeId, leaver.leftOn]));
+      const paidAfter = new Map<string, string[]>();
+      for (const line of lines) {
+        const leftOn = left.get(line.employeeId);
+        // Only a period that **begins** after the leaving day. The month
+        // somebody left in pays them for the days they worked in it, and that
+        // payslip is right.
+        if (!leftOn || line.periodStartsOn <= leftOn) {
+          continue;
+        }
+        paidAfter.set(line.employeeId, [...(paidAfter.get(line.employeeId) ?? []), line.period]);
+      }
+      return terminatedButActive(
+        leavers.map((leaver) => ({
+          ...leaver,
+          punchesAfter: punches.get(leaver.employeeId)?.punches ?? 0,
+          lastPunchOn: punches.get(leaver.employeeId)?.lastPunchOn,
+          paidPeriodsAfter: [...new Set(paidAfter.get(leaver.employeeId) ?? [])].sort(),
+        })),
+        thresholds,
         now,
       );
     }

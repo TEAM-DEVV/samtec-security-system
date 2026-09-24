@@ -865,6 +865,37 @@ export class EmployeesService {
     return assignments.map((assignment) => assignment.siteId);
   }
 
+  /**
+   * Everyone who has left, and the last day they were employed (rule R6).
+   *
+   * The site is their **last** posting, ended or not, because a leaver has no
+   * current one — without it the alert could not tell an investigator which
+   * gate to go and look at.
+   */
+  async whoHasLeft(
+    companyId: string,
+  ): Promise<{ employeeId: string; leftOn: Date; siteId?: string }[]> {
+    const leavers = await this.prisma.employee.findMany({
+      where: { companyId, status: 'TERMINATED', terminationDate: { not: null } },
+      select: {
+        id: true,
+        terminationDate: true,
+        assignments: { orderBy: { startsOn: 'desc' }, select: { siteId: true }, take: 1 },
+      },
+      orderBy: { id: 'asc' },
+    });
+    return leavers
+      .filter(
+        (leaver): leaver is typeof leaver & { terminationDate: Date } =>
+          leaver.terminationDate !== null,
+      )
+      .map((leaver) => ({
+        employeeId: leaver.id,
+        leftOn: leaver.terminationDate,
+        siteId: leaver.assignments[0]?.siteId,
+      }));
+  }
+
   private includeCurrentSite() {
     return {
       assignments: {

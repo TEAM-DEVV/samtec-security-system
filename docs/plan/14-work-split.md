@@ -18,7 +18,7 @@ Eight phases. Five are finished or nearly so.
 | 2 | Attendance: punches paired into shifts, the exception queue | **Done** — API and screens |
 | 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done.** Left: the kiosk app, the gateway, and three gateway endpoints |
 | 4 | Payroll: Ghana tax, payslips, bank file | **Not started — Samuel owns it, see Job A** |
-| 5 | Ghost detection: the rules that catch fake workers | **Not started — Francis owns it** |
+| 5 | Ghost detection: the rules that catch fake workers | **All eleven rules built, with the queue and the sweep — Francis.** Left: the screens |
 | 6 | Reports and the final visual pass | Not started |
 | 7 | Security hardening | Not started — Francis |
 | 8 | Deploy, defence pack, presentation | Not started — both |
@@ -207,6 +207,7 @@ these by eye after every merge from `main`.
 | `apps/api/prisma/schema.prisma` | The conflict lands in `model Company` and `model Employee`, not at the end | Keep **both** back-relation lists in full. New models go at the end under your own comment |
 | `apps/api/prisma/migrations/` | Git never reports a conflict — see rule 2 | See rule 2 |
 | `apps/api/src/app.module.ts` | One lost line breaks **every** end-to-end test at once | Keep both imports and both array entries, then `pnpm lint:fix` |
+| `apps/api/src/modules/payroll/payroll.module.ts` | Phase 5 created it, holding only the read seam detection needs | Keep both: Samuel's controller and payroll service join the module, and `PayrollFactsService` stays exported |
 | `apps/api/prisma/seed.ts` | Two new blocks, one shared `main()` and one `console.log` | Keep both calls, payroll before detection. Never add a random call inside the existing 50-employee loop — the seed is deliberately repeatable |
 | `apps/api/test/db-fixture.ts` | Wrong delete order fails only in CI, with a raw foreign-key error | Keep both deletes, **above** the employee and site deletes |
 | `apps/web/src/app/routes.ts` | — | Keep both, each under its own comment |

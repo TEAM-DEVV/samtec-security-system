@@ -69,6 +69,34 @@ shows the pattern: a `randomUUID()` company per run, and no cleanup afterwards.
 That leaves a company behind on each local run, which is harmless — run
 `pnpm db:reset` when the local database feels cluttered.
 
+## The read seam, and the one thing submission must do
+
+[`payroll-facts.service.ts`](payroll-facts.service.ts) is how ghost detection
+asks what was paid: minutes and identifiers, never money, and nothing outside
+payroll touches the tables. It is already wired into
+[`payroll.module.ts`](payroll.module.ts) — the controller and the payroll
+service go in that same module when they land.
+
+**Submitting a run must refuse one that pays for hours nobody worked**
+(rule R3, docs/plan/08 §1). Payroll does that itself, from its own data, with
+the shared function in
+[`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts):
+
+```ts
+const beyond = paidBeyondPresence(
+  line.regularMinutes + line.overtimeMinutes,
+  line.punchedMinutes,
+  DEFAULT_PRESENCE_TOLERANCE_MINUTES,
+);
+if (beyond > 0) {
+  throw new ConflictException(/* ... */);
+}
+```
+
+Never import anything from `modules/detection`. Detection reads payroll;
+payroll never learns detection exists, and that is what keeps the two from
+importing each other.
+
 ## Still to build
 
 The endpoints, the payslip PDF (`pdfkit`), and the dashboard screens. The

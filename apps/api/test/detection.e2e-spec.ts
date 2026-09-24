@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -449,6 +449,232 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
     });
   });
 
+  describe('the rules that read payroll', () => {
+    /**
+     * A payslip on a submitted run, for a worker with no shifts behind it.
+     *
+     * The rows are written straight to the tables rather than through the
+     * payroll endpoints, which Samuel is still building. Every rule the
+     * database enforces still applies — a run is born a DRAFT and is moved on
+     * by an update, exactly as the payroll service will have to.
+     */
+    /** One set of rates for the company, made the first time a test needs it. */
+    let taxTableId = '';
+    const rates = async (maker: string) => {
+      if (taxTableId) {
+        return taxTableId;
+      }
+      const taxTable = await prisma.taxTable.create({
+        data: {
+          companyId: company.companyId,
+          taxYear: 2029,
+          effectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          ssnitEmployeeBasisPoints: 550,
+          ssnitEmployerBasisPoints: 1300,
+          ssnitTier1BasisPoints: 1350,
+          ssnitTier2BasisPoints: 500,
+          sourceName: 'GRA PAYE rates 2029',
+          sourceUrl: 'https://gra.gov.gh/domestic-tax/tax-types/paye/',
+          sourceCheckedOn: new Date('2029-01-05T00:00:00Z'),
+          createdByUserId: maker,
+          bands: {
+            create: [
+              {
+                companyId: company.companyId,
+                ordinal: 1,
+                widthPesewas: 49_000,
+                rateBasisPoints: 0,
+              },
+              {
+                companyId: company.companyId,
+                ordinal: 2,
+                widthPesewas: null,
+                rateBasisPoints: 2500,
+              },
+            ],
+          },
+        },
+      });
+      taxTableId = taxTable.id;
+      return taxTableId;
+    };
+
+    const payslipFor = async (employeeId: string, staffNumber: string, month: number) => {
+      const maker = randomUUID();
+      const rateId = await rates(maker);
+      const period = await prisma.payrollPeriod.create({
+        data: {
+          companyId: company.companyId,
+          year: 2029,
+          month,
+          startsOn: new Date(Date.UTC(2029, month - 1, 1)),
+          endsOn: new Date(Date.UTC(2029, month, 0)),
+          status: 'OPEN',
+        },
+      });
+      const payTerms = await prisma.employeePayTerms.create({
+        data: {
+          companyId: company.companyId,
+          employeeId,
+          effectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          basicMonthlyPesewas: 200_000,
+          overtimeHourlyPesewas: 900,
+          createdByUserId: maker,
+        },
+      });
+      const run = await prisma.payrollRun.create({
+        data: {
+          companyId: company.companyId,
+          periodId: period.id,
+          taxTableId: rateId,
+          status: 'DRAFT',
+          calculatedByUserId: maker,
+          excludedEmployees: [],
+        },
+      });
+      const daysInPeriod = new Date(Date.UTC(2029, month, 0)).getUTCDate();
+      const line = await prisma.payrollLine.create({
+        data: {
+          companyId: company.companyId,
+          runId: run.id,
+          employeeId,
+          staffNumber,
+          fullName: 'Test Person',
+          employeeStatus: 'ACTIVE',
+          payTermsId: payTerms.id,
+          payTermsEffectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          basicMonthlyPesewas: 200_000,
+          overtimeHourlyPesewas: 900,
+          daysInPeriod,
+          daysEmployed: daysInPeriod,
+          scheduledMinutes: 15_840,
+          punchedMinutes: 15_840,
+          // A full month of hours, and not one of them in the attendance
+          // tables: the plainest shape rule R3 exists to catch.
+          regularMinutes: 15_840,
+          overtimeMinutes: 0,
+          basicPesewas: 200_000,
+          overtimePesewas: 0,
+          taxableAllowancePesewas: 0,
+          nonTaxableAllowancePesewas: 0,
+          grossPesewas: 200_000,
+          taxableGrossPesewas: 200_000,
+          ssnitEmployeePesewas: 11_000,
+          ssnitEmployerPesewas: 26_000,
+          ssnitTier1Pesewas: 27_000,
+          ssnitTier2Pesewas: 10_000,
+          chargeableIncomePesewas: 189_000,
+          payePesewas: 19_500,
+          otherDeductionsPesewas: 0,
+          netPayPesewas: 169_500,
+          taxTableId: rateId,
+          taxYear: 2029,
+        },
+      });
+      // A run only means something once somebody has put their name to it.
+      await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'PENDING_APPROVAL',
+          submittedByUserId: maker,
+          submittedAt: new Date(),
+          submissionNote: 'Ready for checking.',
+        },
+      });
+      return { runId: run.id, lineId: line.id };
+    };
+
+    it('asks about a payslip paying for a month with no shifts behind it (R3)', async () => {
+      const worker = await ghost(400);
+      const { runId, lineId } = await payslipFor(worker.id, worker.staffNumber, 4);
+
+      const ran = await sweep().expect(200);
+      expect(ran.body.rulesRun).toContain('R3');
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R3', employeeId: worker.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      const found = alerts.body.items[0];
+      expect(found.severity).toBe('CRITICAL');
+      expect(found.evidence.paidMinutes).toBe(15_840);
+      expect(found.evidence.presentMinutes).toBe(0);
+      expect(found.evidence.beyondToleranceMinutes).toBe(15_780);
+      expect(found.evidence.runId).toBe(runId);
+      expect(found.evidence.lineId).toBe(lineId);
+      // Minutes and identifiers only: an alert about hours never carries pay.
+      expect(JSON.stringify(found)).not.toMatch(/pesewa|netPay|bank|GHA-/i);
+    });
+
+    it('says nothing about a payslip the shifts cover (R3)', async () => {
+      const worker = await ghost(400);
+      // Twenty-two twelve-hour days: more than the line pays for, so the
+      // tolerance is not what is keeping the rule quiet.
+      for (let day = 1; day <= 22; day += 1) {
+        await prisma.workSegment.create({
+          data: {
+            companyId: company.companyId,
+            employeeId: worker.id,
+            siteId: company.siteA,
+            workDate: new Date(Date.UTC(2029, 4, day)),
+            startedAt: new Date(Date.UTC(2029, 4, day, 6)),
+            endedAt: new Date(Date.UTC(2029, 4, day, 18)),
+            workedMinutes: 720,
+            // MANUAL, because a segment built from a face needs the two punch
+            // rows behind it and this test is about the minutes, not the
+            // pairing. It counts all the same: every CONFIRMED segment does,
+            // whatever its basis (docs/plan/08 §3).
+            basis: 'MANUAL',
+            status: 'CONFIRMED',
+          },
+        });
+      }
+      await payslipFor(worker.id, worker.staffNumber, 5);
+
+      await sweep().expect(200);
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R3', employeeId: worker.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(alerts.body.items).toHaveLength(0);
+    });
+
+    it('asks about somebody still clocking in after they left (R6)', async () => {
+      await prisma.punchEvent.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: coSignKiosk,
+          siteId: company.siteA,
+          deviceEventId: `left-${Date.now()}`,
+          deviceUserRef: company.leaver.staffNumber,
+          employeeId: company.leaver.id,
+          deviceTime: new Date(),
+          serverTime: new Date(),
+          direction: 'IN',
+          method: 'FACE',
+          payloadHash: createHash('sha256').update(`left-${Date.now()}`).digest('hex'),
+        },
+      });
+
+      const ran = await sweep().expect(200);
+      expect(ran.body.rulesRun).toContain('R6');
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R6', employeeId: company.leaver.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      const found = alerts.body.items[0];
+      expect(found.severity).toBe('CRITICAL');
+      expect(found.evidence.leftOn).toBe(company.leaverLastDay);
+      expect(found.evidence.punchesAfter).toBeGreaterThanOrEqual(1);
+      expect(found.evidence.paidPeriodsAfter).toEqual([]);
+    });
+  });
+
   describe('the planted ghost', () => {
     it('is in the seeded data, on the books and never at a gate', async () => {
       // The labelled ground truth the report's precision and recall
@@ -465,7 +691,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
   });
 
   describe('the rules and the score', () => {
-    it('lists all eleven, and marks the ones not built yet', async () => {
+    it('lists all eleven, every one of them built and switched on', async () => {
       const rules = await api()
         .get('/api/v1/detection/rules')
         .set(...bearer(adminToken))
@@ -473,14 +699,16 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
 
       expect(rules.body.items).toHaveLength(11);
       const built = rules.body.items.filter((rule: { enabled: boolean }) => rule.enabled);
-      // A rule that is not built must never read as a clean bill of health.
+      // Every one of the eleven now, so a quiet queue really is a quiet queue.
       expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual([
         'R1',
         'R10',
         'R11',
         'R2',
+        'R3',
         'R4',
         'R5',
+        'R6',
         'R7',
         'R8',
         'R9',
