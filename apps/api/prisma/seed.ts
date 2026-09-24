@@ -277,13 +277,145 @@ async function main(): Promise<void> {
     );
   }
   await seedUsers(company.id);
+  // After the planted ghost, so that they are on the payroll like everybody
+  // else: a ghost with no pay terms would be left off a run and the Phase 5
+  // demo would have nothing to catch.
   await seedPlantedGhost(company.id, sites);
+  await seedPayroll(company.id);
 
+  const taxTableCount = await prisma.taxTable.count({ where: { companyId: company.id } });
+  const payTermsCount = await prisma.employeePayTerms.count({ where: { companyId: company.id } });
   const employeeCount = await prisma.employee.count({ where: { companyId: company.id } });
   const userCount = await prisma.user.count({ where: { companyId: company.id } });
   console.log(
-    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${await prisma.device.count({ where: { companyId: company.id } })} devices and ${userCount} sign-in accounts (all fictional).`,
+    `Seeded "${company.name}": ${sites.length} sites, ${employeeCount} employees, ${await prisma.device.count({ where: { companyId: company.id } })} devices, ${userCount} sign-in accounts, ${taxTableCount} tax table version and ${payTermsCount} pay terms rows (all fictional).`,
   );
+}
+
+/**
+ * What payroll needs before a month can be calculated: the statutory rates,
+ * what each person is paid, and where the money is sent.
+ *
+ * The 2026 PAYE bands and SSNIT percentages are the ones written up in
+ * docs/plan/09-payroll-engine-ghana.md. **They came from online calculators
+ * and guides during planning and must be checked against the official GRA and
+ * SSNIT publications before a client pilot** — which is exactly why they live
+ * in a versioned table with their source recorded, and not in the code.
+ *
+ * It uses no random numbers, so the 50 employees above are unchanged, and it
+ * is safe to run twice.
+ */
+async function seedPayroll(companyId: string): Promise<void> {
+  // An administrator sets the rates and the pay up, so the rows say who did.
+  const admin = await prisma.user.findFirst({
+    where: { companyId, role: 'ADMIN' },
+    orderBy: { email: 'asc' },
+  });
+  if (!admin) {
+    throw new Error('Seed the sign-in accounts before the payroll rows.');
+  }
+  const byUserId = admin.id;
+  const taxYear = 2026;
+  const existing = await prisma.taxTable.findFirst({ where: { companyId, taxYear } });
+  if (!existing) {
+    await prisma.taxTable.create({
+      data: {
+        companyId,
+        taxYear,
+        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+        // Basis points: 550 is 5.5%. The employee's share is the only one ever
+        // deducted from a worker; the employer's 13% is a company cost, and
+        // Tier 1 and Tier 2 are both shares of basic, not slices of the 13%.
+        ssnitEmployeeBasisPoints: 550,
+        ssnitEmployerBasisPoints: 1300,
+        ssnitTier1BasisPoints: 1350,
+        ssnitTier2BasisPoints: 500,
+        sourceName: 'GRA PAYE rates 2026 (to be verified before the pilot)',
+        sourceUrl: 'https://gra.gov.gh/domestic-tax/tax-types/paye/',
+        sourceCheckedOn: new Date('2026-01-05T00:00:00Z'),
+        createdByUserId: byUserId,
+        bands: {
+          // Widths are pesewas: the tax-free GHS 490 is 49000. The last band
+          // has no width because it has no upper limit.
+          create: [
+            { companyId, ordinal: 1, widthPesewas: 49_000, rateBasisPoints: 0 },
+            { companyId, ordinal: 2, widthPesewas: 10_000, rateBasisPoints: 500 },
+            { companyId, ordinal: 3, widthPesewas: 50_000, rateBasisPoints: 1000 },
+            { companyId, ordinal: 4, widthPesewas: 200_000, rateBasisPoints: 1750 },
+            { companyId, ordinal: 5, widthPesewas: 200_000, rateBasisPoints: 2500 },
+            { companyId, ordinal: 6, widthPesewas: 1_491_000, rateBasisPoints: 3000 },
+            { companyId, ordinal: 7, widthPesewas: null, rateBasisPoints: 3500 },
+          ],
+        },
+      },
+    });
+  }
+
+  // What each job pays a month, in pesewas. Fictional but realistic for a
+  // Ghanaian security firm, and spread across the tax bands on purpose so a
+  // demo run shows more than one rate.
+  const basicByPosition: Record<string, number> = {
+    'Security Guard': 120_000,
+    'Senior Security Guard': 150_000,
+    'Site Supervisor': 220_000,
+    'Control Room Operator': 180_000,
+    'Operations Manager': 450_000,
+  };
+
+  const employees = await prisma.employee.findMany({
+    where: { companyId },
+    orderBy: { staffNumber: 'asc' },
+    select: { id: true, staffNumber: true, position: true, hireDate: true },
+  });
+
+  for (const [index, employee] of employees.entries()) {
+    const effectiveFrom =
+      employee.hireDate > new Date('2026-01-01T00:00:00Z')
+        ? employee.hireDate
+        : new Date('2026-01-01T00:00:00Z');
+    const alreadySet = await prisma.employeePayTerms.findFirst({
+      where: { employeeId: employee.id },
+    });
+    if (!alreadySet) {
+      await prisma.employeePayTerms.create({
+        data: {
+          companyId,
+          employeeId: employee.id,
+          effectiveFrom,
+          basicMonthlyPesewas: basicByPosition[employee.position] ?? 120_000,
+          overtimeHourlyPesewas: 900,
+          // Every third person has a transport allowance, every fourth a
+          // non-taxable one, every fifth a uniform instalment.
+          taxableAllowancePesewas: index % 3 === 0 ? 15_000 : 0,
+          nonTaxableAllowancePesewas: index % 4 === 0 ? 5_000 : 0,
+          otherDeductionPesewas: index % 5 === 0 ? 2_000 : 0,
+          createdByUserId: byUserId,
+        },
+      });
+    }
+
+    // Two people in every fifteen have no payment details, so the bank file
+    // shows a payroll officer who still has to be chased.
+    if (index % 15 < 13) {
+      const onFile = await prisma.employeePaymentDetails.findUnique({
+        where: { employeeId: employee.id },
+      });
+      if (!onFile) {
+        const byMomo = index % 3 === 2;
+        await prisma.employeePaymentDetails.create({
+          data: {
+            companyId,
+            employeeId: employee.id,
+            bankName: byMomo ? null : 'GCB Bank',
+            accountName: byMomo ? null : `Account of ${employee.staffNumber}`,
+            accountNumber: byMomo ? null : `10${String(index + 1).padStart(11, '0')}`,
+            momoNumber: byMomo ? `+2332400000${String(index % 100).padStart(2, '0')}` : null,
+            updatedByUserId: byUserId,
+          },
+        });
+      }
+    }
+  }
 }
 
 /**
