@@ -69,6 +69,13 @@ const DAILY_SWEEP_COMPANIES = 25;
  */
 const DAILY_SWEEP_BUDGET_MS = 20_000;
 
+/**
+ * How long this instance remembers that nothing was due, so a flood of calls
+ * to the public daily route costs one query a minute rather than one each.
+ * The same idea as the health check's reuse window, for the same reason.
+ */
+const NOTHING_DUE_MS = 60_000;
+
 /** How far back a risk score looks (docs/plan/08 §8). */
 const SCORE_WINDOW_DAYS = 90;
 
@@ -146,28 +153,34 @@ export class DetectionService {
    * **claimed** before it is swept, by moving its `swept_at` only if it still
    * holds the value just read, so two calls arriving together never sweep one
    * company twice. The answer is a count and names nobody.
+   *
+   * A flood of calls costs one indexed query a minute per instance, because
+   * an answer of "nothing is due" is kept for that long. The work a caller
+   * can cause is bounded by the twenty-hour gap however often they ask
+   * (docs/plan/08 §7).
    */
   async dailySweep(now = new Date()): Promise<DailySweepResult> {
     const startedAt = Date.now();
-    // A company that has never been swept gets a bookmark dated long ago, so
-    // one query below finds everybody who is due.
-    const neverSwept = await this.prisma.company.findMany({
-      where: { detectionCheck: null },
-      select: { id: true },
-      take: DAILY_SWEEP_COMPANIES,
-    });
-    if (neverSwept.length > 0) {
-      await this.prisma.detectionCheck.createMany({
-        data: neverSwept.map((company) => ({ companyId: company.id, sweptAt: new Date(0) })),
-        skipDuplicates: true,
-      });
+    if (startedAt < this.nothingDueUntil) {
+      // Somebody asked a moment ago and nothing was due. Anyone may call this
+      // route, so the cheap answer is worth keeping for a minute.
+      return { companiesSwept: 0 };
     }
+    const dueBefore = new Date(now.getTime() - DAILY_SWEEP_GAP_MS);
     const due = await this.prisma.detectionCheck.findMany({
-      where: { sweptAt: { lt: new Date(now.getTime() - DAILY_SWEEP_GAP_MS) } },
+      where: { sweptAt: { lt: dueBefore } },
       orderBy: { sweptAt: 'asc' },
       take: DAILY_SWEEP_COMPANIES,
       select: { companyId: true, sweptAt: true },
     });
+    // A company with no bookmark yet gets one dated now, so its first sweep is
+    // the next daily run. Starting it in the past instead would sweep every
+    // company the moment it is created, which is work about no data at all.
+    await this.bookmarkNewCompanies(now);
+    if (due.length === 0) {
+      this.nothingDueUntil = Date.now() + NOTHING_DUE_MS;
+      return { companiesSwept: 0 };
+    }
 
     let companiesSwept = 0;
     for (const company of due) {
@@ -182,10 +195,51 @@ export class DetectionService {
         // Another call got here first.
         continue;
       }
-      await this.sweepCompany(company.companyId, null, now);
-      companiesSwept += 1;
+      try {
+        await this.sweepCompany(company.companyId, null, now);
+        companiesSwept += 1;
+      } catch (error) {
+        // **One company's failure never becomes a silent skip.** The claim
+        // already moved the bookmark, so without putting it back this company
+        // would read as swept and wait a whole day; and without catching,
+        // every company queued behind it would be dropped too.
+        await this.prisma.detectionCheck
+          .updateMany({
+            where: { companyId: company.companyId, sweptAt: now },
+            data: { sweptAt: company.sweptAt },
+          })
+          .catch(() => undefined);
+        this.logger.error({
+          reason: 'daily_sweep_failed',
+          companyId: company.companyId,
+          message: error instanceof Error ? error.message : 'unknown',
+        });
+      }
     }
     return { companiesSwept };
+  }
+
+  /** How long this instance may answer "nothing due" without asking again. */
+  private nothingDueUntil = 0;
+
+  /**
+   * Gives every company without a bookmark one dated now. Bounded like the
+   * sweep itself: a company that misses this call gets its bookmark on the
+   * next one.
+   */
+  private async bookmarkNewCompanies(now: Date): Promise<void> {
+    const newCompanies = await this.prisma.company.findMany({
+      where: { detectionCheck: null },
+      select: { id: true },
+      take: DAILY_SWEEP_COMPANIES,
+    });
+    if (newCompanies.length === 0) {
+      return;
+    }
+    await this.prisma.detectionCheck.createMany({
+      data: newCompanies.map((company) => ({ companyId: company.id, sweptAt: now })),
+      skipDuplicates: true,
+    });
   }
 
   /**

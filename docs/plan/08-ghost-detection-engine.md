@@ -206,6 +206,26 @@ anyway, a sweep only raises questions for a person to answer, and the answer
 is a bare count that names no company, worker or rule. The twenty-hour gap is
 the guard, and it holds whoever is calling.
 
+**Asking often costs almost nothing**, which is the other half of leaving it
+open. When nothing is due the route answers from memory for a minute, so a
+flood of calls costs one indexed query a minute per running instance rather
+than one query each — the same trick, for the same reason, as the health
+check's reuse window. The sweeping itself cannot be made to happen more often
+than once a company a day however hard somebody asks. What is left is
+ordinary request volume against a hosted function, which is the platform's
+business and no different from the public health check.
+
+**A company with no bookmark yet gets one dated now**, so its first sweep is
+the next daily run rather than the moment it is created. There is nothing to
+find in a company that has no attendance yet, and it keeps a burst of new
+companies from turning into a burst of sweeps.
+
+**One company's failure never becomes a silent skip.** A company is claimed
+before it is swept, so a failure mid-sweep would leave it looking swept: the
+bookmark is put back, the failure is logged by company and message, and the
+rest of the queue carries on. It is the same rule as "one broken rule never
+stops the other ten", one level up.
+
 A sweep never fails a heartbeat, and a rule that throws is logged by code and
 skipped — one broken rule must not stop the other ten.
 

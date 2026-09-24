@@ -763,10 +763,17 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
 
   describe('the daily run', () => {
     /**
-     * Makes this test's company the only one due. The local database holds
-     * every company earlier test runs left behind, and the daily run sweeps
-     * whoever is due, so the others are marked as swept just now. The
-     * bookmark is only bookkeeping: no other test reads it.
+     * Makes this test's company the only one due, and nobody else.
+     *
+     * The daily run is deliberately global — it sweeps whichever companies
+     * are due — and the local database holds every company earlier runs and
+     * other test files left behind. Marking them all as swept just now is
+     * what keeps this test from reaching into another file's data while both
+     * run. A company created by another file **after** this runs is safe too:
+     * the daily run gives a company with no bookmark one dated now, so its
+     * first sweep is the next day, never this call.
+     *
+     * The bookmark is bookkeeping only; no other test reads `swept_at`.
      */
     const onlyThisCompanyDue = async () => {
       const unmarked = await prisma.company.findMany({
@@ -811,6 +818,23 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(audit?.actorUserId).toBeNull();
     });
 
+    it('gives a brand-new company a bookmark, and sweeps it tomorrow rather than now', async () => {
+      const fresh = await prisma.company.create({ data: { name: `Daily run ${randomUUID()}` } });
+      await onlyThisCompanyDue();
+
+      await api().get('/api/v1/detection/daily-sweep').expect(200);
+
+      const bookmark = await prisma.detectionCheck.findUnique({
+        where: { companyId: fresh.id },
+      });
+      // It has one now, dated now — so it is not due, and nothing was swept
+      // for it. A company with no attendance yet has nothing to find, and a
+      // burst of new companies never becomes a burst of sweeps.
+      expect(bookmark).not.toBeNull();
+      expect(Date.now() - (bookmark?.sweptAt.getTime() ?? 0)).toBeLessThan(60_000);
+      expect(await prisma.detectionAlert.count({ where: { companyId: fresh.id } })).toBe(0);
+    });
+
     it('does nothing for a company already swept in the last twenty hours', async () => {
       await onlyThisCompanyDue();
       await api().get('/api/v1/detection/daily-sweep').expect(200);
@@ -818,7 +842,9 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         where: { companyId: company.companyId },
       });
 
-      // Called again straight away, as anybody could.
+      // Called again straight away, as anybody could. Nothing moves: either
+      // the minute-long "nothing due" answer replies from memory, or the
+      // twenty-hour gap refuses the company again.
       await api().get('/api/v1/detection/daily-sweep').expect(200);
 
       const second = await prisma.detectionCheck.findUniqueOrThrow({
