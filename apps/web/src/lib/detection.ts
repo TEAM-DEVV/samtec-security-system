@@ -178,7 +178,13 @@ export function evidenceText(key: string, value: unknown): string {
     return '—';
   }
   if (typeof value === 'number') {
-    return key.endsWith('Minutes') ? formatMinutes(value) : String(value);
+    if (!key.endsWith('Minutes')) {
+      return String(value);
+    }
+    // Whole minutes read as hours and minutes. Some rules measure to a tenth
+    // of a minute (R8's spread, R9's clock drift), which formatMinutes
+    // rightly refuses, so those read as they are.
+    return Number.isInteger(value) && value >= 0 ? formatMinutes(value) : `${value} min`;
   }
   if (typeof value === 'boolean') {
     return value ? 'Yes' : 'No';
