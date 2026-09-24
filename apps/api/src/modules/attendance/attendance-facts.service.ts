@@ -264,7 +264,12 @@ export class AttendanceFactsService {
       decidedByUserId: string;
       decidedAt: Date;
     }[];
-    hands: { employeeId: string; userId: string; did: 'enrolled' | 'wiped' | 'withdrew' }[];
+    hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[];
   }> {
     const [reviews, exemptions] = await Promise.all([
       this.prisma.biometricCredential.findMany({
@@ -273,6 +278,7 @@ export class AttendanceFactsService {
           kind: 'FACE',
           verdict: { not: null },
           resolvedByUserId: { not: null },
+          resolvedAt: { not: null },
         },
         select: {
           id: true,
@@ -288,25 +294,40 @@ export class AttendanceFactsService {
       }),
     ]);
 
+    // Who decided and when are stored together or not at all — a database
+    // CHECK on each table says so — and both queries above ask for both. The
+    // narrowing below is how TypeScript is told that; it is not a place where
+    // a half-decided row quietly turns into a decision dated 1970, which would
+    // have hidden it from the rule rather than raised it.
     const decisions = [
-      ...reviews.map((row) => ({
-        kind: 'duplicate review' as const,
-        recordId: row.id,
-        employeeIds: [row.employeeId, row.collisionEmployeeId].filter(
-          (id): id is string => id !== null,
-        ),
-        subjectEmployeeId: row.employeeId,
-        decidedByUserId: row.resolvedByUserId ?? '',
-        decidedAt: row.resolvedAt ?? new Date(0),
-      })),
-      ...exemptions.map((row) => ({
-        kind: 'exemption' as const,
-        recordId: row.id,
-        employeeIds: [row.employeeId],
-        subjectEmployeeId: row.employeeId,
-        decidedByUserId: row.reviewedByUserId ?? '',
-        decidedAt: row.reviewedAt ?? new Date(0),
-      })),
+      ...reviews
+        .filter(
+          (row): row is typeof row & { resolvedByUserId: string; resolvedAt: Date } =>
+            row.resolvedByUserId !== null && row.resolvedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'duplicate review' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId, row.collisionEmployeeId].filter(
+            (id): id is string => id !== null,
+          ),
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.resolvedByUserId,
+          decidedAt: row.resolvedAt,
+        })),
+      ...exemptions
+        .filter(
+          (row): row is typeof row & { reviewedByUserId: string; reviewedAt: Date } =>
+            row.reviewedByUserId !== null && row.reviewedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'exemption' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId],
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.reviewedByUserId,
+          decidedAt: row.reviewedAt,
+        })),
     ];
     if (decisions.length === 0) {
       return { decisions: [], hands: [] };
@@ -316,28 +337,40 @@ export class AttendanceFactsService {
     const [credentials, withdrawals] = await Promise.all([
       this.prisma.biometricCredential.findMany({
         where: { companyId, employeeId: { in: involved } },
-        select: { employeeId: true, enrolledByUserId: true, wipedByUserId: true },
+        select: {
+          employeeId: true,
+          enrolledByUserId: true,
+          enrolledAt: true,
+          wipedByUserId: true,
+          wipedAt: true,
+        },
       }),
       this.prisma.biometricConsent.findMany({
         where: { companyId, employeeId: { in: involved }, status: 'WITHDRAWN' },
-        select: { employeeId: true, recordedByUserId: true },
+        select: { employeeId: true, recordedByUserId: true, recordedAt: true },
       }),
     ]);
-    const hands: { employeeId: string; userId: string; did: 'enrolled' | 'wiped' | 'withdrew' }[] =
-      [];
+    const hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[] = [];
     for (const credential of credentials) {
       if (credential.enrolledByUserId) {
         hands.push({
           employeeId: credential.employeeId,
           userId: credential.enrolledByUserId,
           did: 'enrolled',
+          at: credential.enrolledAt,
         });
       }
-      if (credential.wipedByUserId) {
+      if (credential.wipedByUserId && credential.wipedAt) {
         hands.push({
           employeeId: credential.employeeId,
           userId: credential.wipedByUserId,
           did: 'wiped',
+          at: credential.wipedAt,
         });
       }
     }
@@ -346,6 +379,7 @@ export class AttendanceFactsService {
         employeeId: withdrawal.employeeId,
         userId: withdrawal.recordedByUserId,
         did: 'withdrew',
+        at: withdrawal.recordedAt,
       });
     }
     return { decisions, hands };

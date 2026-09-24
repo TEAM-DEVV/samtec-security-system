@@ -454,21 +454,34 @@ export interface HandsOn {
   userId: string;
   /** What they did: enrolled a face, wiped one, or recorded a withdrawal. */
   did: 'enrolled' | 'wiped' | 'withdrew';
+  /** When. A hand the decision itself made is not a hand they had **before** it. */
+  at: Date;
 }
 
 /**
- * A two-person decision settled by somebody who should not have settled it.
+ * A two-person decision settled by somebody with a hand in it already.
  *
- * **This rule should always find nothing**, and that is the point of it.
- * Every clause below is already refused when the decision is made — some by
- * a database CHECK, the rest by the service. What no check can do is prove
- * the rule *held* for the decisions already on the record: a migration, a
- * repair script, or a future change to the service could quietly break it,
- * and nobody would know.
+ * **This one is expected to fire**, and it is worth being clear why, because
+ * it is easy to read it the wrong way round.
  *
- * So this is a backstop, not a detector. An alert here does not mean a
- * worker did something; it means this system did, and somebody has to look
- * at how.
+ * The direct links are refused outright: a database CHECK stops an ADMIN
+ * deciding the review of a face they enrolled themselves, and the service
+ * stops anybody who wiped a face for either worker, or recorded their
+ * withdrawal. Those are never allowed, so a finding pointing at one means
+ * something is wrong with **this system** — a migration or a repair script
+ * that went round the rules.
+ *
+ * The **indirect** link is a different thing, and it is allowed on purpose.
+ * An ADMIN who enrolled the *other* worker's face may still decide the
+ * review, because refusing that would deadlock a company with two ADMINs in
+ * the ordinary case — two brothers enrolled by different people
+ * (docs/plan/13 §2, decision 13). Those decisions are **flagged, not
+ * blocked**, and showing them to the payroll checker is the whole job of
+ * this rule. A finding there is routine and worth a look; it is not a bug
+ * report.
+ *
+ * What it never is, either way, is a finding about the worker. Nobody is
+ * accused of anything by a rule about who signed a form.
  */
 export function conflictedDecision(
   decisions: readonly TwoPersonDecision[],
@@ -483,7 +496,13 @@ export function conflictedDecision(
   return decisions.flatMap((decision) => {
     const clashes = decision.employeeIds
       .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
-      .filter((hand) => hand.userId === decision.decidedByUserId);
+      .filter((hand) => hand.userId === decision.decidedByUserId)
+      // **Only a hand they had before.** Settling a duplicate as one person
+      // wipes the losing record, stamped with the decider's own name in the
+      // same breath as the decision — so without this, every by-the-book
+      // resolution would report itself, and the rule would be noise within
+      // a week.
+      .filter((hand) => hand.at.getTime() < decision.decidedAt.getTime());
     if (clashes.length === 0) {
       return [];
     }
@@ -494,7 +513,10 @@ export function conflictedDecision(
         // the answer cannot change by asking again.
         dedupeKey: `R11:${decision.kind === 'exemption' ? 'exemption' : 'review'}:${decision.recordId}`,
         employeeId: decision.subjectEmployeeId,
-        windowFrom: decision.decidedAt,
+        windowFrom: clashes.reduce(
+          (earliest, hand) => (hand.at < earliest ? hand.at : earliest),
+          decision.decidedAt,
+        ),
         windowTo: now,
         evidence: {
           decision: decision.kind,
@@ -502,6 +524,11 @@ export function conflictedDecision(
           // What the same person had already done. Never their name: an
           // alert about a decision is not a file on the person who made it.
           alsoDid: [...new Set(clashes.map((hand) => hand.did))].sort(),
+          // **Which worker** the earlier involvement was with. On a duplicate
+          // review the alert lands on one file while the history may be with
+          // the other, and a checker cannot act on an alert that does not say
+          // which.
+          concerningEmployeeIds: [...new Set(clashes.map((hand) => hand.employeeId))].sort(),
           decidedByUserId: decision.decidedByUserId,
         },
       },

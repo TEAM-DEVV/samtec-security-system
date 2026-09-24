@@ -366,8 +366,8 @@ describe('R11 · conflicted decision', () => {
     const found = conflictedDecision(
       [decision],
       [
-        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled' },
-        { employeeId: 'grace', userId: 'admin-three', did: 'enrolled' },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-three', did: 'enrolled', at: daysAgo(30) },
       ],
       {},
       NOW,
@@ -378,14 +378,32 @@ describe('R11 · conflicted decision', () => {
     expect(found).toEqual([]);
   });
 
+  it('does not report a decision for the wipe that the decision itself made', () => {
+    // Settling a duplicate as one person wipes the losing record, stamped
+    // with the decider's own name in the same breath as the decision. Every
+    // by-the-book resolution would otherwise report itself, and the rule
+    // would be noise inside a week.
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: decision.decidedAt },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toEqual([]);
+  });
+
   it('names a decision settled by somebody who had already had a hand in it', () => {
     const found = conflictedDecision(
       [decision],
       [
         // The same ADMIN enrolled the other record's face, then decided
         // whether the two were the same person.
-        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled' },
-        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled' },
+        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
       ],
       {},
       NOW,
@@ -394,6 +412,9 @@ describe('R11 · conflicted decision', () => {
     expect(found).toHaveLength(1);
     expect(found[0]?.employeeId).toBe('abena');
     expect(found[0]?.evidence.alsoDid).toEqual(['enrolled']);
+    // The history is with Grace, though the alert lands on Abena's file: a
+    // checker cannot act on an alert that does not say which.
+    expect(found[0]?.evidence.concerningEmployeeIds).toEqual(['grace']);
     expect(found[0]?.dedupeKey).toBe('R11:review:face-9');
     // An alert about a decision is not a file on the person who made it.
     expect(JSON.stringify(found)).not.toMatch(/name|email/i);
@@ -403,9 +424,9 @@ describe('R11 · conflicted decision', () => {
     const found = conflictedDecision(
       [decision],
       [
-        { employeeId: 'abena', userId: 'admin-one', did: 'wiped' },
-        { employeeId: 'abena', userId: 'admin-one', did: 'withdrew' },
-        { employeeId: 'grace', userId: 'admin-one', did: 'wiped' },
+        { employeeId: 'abena', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
       ],
       {},
       NOW,
@@ -426,7 +447,7 @@ describe('R11 · conflicted decision', () => {
           decidedAt: daysAgo(1),
         },
       ],
-      [{ employeeId: 'kwame', userId: 'admin-one', did: 'withdrew' }],
+      [{ employeeId: 'kwame', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) }],
       {},
       NOW,
     );
