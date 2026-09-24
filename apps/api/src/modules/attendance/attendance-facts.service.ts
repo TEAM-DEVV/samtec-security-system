@@ -248,6 +248,110 @@ export class AttendanceFactsService {
   }
 
   /**
+   * Every two-person decision already on the record, and everybody who had
+   * a hand in those workers' biometrics before it (rule R11).
+   *
+   * It reads the decisions and the hands separately and lets the rule put
+   * them together, so the comparison itself can be tested without a
+   * database.
+   */
+  async twoPersonDecisions(companyId: string): Promise<{
+    decisions: {
+      kind: 'duplicate review' | 'exemption';
+      recordId: string;
+      employeeIds: string[];
+      subjectEmployeeId: string;
+      decidedByUserId: string;
+      decidedAt: Date;
+    }[];
+    hands: { employeeId: string; userId: string; did: 'enrolled' | 'wiped' | 'withdrew' }[];
+  }> {
+    const [reviews, exemptions] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: {
+          companyId,
+          kind: 'FACE',
+          verdict: { not: null },
+          resolvedByUserId: { not: null },
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          collisionEmployeeId: true,
+          resolvedByUserId: true,
+          resolvedAt: true,
+        },
+      }),
+      this.prisma.biometricExemption.findMany({
+        where: { companyId, reviewedByUserId: { not: null }, reviewedAt: { not: null } },
+        select: { id: true, employeeId: true, reviewedByUserId: true, reviewedAt: true },
+      }),
+    ]);
+
+    const decisions = [
+      ...reviews.map((row) => ({
+        kind: 'duplicate review' as const,
+        recordId: row.id,
+        employeeIds: [row.employeeId, row.collisionEmployeeId].filter(
+          (id): id is string => id !== null,
+        ),
+        subjectEmployeeId: row.employeeId,
+        decidedByUserId: row.resolvedByUserId ?? '',
+        decidedAt: row.resolvedAt ?? new Date(0),
+      })),
+      ...exemptions.map((row) => ({
+        kind: 'exemption' as const,
+        recordId: row.id,
+        employeeIds: [row.employeeId],
+        subjectEmployeeId: row.employeeId,
+        decidedByUserId: row.reviewedByUserId ?? '',
+        decidedAt: row.reviewedAt ?? new Date(0),
+      })),
+    ];
+    if (decisions.length === 0) {
+      return { decisions: [], hands: [] };
+    }
+
+    const involved = [...new Set(decisions.flatMap((decision) => decision.employeeIds))];
+    const [credentials, withdrawals] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: { companyId, employeeId: { in: involved } },
+        select: { employeeId: true, enrolledByUserId: true, wipedByUserId: true },
+      }),
+      this.prisma.biometricConsent.findMany({
+        where: { companyId, employeeId: { in: involved }, status: 'WITHDRAWN' },
+        select: { employeeId: true, recordedByUserId: true },
+      }),
+    ]);
+    const hands: { employeeId: string; userId: string; did: 'enrolled' | 'wiped' | 'withdrew' }[] =
+      [];
+    for (const credential of credentials) {
+      if (credential.enrolledByUserId) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.enrolledByUserId,
+          did: 'enrolled',
+        });
+      }
+      if (credential.wipedByUserId) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.wipedByUserId,
+          did: 'wiped',
+        });
+      }
+    }
+    for (const withdrawal of withdrawals) {
+      hands.push({
+        employeeId: withdrawal.employeeId,
+        userId: withdrawal.recordedByUserId,
+        did: 'withdrew',
+      });
+    }
+    return { decisions, hands };
+  }
+
+  /**
    * What time each worker clocked in, day by day, since `from` (rule R8).
    *
    * One time per calendar day — the first clock-in of that day — because a

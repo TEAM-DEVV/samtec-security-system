@@ -31,6 +31,7 @@ import type {
 } from './detection.schemas.js';
 import {
   bilocation,
+  conflictedDecision,
   deviceAnomaly,
   duplicateEnrollment,
   type Finding,
@@ -437,6 +438,10 @@ export class DetectionService {
         },
         now,
       );
+    }
+    if (code === 'R11') {
+      const { decisions, hands } = await this.attendance.twoPersonDecisions(companyId);
+      return conflictedDecision(decisions, hands, thresholds, now);
     }
     if (code === 'R8') {
       const days = thresholds.workingDays ?? 10;

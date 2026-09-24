@@ -56,5 +56,11 @@ R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
 **and** for the supervisor doing the letting in), R8 (robot regularity), R9
 (device anomaly, against a device's own history) and R10 (orphan punches).
 
-R11 is still in the catalogue, switched off and reported as skipped; R3 and
-R6 wait for payroll.
+**Nine of eleven.** Only R3 and R6 are left.
+
+R11 is a **backstop, not a detector**: every clause it checks is already
+refused when a decision is made, some by a database CHECK and the rest by the
+service. What no check can do is prove the rule *held* for the decisions
+already on the record, which a migration or a repair script could quietly
+break. An empty answer is the one it should almost always give, and an alert
+from it is about this system rather than about a worker.

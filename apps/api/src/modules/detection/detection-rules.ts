@@ -125,7 +125,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A two-person decision settled by somebody who should not have settled it.',
     severity: 'HIGH',
     thresholds: {},
-    built: false,
+    built: true,
   },
 ];
 
@@ -432,6 +432,81 @@ export function fallbackAbuse(
  */
 function fingerprintOf(value: string, key: Buffer): string {
   return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
+}
+
+// --- R11 · Conflicted decision ------------------------------------------------
+
+export interface TwoPersonDecision {
+  kind: 'duplicate review' | 'exemption';
+  /** The record or request that was decided. */
+  recordId: string;
+  /** Everybody the decision was about: one worker, or the two in a duplicate review. */
+  employeeIds: string[];
+  /** The worker the alert is filed against. */
+  subjectEmployeeId: string;
+  decidedByUserId: string;
+  decidedAt: Date;
+}
+
+/** Who already had a hand in a worker's biometrics, and how. */
+export interface HandsOn {
+  employeeId: string;
+  userId: string;
+  /** What they did: enrolled a face, wiped one, or recorded a withdrawal. */
+  did: 'enrolled' | 'wiped' | 'withdrew';
+}
+
+/**
+ * A two-person decision settled by somebody who should not have settled it.
+ *
+ * **This rule should always find nothing**, and that is the point of it.
+ * Every clause below is already refused when the decision is made — some by
+ * a database CHECK, the rest by the service. What no check can do is prove
+ * the rule *held* for the decisions already on the record: a migration, a
+ * repair script, or a future change to the service could quietly break it,
+ * and nobody would know.
+ *
+ * So this is a backstop, not a detector. An alert here does not mean a
+ * worker did something; it means this system did, and somebody has to look
+ * at how.
+ */
+export function conflictedDecision(
+  decisions: readonly TwoPersonDecision[],
+  hands: readonly HandsOn[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  const byEmployee = new Map<string, HandsOn[]>();
+  for (const hand of hands) {
+    byEmployee.set(hand.employeeId, [...(byEmployee.get(hand.employeeId) ?? []), hand]);
+  }
+  return decisions.flatMap((decision) => {
+    const clashes = decision.employeeIds
+      .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
+      .filter((hand) => hand.userId === decision.decidedByUserId);
+    if (clashes.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ruleCode: 'R11' as const,
+        // One per decision, ever: it is one question about one record, and
+        // the answer cannot change by asking again.
+        dedupeKey: `R11:${decision.kind === 'exemption' ? 'exemption' : 'review'}:${decision.recordId}`,
+        employeeId: decision.subjectEmployeeId,
+        windowFrom: decision.decidedAt,
+        windowTo: now,
+        evidence: {
+          decision: decision.kind,
+          recordId: decision.recordId,
+          // What the same person had already done. Never their name: an
+          // alert about a decision is not a file on the person who made it.
+          alsoDid: [...new Set(clashes.map((hand) => hand.did))].sort(),
+          decidedByUserId: decision.decidedByUserId,
+        },
+      },
+    ];
+  });
 }
 
 // --- R8 · Robot regularity ---------------------------------------------------
