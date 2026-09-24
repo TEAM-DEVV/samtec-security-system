@@ -233,8 +233,11 @@ Phase 7 task for Francis, not part of this build.
 # Added during the build, after the four-lens review
 
 The twenty-one decisions above were settled before any code was written. The
-security lens on the contract pull request found one more question the design
-had not answered, and one rule the design had assumed rather than stated.
+four review lenses then found questions the design had not answered, and rules
+it had assumed rather than stated. Decisions 22 to 24 came out of the contract
+review, and 25 and 26 out of building the engine and the endpoints — 25 in
+particular corrects decision 22, which asked for something that turned out to
+be unsafe.
 
 **22. The approval covers the amount, not the destination.** A run is a locked
 snapshot of what each worker is *owed*, and a trigger refuses to change it. But
@@ -317,6 +320,40 @@ Where that leaves a net pay of zero or less, the bank file leaves the row out �
 a bank cannot take a negative payment — and the payroll line and the payslip
 still show it, so the money is recovered by an adjustment line in a later
 period.
+
+**25. The audit log records that a bank destination changed, never a hash of
+it.** Decision 22 said the change should be recorded with a SHA-256 of the
+account number, so a later reader could prove which number had been replaced
+without the log holding the number itself. Building it showed that reasoning
+does not hold. A Ghanaian bank account number is ten to thirteen digits in
+practice, and a mobile money number is nine digits behind a fixed `+233` — so
+the space to search is between a billion and ten trillion values, which a
+graphics card hashes in minutes to hours. (The column allows up to twenty
+digits, and twenty truly random digits would be out of reach; real account
+numbers are not random, they are a bank prefix and a branch code followed by a
+short serial, which is why the practical figure is the one that matters.) A
+hash of one is therefore the number in any sense that counts, and storing it
+in an append-only log would put a bank account number somewhere it can never
+be removed from — against hard rule 8 and
+against Act 843's data minimisation.
+
+So the log records only which fields moved (`bankAccountChanged`,
+`momoChanged`), who moved them, and when. The question decision 22 actually
+wanted answered — *did the destination change after somebody approved this
+money?* — is answered instead by comparing the payment details row's
+`updated_at` with the run's `approved_at`, which is where the bank file's
+`details_changed_after_approval` column comes from. The account number then
+lives in exactly one place, which is the only way to be sure where it is.
+
+**26. The two SSNIT tiers are derived, not calculated twice.** Tier 1 (13.5% of
+basic) and Tier 2 (5%) are a split of the same 18.5% that the employee's 5.5%
+and the employer's 13% add up to. Rounding all four independently broke that
+for about a third of possible salaries by one pesewa — basic GHS 1,200.19 gives
+22,203 pesewas contributed but 22,204 split — and the statutory summary reports
+both figures, so they have to tie. Tier 2 is therefore
+`employee + employer − tier1`, and a tax table whose four percentages do not
+add up is refused at the boundary rather than quietly producing a summary that
+does not reconcile.
 
 ---
 

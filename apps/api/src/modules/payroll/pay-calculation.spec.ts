@@ -300,7 +300,11 @@ function sequence(seed: number): () => number {
 }
 
 describe('the rules that must hold for every line', () => {
-  it('always adds up, so a worker can check their payslip by hand', () => {
+  // Thirty seconds, not the usual five: this runs the whole calculation twice
+  // over 5,000 generated lines. It takes under two seconds on an idle machine,
+  // but a loaded one or a small CI runner can push it past the default and
+  // turn a good test into a flaky gate.
+  it('always adds up, so a worker can check their payslip by hand', { timeout: 30_000 }, () => {
     const next = sequence(20_260_924);
     for (let attempt = 0; attempt < 5_000; attempt += 1) {
       const daysInPeriod = 28 + Math.floor(next() * 4);

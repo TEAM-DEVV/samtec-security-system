@@ -4040,7 +4040,10 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
-        /** @description A new version of the statutory rates. Only the last band may leave out its width; the server rejects a gap or a wrong order in `ordinal`, a band other than the last with `widthPesewas: null`, and a `sourceCheckedOn` in the future. */
+        /**
+         * @description A new version of the statutory rates. Only the last band may leave out its width; the server rejects a gap or a wrong order in `ordinal`, a band other than the last with `widthPesewas: null`, and a `sourceCheckedOn` in the future.
+         *     It also rejects a version whose four SSNIT percentages do not add up: `ssnitTier1BasisPoints + ssnitTier2BasisPoints` must equal `ssnitEmployeeBasisPoints + ssnitEmployerBasisPoints`, because the two tiers are a split of the same contribution rather than two separate charges. The engine works Tier 2 out from the other three so that the statutory summary always reconciles, and a version where they disagree would make it report two totals that do not tie.
+         */
         CreateTaxTableRequest: {
             /** @description The tax year these rates belong to, like `2026`. */
             taxYear: number;
@@ -4166,7 +4169,7 @@ export interface components {
         };
         /** @description Replaces an employee's payment details. All four fields are required: send `null` for anything the worker does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
         SetEmployeePaymentDetailsRequest: {
-            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
             bankName: string | null;
             /** @description The name on the account, exactly as the bank holds it, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
             accountName: string | null;

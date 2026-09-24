@@ -606,11 +606,10 @@ describe.skipIf(!databaseUrl)('The payroll rules the database enforces (e2e)', (
     it('never lets a tax table or one of its bands be deleted', async () => {
       // The open top band could be deleted and the table then frozen, leaving
       // the highest earners untaxed with nothing to notice.
-      const band = await prisma.taxBand.findFirst({
+      const band = await prisma.taxBand.findFirstOrThrow({
         where: { taxTableId, widthPesewas: null },
       });
-      expect(band).not.toBeNull();
-      await expect(prisma.taxBand.delete({ where: { id: band!.id } })).rejects.toThrow();
+      await expect(prisma.taxBand.delete({ where: { id: band.id } })).rejects.toThrow();
       await expect(prisma.taxTable.delete({ where: { id: taxTableId } })).rejects.toThrow();
     });
 
