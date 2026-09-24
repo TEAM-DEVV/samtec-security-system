@@ -120,9 +120,21 @@ model Company {
 
   fingerEnrollmentWindows   FingerEnrollmentWindow[]
   terminalEnrollmentReports TerminalEnrollmentReport[]
-  detectionRules  DetectionRule[]
-  detectionAlerts DetectionAlert[]
-  detectionCheck  DetectionCheck?
+  detectionRules            DetectionRule[]
+  detectionAlerts           DetectionAlert[]
+  detectionCheck            DetectionCheck?
+
+  // Phase 4 payroll. The payroll module owns these tables; these are only the
+  // other side of their links, which Prisma needs.
+  payrollPeriods         PayrollPeriod[]
+  payrollRuns            PayrollRun[]
+  payrollLines           PayrollLine[]
+  payslips               Payslip[]
+  taxTables              TaxTable[]
+  taxBands               TaxBand[]
+  employeePayTerms       EmployeePayTerms[]
+  employeePaymentDetails EmployeePaymentDetails[]
+
   @@map("companies")
 }
 
@@ -278,9 +290,9 @@ model Site {
   segments             WorkSegment[]
   attendanceExceptions AttendanceException[] @relation("ExceptionSite")
   secondSiteExceptions AttendanceException[] @relation("ExceptionSecondSite")
+  detectionAlerts      DetectionAlert[]
 
   @@unique([companyId, code])
-  detectionAlerts DetectionAlert[]
   @@map("sites")
 }
 
@@ -354,30 +366,36 @@ model Employee {
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  assignments          SiteAssignment[]
-  user                 User?
-  periods              EmploymentPeriod[]
-  punches              PunchEvent[]
-  segments             WorkSegment[]
-  attendanceExceptions AttendanceException[]
+  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments               SiteAssignment[]
+  user                      User?
+  periods                   EmploymentPeriod[]
+  punches                   PunchEvent[]
+  segments                  WorkSegment[]
+  attendanceExceptions      AttendanceException[]
   // Phase 3 biometrics. The attendance module owns these tables; these are
   // only the other side of their links, which Prisma needs.
-  biometricConsents    BiometricConsent[]
-  biometricCredentials BiometricCredential[] @relation("CredentialEmployee")
-  lookalikeCredentials BiometricCredential[] @relation("CredentialLookalike")
-  biometricExemptions  BiometricExemption[]
-  devicePasskeys       DevicePasskey[]
-  clockInAttempts      ClockInAttempt[]      @relation("AttemptEmployee")
-  coSignedAttempts     ClockInAttempt[]      @relation("AttemptCoSignFor")
+  biometricConsents         BiometricConsent[]
+  biometricCredentials      BiometricCredential[]      @relation("CredentialEmployee")
+  lookalikeCredentials      BiometricCredential[]      @relation("CredentialLookalike")
+  biometricExemptions       BiometricExemption[]
+  devicePasskeys            DevicePasskey[]
+  clockInAttempts           ClockInAttempt[]           @relation("AttemptEmployee")
+  coSignedAttempts          ClockInAttempt[]           @relation("AttemptCoSignFor")
+  fingerEnrollmentWindows   FingerEnrollmentWindow[]
+  terminalEnrollmentReports TerminalEnrollmentReport[]
+  detectionAlerts           DetectionAlert[]
+
+  // Phase 4 payroll: what this person is paid, and what they were paid.
+  payrollLines   PayrollLine[]
+  payslips       Payslip[]
+  payTerms       EmployeePayTerms[]
+  paymentDetails EmployeePaymentDetails?
 
   /// One Ghana Card per employee: the first defence against duplicate (ghost) records.
   @@unique([companyId, ghanaCardNumber])
   @@unique([companyId, staffNumber])
   @@index([companyId, status])
-  fingerEnrollmentWindows   FingerEnrollmentWindow[]
-  terminalEnrollmentReports TerminalEnrollmentReport[]
-  detectionAlerts DetectionAlert[]
   @@map("employees")
 }
 
@@ -536,20 +554,20 @@ model Device {
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company     Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  site        Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  punches     PunchEvent[]
-  consents    BiometricConsent[]
-  credentials BiometricCredential[]
-  passkeys    DevicePasskey[]
-  attempts    ClockInAttempt[]
+  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  site                      Site                       @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  punches                   PunchEvent[]
+  consents                  BiometricConsent[]
+  credentials               BiometricCredential[]
+  passkeys                  DevicePasskey[]
+  attempts                  ClockInAttempt[]
+  fingerEnrollmentWindows   FingerEnrollmentWindow[]
+  terminalEnrollmentReports TerminalEnrollmentReport[]
+  detectionAlerts           DetectionAlert[]
 
   @@unique([companyId, name])
   @@unique([companyId, serialNumber])
   @@index([siteId])
-  fingerEnrollmentWindows   FingerEnrollmentWindow[]
-  terminalEnrollmentReports TerminalEnrollmentReport[]
-  detectionAlerts DetectionAlert[]
   @@map("devices")
 }
 
@@ -825,16 +843,15 @@ model BiometricCredential {
   enrolledAt          DateTime                  @default(now()) @map("enrolled_at") @db.Timestamptz(3)
   updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  company   Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee  Employee          @relation("CredentialEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  device    Device            @relation(fields: [deviceId], references: [id], onDelete: Restrict)
-  consent   BiometricConsent? @relation(fields: [consentId], references: [id], onDelete: Restrict)
-  lookalike Employee?         @relation("CredentialLookalike", fields: [collisionEmployeeId], references: [id], onDelete: Restrict)
+  company         Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee        Employee                   @relation("CredentialEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  device          Device                     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  consent         BiometricConsent?          @relation(fields: [consentId], references: [id], onDelete: Restrict)
+  lookalike       Employee?                  @relation("CredentialLookalike", fields: [collisionEmployeeId], references: [id], onDelete: Restrict)
+  terminalReports TerminalEnrollmentReport[]
 
   @@index([employeeId])
   @@index([collisionEmployeeId])
-  terminalReports TerminalEnrollmentReport[]
-
   @@index([companyId, dedupe])
   @@map("biometric_credentials")
 }
@@ -955,9 +972,9 @@ model FingerEnrollmentWindow {
   expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  company  Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  device   Device                     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employee Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   reports  TerminalEnrollmentReport[]
 
   @@index([deviceId, expiresAt])
@@ -1053,27 +1070,27 @@ model DetectionRule {
 /// A pattern worth a person's attention: who or what it is about, the window
 /// it was found in, and the rows the rule cited. Never deleted.
 model DetectionAlert {
-  id             String               @id @default(uuid(7)) @db.Uuid
-  companyId      String               @map("company_id") @db.Uuid
-  ruleCode       DetectionRuleCode    @map("rule_code")
-  severity       DetectionSeverity
-  status         DetectionAlertStatus @default(OPEN)
+  id               String               @id @default(uuid(7)) @db.Uuid
+  companyId        String               @map("company_id") @db.Uuid
+  ruleCode         DetectionRuleCode    @map("rule_code")
+  severity         DetectionSeverity
+  status           DetectionAlertStatus @default(OPEN)
   /// The rule, the subject and the window. A unique key is what makes a
   /// sweep repeatable: running it twice raises nothing new.
-  dedupeKey      String               @map("dedupe_key")
-  employeeId     String?              @map("employee_id") @db.Uuid
-  deviceId       String?              @map("device_id") @db.Uuid
-  siteId         String?              @map("site_id") @db.Uuid
-  windowFrom     DateTime             @map("window_from") @db.Date
-  windowTo       DateTime             @map("window_to") @db.Date
+  dedupeKey        String               @map("dedupe_key")
+  employeeId       String?              @map("employee_id") @db.Uuid
+  deviceId         String?              @map("device_id") @db.Uuid
+  siteId           String?              @map("site_id") @db.Uuid
+  windowFrom       DateTime             @map("window_from") @db.Date
+  windowTo         DateTime             @map("window_to") @db.Date
   /// The IDs and numbers this rule cited. Never a template, an image or a
   /// Ghana Card number.
-  evidence       Json
-  openedAt       DateTime             @default(now()) @map("opened_at") @db.Timestamptz(3)
-  resolvedByUserId String?            @map("resolved_by_user_id") @db.Uuid
-  resolvedAt     DateTime?            @map("resolved_at") @db.Timestamptz(3)
-  resolutionNote String?              @map("resolution_note")
-  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  evidence         Json
+  openedAt         DateTime             @default(now()) @map("opened_at") @db.Timestamptz(3)
+  resolvedByUserId String?              @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime?            @map("resolved_at") @db.Timestamptz(3)
+  resolutionNote   String?              @map("resolution_note")
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
@@ -1095,4 +1112,293 @@ model DetectionCheck {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   @@map("detection_checks")
+}
+
+// --- Phase 4 payroll (Samuel). Design: docs/plan/09-payroll-engine-ghana.md ---
+// The payroll module owns every table below and nothing else writes to them.
+// Money is always an integer number of pesewas, in a column whose name ends in
+// "Pesewas". Rates are integer basis points, so 550 means 5.5%.
+// Enum values are copied word for word from packages/contracts/openapi.yaml.
+
+enum PayrollPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+/// DRAFT to PENDING_APPROVAL to LOCKED to PAID, and PENDING_APPROVAL to
+/// REJECTED, which is terminal. Nothing ever moves backwards (decision 16).
+enum PayrollRunStatus {
+  DRAFT
+  PENDING_APPROVAL
+  LOCKED
+  PAID
+  REJECTED
+}
+
+/// Why somebody employed during the period has no line on the run. Every one
+/// of them is listed, so nobody is silently dropped (decision 7).
+enum PayrollRunExclusionReason {
+  SUSPENDED
+  NO_PAY_TERMS
+}
+
+/// One calendar month of pay. It moves OPEN to CLOSED and never back.
+model PayrollPeriod {
+  id             String              @id @default(uuid(7)) @db.Uuid
+  companyId      String              @map("company_id") @db.Uuid
+  year           Int
+  /// 1 for January to 12 for December.
+  month          Int
+  /// The first and last calendar day, so nothing has to re-derive month end.
+  startsOn       DateTime            @map("starts_on") @db.Date
+  endsOn         DateTime            @map("ends_on") @db.Date
+  status         PayrollPeriodStatus @default(OPEN)
+  /// Who closed it and when: both empty while OPEN, both set once CLOSED.
+  closedAt       DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closedByUserId String?             @map("closed_by_user_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  runs    PayrollRun[]
+
+  @@unique([companyId, year, month])
+  @@index([companyId, startsOn])
+  @@map("payroll_periods")
+}
+
+/// A frozen version of the statutory rates. A rate change is a new row, never
+/// an edit: a trigger refuses to change one a run has used (decision 12).
+model TaxTable {
+  id                       String    @id @default(uuid(7)) @db.Uuid
+  companyId                String    @map("company_id") @db.Uuid
+  taxYear                  Int       @map("tax_year")
+  effectiveFrom            DateTime  @map("effective_from") @db.Date
+  /// Empty while this is the current version.
+  effectiveTo              DateTime? @map("effective_to") @db.Date
+  ssnitEmployeeBasisPoints Int       @map("ssnit_employee_basis_points")
+  ssnitEmployerBasisPoints Int       @map("ssnit_employer_basis_points")
+  ssnitTier1BasisPoints    Int       @map("ssnit_tier1_basis_points")
+  ssnitTier2BasisPoints    Int       @map("ssnit_tier2_basis_points")
+  /// Where the rates came from. A rate nobody can trace is a rate nobody can defend.
+  sourceName               String    @map("source_name")
+  sourceUrl                String    @map("source_url")
+  sourceCheckedOn          DateTime  @map("source_checked_on") @db.Date
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdByUserId          String    @map("created_by_user_id") @db.Uuid
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  bands   TaxBand[]
+  runs    PayrollRun[]
+  lines   PayrollLine[]
+
+  @@unique([companyId, effectiveFrom])
+  @@index([companyId, taxYear])
+  @@map("tax_tables")
+}
+
+/// One step of the graduated PAYE table. The last band has no width, because
+/// it has no upper limit; a database CHECK insists on exactly that.
+model TaxBand {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  taxTableId      String   @map("tax_table_id") @db.Uuid
+  /// 1 upwards, the order the bands are filled.
+  ordinal         Int
+  widthPesewas    Int?     @map("width_pesewas")
+  rateBasisPoints Int      @map("rate_basis_points")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  taxTable TaxTable @relation(fields: [taxTableId], references: [id], onDelete: Restrict)
+
+  @@unique([taxTableId, ordinal])
+  @@index([companyId])
+  @@map("tax_bands")
+}
+
+/// What an employee is paid. Effective-dated and never edited: a change is a
+/// new row (decision 1). A run reads the row whose effectiveFrom is the latest
+/// on or before the period's last day, and copies every value into the line.
+model EmployeePayTerms {
+  id                         String   @id @default(uuid(7)) @db.Uuid
+  companyId                  String   @map("company_id") @db.Uuid
+  employeeId                 String   @map("employee_id") @db.Uuid
+  effectiveFrom              DateTime @map("effective_from") @db.Date
+  basicMonthlyPesewas        Int      @map("basic_monthly_pesewas")
+  overtimeHourlyPesewas      Int      @map("overtime_hourly_pesewas")
+  taxableAllowancePesewas    Int      @default(0) @map("taxable_allowance_pesewas")
+  nonTaxableAllowancePesewas Int      @default(0) @map("non_taxable_allowance_pesewas")
+  otherDeductionPesewas      Int      @default(0) @map("other_deduction_pesewas")
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdByUserId            String   @map("created_by_user_id") @db.Uuid
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines    PayrollLine[]
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([companyId])
+  @@map("employee_pay_terms")
+}
+
+/// Where the money is sent. One row per employee, and it IS edited.
+/// PERSONAL DATA: never logged, never in an error message, and never on a list
+/// a supervisor can read (decision 2). The approval does not cover it, so
+/// `updatedAt` is compared with the run's `approvedAt` in the bank export to
+/// show a destination that moved afterwards (decision 22).
+model EmployeePaymentDetails {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  employeeId      String   @unique @map("employee_id") @db.Uuid
+  bankName        String?  @map("bank_name")
+  accountName     String?  @map("account_name")
+  accountNumber   String?  @map("account_number")
+  momoNumber      String?  @map("momo_number")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@map("employee_payment_details")
+}
+
+/// One calculation of one period's pay. Once LOCKED it can never change: a
+/// trigger rejects every UPDATE and DELETE on it and on its lines.
+model PayrollRun {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  companyId          String           @map("company_id") @db.Uuid
+  periodId           String           @map("period_id") @db.Uuid
+  /// The rates version used, frozen the moment this run refers to it.
+  taxTableId         String           @map("tax_table_id") @db.Uuid
+  status             PayrollRunStatus @default(DRAFT)
+  /// The maker: whoever calculated the draft. Never the approver.
+  calculatedByUserId String           @map("calculated_by_user_id") @db.Uuid
+  calculatedAt       DateTime         @default(now()) @map("calculated_at") @db.Timestamptz(3)
+  submittedByUserId  String?          @map("submitted_by_user_id") @db.Uuid
+  submittedAt        DateTime?        @map("submitted_at") @db.Timestamptz(3)
+  submissionNote     String?          @map("submission_note")
+  /// The checker. A database CHECK refuses the submitter (hard rule 3).
+  approvedByUserId   String?          @map("approved_by_user_id") @db.Uuid
+  approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(3)
+  approvalNote       String?          @map("approval_note")
+  rejectedByUserId   String?          @map("rejected_by_user_id") @db.Uuid
+  rejectedAt         DateTime?        @map("rejected_at") @db.Timestamptz(3)
+  rejectionReason    String?          @map("rejection_reason")
+  paidByUserId       String?          @map("paid_by_user_id") @db.Uuid
+  /// When an ADMIN recorded it here; `paidOn` is the day the money left.
+  paidAt             DateTime?        @map("paid_at") @db.Timestamptz(3)
+  paidOn             DateTime?        @map("paid_on") @db.Date
+  paymentReference   String?          @map("payment_reference")
+  paymentNote        String?          @map("payment_note")
+  /// Who was employed in the period but has no line, and why. A snapshot,
+  /// because the roster moves on: [{ employeeId, staffNumber, fullName, reason }].
+  excludedEmployees  Json             @map("excluded_employees")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  period   PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  taxTable TaxTable      @relation(fields: [taxTableId], references: [id], onDelete: Restrict)
+  lines    PayrollLine[]
+  payslips Payslip[]
+
+  @@index([companyId, periodId])
+  @@index([companyId, status])
+  @@map("payroll_runs")
+}
+
+/// One employee's pay for one run, with every input copied in (hard rule 1),
+/// so a locked run can be re-checked years later without reading anything
+/// else. The totals are always the sums of the parts beside them, and
+/// `netPayPesewas` is the difference of them, which a CHECK proves
+/// (decision 24).
+model PayrollLine {
+  id                         String         @id @default(uuid(7)) @db.Uuid
+  companyId                  String         @map("company_id") @db.Uuid
+  runId                      String         @map("run_id") @db.Uuid
+  employeeId                 String         @map("employee_id") @db.Uuid
+  /// Copied from the employee, so a locked line reads the same for ever.
+  staffNumber                String         @map("staff_number")
+  fullName                   String         @map("full_name")
+  employeeStatus             EmployeeStatus @map("employee_status")
+  /// The pay terms row this line used, and the day it took effect.
+  payTermsId                 String         @map("pay_terms_id") @db.Uuid
+  payTermsEffectiveFrom      DateTime       @map("pay_terms_effective_from") @db.Date
+  /// The rates copied from those terms.
+  basicMonthlyPesewas        Int            @map("basic_monthly_pesewas")
+  overtimeHourlyPesewas      Int            @map("overtime_hourly_pesewas")
+  /// The pro-rating fraction: always calendar facts, never negative.
+  daysInPeriod               Int            @map("days_in_period")
+  daysEmployed               Int            @map("days_employed")
+  /// What the shift patterns scheduled on the days worked, and what was
+  /// actually punched. Detection rule R3 compares them from Phase 5 on.
+  scheduledMinutes           Int            @map("scheduled_minutes")
+  punchedMinutes             Int            @map("punched_minutes")
+  regularMinutes             Int            @map("regular_minutes")
+  overtimeMinutes            Int            @map("overtime_minutes")
+  /// The money. On an adjustment line these are differences and may be negative.
+  basicPesewas               Int            @map("basic_pesewas")
+  overtimePesewas            Int            @map("overtime_pesewas")
+  taxableAllowancePesewas    Int            @map("taxable_allowance_pesewas")
+  nonTaxableAllowancePesewas Int            @map("non_taxable_allowance_pesewas")
+  grossPesewas               Int            @map("gross_pesewas")
+  taxableGrossPesewas        Int            @map("taxable_gross_pesewas")
+  ssnitEmployeePesewas       Int            @map("ssnit_employee_pesewas")
+  ssnitEmployerPesewas       Int            @map("ssnit_employer_pesewas")
+  ssnitTier1Pesewas          Int            @map("ssnit_tier1_pesewas")
+  ssnitTier2Pesewas          Int            @map("ssnit_tier2_pesewas")
+  chargeableIncomePesewas    Int            @map("chargeable_income_pesewas")
+  payePesewas                Int            @map("paye_pesewas")
+  otherDeductionsPesewas     Int            @map("other_deductions_pesewas")
+  netPayPesewas              Int            @map("net_pay_pesewas")
+  /// The rates version used, so this line's arithmetic can be reproduced.
+  taxTableId                 String         @map("tax_table_id") @db.Uuid
+  taxYear                    Int            @map("tax_year")
+  /// An adjustment line corrects a line on an earlier run (decision 20).
+  adjustsLineId              String?        @map("adjusts_line_id") @db.Uuid
+  adjustmentNote             String?        @map("adjustment_note")
+  createdAt                  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  run         PayrollRun       @relation(fields: [runId], references: [id], onDelete: Restrict)
+  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  payTerms    EmployeePayTerms @relation(fields: [payTermsId], references: [id], onDelete: Restrict)
+  taxTable    TaxTable         @relation(fields: [taxTableId], references: [id], onDelete: Restrict)
+  adjustsLine PayrollLine?     @relation("LineAdjustment", fields: [adjustsLineId], references: [id], onDelete: Restrict)
+  adjustedBy  PayrollLine[]    @relation("LineAdjustment")
+  payslip     Payslip?
+
+  @@index([companyId, runId])
+  @@index([employeeId])
+  @@map("payroll_lines")
+}
+
+/// The payslip PDF, made once inside the transaction that locks the run and
+/// stored as bytes, so what was sent is exactly what exists (hard rule 6).
+/// Every number on it comes from the line, which can never change afterwards.
+model Payslip {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  runId        String   @map("run_id") @db.Uuid
+  lineId       String   @unique @map("line_id") @db.Uuid
+  employeeId   String   @map("employee_id") @db.Uuid
+  pdf          Bytes
+  pdfSizeBytes Int      @map("pdf_size_bytes")
+  /// SHA-256 of those bytes, so what was sent can be proved to be what exists.
+  pdfSha256    String   @map("pdf_sha256")
+  generatedAt  DateTime @default(now()) @map("generated_at") @db.Timestamptz(3)
+
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  run      PayrollRun  @relation(fields: [runId], references: [id], onDelete: Restrict)
+  line     PayrollLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  employee Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, employeeId])
+  @@index([runId])
+  @@map("payslips")
 }

@@ -372,7 +372,7 @@ describe('mock payroll API: the rules of a run', () => {
     await fetchClient.PUT('/employees/{employeeId}/payment-details', {
       params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
       body: {
-        bankName: 'GCB Bank',
+        bankName: 'Akwaaba Bank',
         accountName: 'Kwame "Ghost", 9999999999999, 500000',
         accountNumber: '1234567890123',
         momoNumber: null,
@@ -424,7 +424,7 @@ describe('mock payroll API: the rules of a run', () => {
     await fetchClient.PUT('/employees/{employeeId}/payment-details', {
       params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
       body: {
-        bankName: 'GCB Bank',
+        bankName: 'Akwaaba Bank',
         accountName: 'Somebody Else',
         accountNumber: '9999999999999',
         momoNumber: null,
@@ -545,7 +545,7 @@ describe('mock payroll API: periods, pay terms and payment details', () => {
     const refused = await fetchClient.PUT('/employees/{employeeId}/payment-details', {
       params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
       body: {
-        bankName: 'GCB Bank',
+        bankName: 'Akwaaba Bank',
         accountName: 'Kwame Mensah',
         accountNumber: 'not-an-account',
         momoNumber: null,

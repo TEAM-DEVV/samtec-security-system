@@ -84,6 +84,16 @@ The API connects as the owner of the tables, and row-level security does not res
 | Consents and clock-in attempts can only grow (the retention sweep may only clear an attempt's network address); faces, exemptions and fingerprint keys are never deleted | Database triggers (Phase 3, built) |
 | At most one face in use per employee; one live fingerprint key per worker per kiosk; one exemption waiting or approved per employee | Partial unique indexes (Phase 3, built) |
 | A wiped face never comes back; a block is final; a collision decision and an exemption decision are final; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
+| A payroll period is exactly one calendar month, is closed once and never reopens | Database CHECK and trigger (Phase 4, built) |
+| Every payroll line adds up: gross is the sum of its parts, and net is gross minus employee SSNIT, PAYE and other deductions | Database CHECK on every line (Phase 4, built) |
+| Whoever calculated or submitted a payroll run can never approve or reject it | Database CHECK (Phase 4, built) |
+| A run's status only moves forward, a locked run and its lines never change, and a month has at most one approved run | Database triggers and a partial unique index (Phase 4, built) |
+| A tax table version a run has used can never be edited; its bands run 1..n with no gaps and the last has no upper limit | Database triggers (Phase 4, built) |
+| Pay terms are history: a change in pay is a new row, never an edit | Database trigger (Phase 4, built) |
+| Nothing in payroll is ever deleted or truncated — on any of the eight tables, in any state | Database triggers (Phase 4, built) |
+| A bank account name can never hold a line break, or a spreadsheet formula, even behind a leading space | Database CHECK (Phase 4, built) |
+| A payroll row can never hang off another company's record | Database trigger on every child row (Phase 4, built) |
+| A run is born a draft in an open month, and the frozen list of who was left out has the shape the contract promises | Database triggers (Phase 4, built) |
 | The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
 | A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
 | A face that collided is never matched at clock-in until a second ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afterwards; one pair of records is never decided two ways | Database CHECKs and triggers (Phase 3, built) |

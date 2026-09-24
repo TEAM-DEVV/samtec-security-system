@@ -3469,7 +3469,7 @@ paths:
                 type: string
               example: |
                 "staff_number","full_name","bank_name","account_name","account_number","momo_number","net_pay_pesewas","net_pay_ghs","employee_reference","details_changed_after_approval"
-                "SMT-00042","Kwame Mensah","GCB Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
+                "SMT-00042","Kwame Mensah","Akwaaba Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
                 "SMT-00043","Ama Boateng","","","","+233241234567","96320","963.20","SAMTEC-2026-09-SMT-00043","yes"
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -3926,7 +3926,7 @@ paths:
               bankAndMomo:
                 summary: A bank account and a mobile money number
                 value:
-                  bankName: GCB Bank
+                  bankName: Akwaaba Bank
                   accountName: Kwame Mensah
                   accountNumber: "1234567890123"
                   momoNumber: "+233241234567"
@@ -8502,8 +8502,10 @@ components:
         What an employee is paid from a given date. Every field is required: the
         new row states the whole of the worker's pay from `effectiveFrom`, and
         nothing is carried over from the row before it. Storing it adds a row;
-        it never changes one. Each money field is capped so the value always
-        fits the database's `INTEGER` column.
+        it never changes one. Each money field is capped at 100000000 pesewas,
+        GHS 1,000,000 a month, so that the four of them added together on a
+        payroll line still fit the database's `INTEGER` column with room to
+        spare. The database refuses anything above the cap as well.
       required:
         [
           effectiveFrom,
@@ -8523,31 +8525,31 @@ components:
         basicMonthlyPesewas:
           type: integer
           minimum: 0
-          maximum: 2000000000
+          maximum: 100000000
           description: The monthly salary in pesewas.
         overtimeHourlyPesewas:
           type: integer
           minimum: 0
-          maximum: 2000000000
+          maximum: 100000000
           description: >-
             Paid per hour of overtime, in pesewas. Send `0` when the worker gets
             no overtime pay.
         taxableAllowancePesewas:
           type: integer
           minimum: 0
-          maximum: 2000000000
+          maximum: 100000000
           description: A monthly allowance that is taxed, in pesewas. Send `0` for none.
         nonTaxableAllowancePesewas:
           type: integer
           minimum: 0
-          maximum: 2000000000
+          maximum: 100000000
           description: >-
             A monthly allowance that is not taxed, in pesewas. Send `0` for
             none.
         otherDeductionPesewas:
           type: integer
           minimum: 0
-          maximum: 2000000000
+          maximum: 100000000
           description: >-
             A monthly deduction taken after tax, in pesewas. Send `0` for none.
 

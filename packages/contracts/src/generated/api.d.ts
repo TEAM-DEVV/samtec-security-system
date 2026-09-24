@@ -4098,7 +4098,7 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
-        /** @description What an employee is paid from a given date. Every field is required: the new row states the whole of the worker's pay from `effectiveFrom`, and nothing is carried over from the row before it. Storing it adds a row; it never changes one. Each money field is capped so the value always fits the database's `INTEGER` column. */
+        /** @description What an employee is paid from a given date. Every field is required: the new row states the whole of the worker's pay from `effectiveFrom`, and nothing is carried over from the row before it. Storing it adds a row; it never changes one. Each money field is capped at 100000000 pesewas, GHS 1,000,000 a month, so that the four of them added together on a payroll line still fit the database's `INTEGER` column with room to spare. The database refuses anything above the cap as well. */
         SetEmployeePayTermsRequest: {
             /**
              * Format: date
@@ -7136,7 +7136,7 @@ export interface operations {
                 content: {
                     /**
                      * @example "staff_number","full_name","bank_name","account_name","account_number","momo_number","net_pay_pesewas","net_pay_ghs","employee_reference","details_changed_after_approval"
-                     *     "SMT-00042","Kwame Mensah","GCB Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
+                     *     "SMT-00042","Kwame Mensah","Akwaaba Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
                      *     "SMT-00043","Ama Boateng","","","","+233241234567","96320","963.20","SAMTEC-2026-09-SMT-00043","yes"
                      */
                     "text/csv": string;
