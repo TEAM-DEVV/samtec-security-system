@@ -1382,6 +1382,404 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/payroll/periods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payroll months
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD, who may read only their own payslips. A payroll period is one calendar month: `year` and `month` name it, and `startDate` and `endDate` are its first and last day, worked out by the API. Newest month first. Filter by `status` to find the months still `OPEN`, or by `year` for one year.
+         */
+        get: operations["listPayrollPeriods"];
+        put?: never;
+        /**
+         * Open a payroll month
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Opens the month that payroll runs are calculated for. Send only the `year` and the `month`; the API works out `startDate` and `endDate` itself, so a period is always exactly one whole calendar month and nobody can open half a month by hand. A new period starts `OPEN`. There is only ever one period per month: a month that already has one answers `409`. Audited.
+         */
+        post: operations["createPayrollPeriod"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/periods/{periodId}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll period's ID. */
+                periodId: components["parameters"]["PayrollPeriodId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a payroll month
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Marks the month finished. The period moves `OPEN` to `CLOSED` and never goes back, and the API records who closed it and when, together. Afterwards no new run may be calculated for the month, and a draft still sitting in it can no longer be submitted, approved or rejected; a run that is already `LOCKED` may still be marked paid and its bank file downloaded, because the money often leaves after month end. A correction for a closed month becomes an adjustment line on the next month's run. Closing a period changes nothing in attendance: punches, work segments and the exception queue carry on exactly as before, because a run is a snapshot of what it read. A period that is already `CLOSED` answers `409`. Audited.
+         */
+        post: operations["closePayrollPeriod"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payroll runs
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Every run of the company, newest first. Each one carries its totals, its summary and the full evidence of every status it has been through. A period may hold several runs, drafts and rejected ones, but only ever one that is `LOCKED` or `PAID`. Narrow the list with `periodId` and `status`. No bank or mobile money details appear here; they exist only inside a run's bank export.
+         */
+        get: operations["listPayrollRuns"];
+        put?: never;
+        /**
+         * Calculate a draft payroll run
+         * @description **Roles:** ADMIN, HR_PAYROLL, and **the caller becomes the maker**, so they may never approve this run. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Calculates a new `DRAFT` run for an `OPEN` period from the work segments and pay terms visible right now, and copies every input into its lines. Everyone employed for at least one day of the period who has pay terms effective by its last day gets a line, `PENDING_ENROLLMENT` workers included: being employed and being enrolled in biometrics are different things. A `SUSPENDED` worker, and anyone with no pay terms yet, is left off and listed in `summary.excluded` with the reason, so nobody is silently dropped. Only `CONFIRMED` work segments are paid, and a segment belongs to the period its work date falls in, so a night shift that starts on the last day of the month is paid in the month it started. Calculating again makes **another** draft. Audited.
+         */
+        post: operations["createPayrollRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one payroll run
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. One run with its totals, its summary and the full evidence of every status it has been through: who calculated it, who submitted it and when, who approved or rejected it and why, and who recorded the payment. The workers deliberately left off the run are in `summary.excluded`. A run of another company answers `404`.
+         */
+        get: operations["getPayrollRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the lines of a payroll run
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD, who reads their own payslip instead. One page of the run's lines, sorted by staff number, with an employee's adjustment lines after their ordinary line. Every line copies each input it was calculated from, so a locked run can be re-checked years later without reading anything else. Bank and mobile money details are never on a line; they appear only in the bank export. Filter to one person with `employeeId`.
+         */
+        get: operations["listPayrollLines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a draft run for approval
+         * @description **Roles:** ADMIN or HR_PAYROLL, but only **the maker**, the person who calculated this run; anybody else answers `403`. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Moves a `DRAFT` run to `PENDING_APPROVAL` and records the submitter and the time together. From Phase 5, detection rule R3 will refuse a submission whose paid hours and punched hours disagree without explanation; version 1 records `punchedMinutes` and `scheduledMinutes` on every line as the evidence a checker needs, and lets the submission through. Audited.
+         */
+        post: operations["submitPayrollRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a run and lock it
+         * @description **Roles:** ADMIN, but **never the person who submitted it** (`403`): the maker is never the checker, and the same rule is a `CHECK` in the database. HR_PAYROLL, SUPERVISOR and GUARD may never approve (`403`). An ADMIN may prepare a run, and then a different ADMIN must approve it. Moves a `PENDING_APPROVAL` run to `LOCKED`, records the approver and the time together, and generates one payslip PDF for every line in the same transaction, so what was sent is exactly what exists. A locked run can never be changed again: a database trigger refuses every update and delete on it and on its lines, and a correction becomes an adjustment line on the next period's run. Audited.
+         */
+        post: operations["approvePayrollRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a run with a reason
+         * @description **Roles:** ADMIN, but **never the person who submitted it** (`403`). HR_PAYROLL, SUPERVISOR and GUARD may never reject (`403`). Moves a `PENDING_APPROVAL` run to `REJECTED` and records the checker, the time and the reason they gave. `REJECTED` is terminal and nothing ever moves backwards: the maker fixes the cause, such as a wrong pay term or a missing clock-out still sitting in the exception queue, and calculates a **new** run. The rejected run stays for the record and is never deleted. Audited.
+         */
+        post: operations["rejectPayrollRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that a locked run has been paid
+         * @description **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never mark a run paid (`403`). Moves a `LOCKED` run to `PAID` after the bank file has been sent, recording who marked it, when, the day the money actually left and the bank's reference. No second person is required here, because the money has already gone: the control that matters is the approval before it. Nothing about the run or its lines changes, and it works after the period has been closed. Audited.
+         */
+        post: operations["markPayrollRunPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/bank-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download the bank transfer file
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD; this file carries account numbers and must never reach either. Downloads the bank transfer file for a `LOCKED` or `PAID` run as **`text/csv`**, one of only two answers in this contract that are not JSON. One row per employee, sorted by staff number, carrying their net pay summed across every line of the run so a person is paid once, and their bank or mobile money details. A run that has not been approved has no bank file (`409`): the file exists only after a checker has signed it off. Rows totalling zero or less are left out, because a bank file cannot take a negative payment; that money is recovered by an adjustment line in a later run, and the line and the payslip still show it. An employee whose payment details are missing still gets a row with the bank columns empty, so the payroll officer can see who to chase.
+         *     **Every cell is quoted and escaped as RFC 4180 says**: the value is wrapped in double quotes and any double quote inside it is doubled, so a name or an account holder containing a comma, a quote or a line break can never break a row apart or add one. A cell whose value begins with `=`, `+`, `-`, `@`, a tab or a carriage return is written with a leading apostrophe, so a spreadsheet treats it as text instead of running it as a formula.
+         *     The last column, `details_changed_after_approval`, is `yes` when that employee's bank or mobile money details were changed **after** the run was approved. The approval covers what each worker is owed, not where it is sent, so whoever uploads this file can see at a glance that a destination moved after the checker signed it off, and stop.
+         *     The answer is never cached, and no account number is ever written to a log or an error message. **Audited:** who downloaded the file, for which run, and when.
+         */
+        get: operations["downloadPayrollRunBankExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/statutory-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What the run owes SSNIT and the GRA
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. What the company owes the statutory funds for this run: the workers' own SSNIT contribution (5.5% of basic, deducted from their pay), the employer's contribution (13% of basic, a company cost), how that 18.5% splits into Tier 1 (13.5%) and Tier 2 (5%) — **both worked out from basic**, so the 5% is not a slice of the employer's 13% — and the total PAYE withheld and due to the GRA. Every percentage comes from the run's own tax table version and is shown in basis points beside the amount it produced, so a figure can be checked by hand. On a run that is not yet `LOCKED` these figures can still change. Version 1 reports these amounts; paying them stays manual.
+         */
+        get: operations["getPayrollRunStatutorySummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/payslips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payslips
+         * @description **Roles:** ADMIN and HR_PAYROLL for the whole company; a GUARD only for themselves. A SUPERVISOR sees no payroll at all (`403`). A payslip exists only once its run is `LOCKED`, because the PDF is made in the same transaction that locks the run, so a draft, a run waiting for approval and a rejected run have none. A guard's list is always scoped to their own employee record whatever they ask for, and an `employeeId`, `periodId` or `runId` the caller may not see answers `404`, never `403`. A guard account with no employee record sees an empty page. Newest period first.
+         */
+        get: operations["listPayslips"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/payslips/{payslipId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payslip's ID. */
+                payslipId: components["parameters"]["PayslipId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one payslip
+         * @description **Roles:** the owning guard, ADMIN, HR_PAYROLL. A guard reading another guard's payslip gets `404`, never `403`, so nobody can learn which payslips exist. A SUPERVISOR sees no payroll at all (`403`). Everything needed to check the pay by hand is on the payslip itself — the pay terms used, the hours, the tax table version, and every step from gross to net — so the run does not have to be fetched as well. It was frozen when the run locked and never changes; only `runStatus` and `paidAt` are read live from the run.
+         */
+        get: operations["getPayslip"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/payslips/{payslipId}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payslip's ID. */
+                payslipId: components["parameters"]["PayslipId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download a payslip as a PDF
+         * @description **Roles:** the owning guard, ADMIN, HR_PAYROLL. A guard asking for another guard's payslip gets `404`, never `403`. A SUPERVISOR sees no payroll at all (`403`). Returns the stored PDF byte for byte. It was generated once, inside the transaction that locked the run, and is never regenerated, so what was sent to the worker is exactly what exists here. The answer is `application/pdf`, one of only two in this contract that are not JSON, and it always carries `Content-Disposition: attachment`, so a browser saves the file rather than opening it in a tab. Only the `200` is binary: an error is still `application/problem+json`, so a client must check the status before treating the body as a PDF. **Audited:** who downloaded which payslip, and when.
+         */
+        get: operations["downloadPayslipPdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/tax-tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the statutory tax table versions
+         * @description **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never call it (`403`): HR prepares runs but does not maintain the rates, which is why the tax year is copied onto every run, line and payslip. Every version of Ghana's statutory rates this company has: the four SSNIT percentages, the graduated PAYE bands, and where each figure came from. Newest `effectiveFrom` first. A run uses the version with the latest `effectiveFrom` on or before its period's **last** day, so a period that straddles a rate change uses the newer one; give `effectiveOn` to see exactly which version a given day falls under. A version is **frozen** once a run has used it, which is why there is no `PUT` and no `DELETE` anywhere on this resource: a rate change is a new version, and a locked run's arithmetic can always be reproduced.
+         */
+        get: operations["listTaxTables"];
+        put?: never;
+        /**
+         * Add a new version of the statutory rates
+         * @description **Roles:** ADMIN. Every other role answers `403`. Rates change with every national budget, so a change is a **new** version and never an edit: nothing on this resource can be updated or deleted, and a version a run has used is frozen by the database itself. Send the four SSNIT percentages as basis points — 550 employee, 1300 employer, 1350 Tier 1, 500 Tier 2 — remembering that the Tier 2 5% is of **basic pay**, not a slice of the employer's 13%, and that only the employee's 5.5% is ever deducted from a worker. Send the PAYE monthly bands in order, each covering the next slice of chargeable income, with `widthPesewas: null` on the top band because it has no upper limit; `ordinal` runs from 1 with no gaps, and only the last band may leave its width out. `sourceName`, `sourceUrl` and `sourceCheckedOn` are required, because a rate nobody can trace is a rate nobody can defend. A later version supersedes an earlier one without touching it, so leave `effectiveTo` out unless this version is already known to stop on a given day. Two versions may not start on the same day (`409`). Audited.
+         */
+        post: operations["createTaxTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/pay-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * An employee's pay terms, newest first
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD, who may read their own payslips but not their pay terms. What this employee is paid, and what they were paid before. Pay terms are effective-dated and **never edited**, so every change is its own row and an old payslip can always be explained. A run reads the row with the latest `effectiveFrom` on or before the period's **last** day and copies every value into the payroll line; give `effectiveOn` to get just that one row. An employee with no pay terms yet answers `200` with an empty list: they are simply left off a run and listed in its summary. An employee this caller may not see answers `404`.
+         */
+        get: operations["listEmployeePayTerms"];
+        /**
+         * Set an employee's pay from a date
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. **This never changes an existing row.** Pay terms are effective-dated history: every call stores a **new** row and the row before it stays exactly as it was, so a payslip from March can always be explained by the terms in force in March — which is why the answer is `201` and not `200`. Send every field: the new row states the whole of what the worker is paid from `effectiveFrom`, and nothing is carried over, so an allowance left out is not an allowance that keeps its old value. A locked run keeps the values it copied into its lines, so back-dating a correction never rewrites a payslip that has already been sent; calculate the open draft again to pick the new terms up. Two rows for the same employee may not start on the same day (`409`). Audited.
+         */
+        put: operations["setEmployeePayTerms"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/payment-details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set where an employee's salary is paid
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. There is no `GET`: these details exist to be paid into, and the only other place they are read is the run's bank export.
+         */
+        put: operations["setEmployeePaymentDetails"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2220,7 +2618,7 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
-        /** @description Why. Shown to other reviewers; never copied into the audit log. */
+        /** @description Why, in a person's own words. Shown with the record it belongs to. The action and who did it are audited; this text never is, because a person may type a staff number or an account number into it and the audit log can never be edited. */
         ResolutionNote: string;
         DismissResolution: {
             /**
@@ -2694,6 +3092,778 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
+        /**
+         * @description Where a payroll month is in its life. There are only two values, and it
+         *     never moves backwards.
+         *
+         *     - `OPEN`: the month payroll is still working on. Runs may be
+         *       calculated, submitted and approved for it.
+         *     - `CLOSED`: the month is finished, and it never reopens. No new run may
+         *       be calculated for it, and a late punch or a correction becomes an
+         *       adjustment line on the next month's run. Closing changes nothing in
+         *       attendance.
+         * @enum {string}
+         */
+        PayrollPeriodStatus: "OPEN" | "CLOSED";
+        /** @description One payroll month. Runs are calculated for a period, and a period is closed when the month is finished. */
+        PayrollPeriod: {
+            /**
+             * Format: uuid
+             * @description The period's ID.
+             */
+            id: string;
+            /** @description The calendar year, like `2026`. With `month` it names the period. */
+            year: number;
+            /** @description The calendar month, `1` for January to `12` for December. There is only ever one period per month. */
+            month: number;
+            /**
+             * Format: date
+             * @description The month's first day, like `2026-09-01`. Worked out by the API.
+             */
+            startDate: string;
+            /**
+             * Format: date
+             * @description The month's last day, like `2026-09-30`. A run pays the work segments whose work date falls between `startDate` and `endDate`, and reads each employee's pay terms and the tax table version effective on this day.
+             */
+            endDate: string;
+            status: components["schemas"]["PayrollPeriodStatus"];
+            /**
+             * Format: date-time
+             * @description When the period was closed, or `null` while it is `OPEN`. Always set together with `closedByUserId`.
+             */
+            closedAt: string | null;
+            /**
+             * Format: uuid
+             * @description The user who closed the period, or `null` while it is `OPEN`. Always set together with `closedAt`.
+             */
+            closedByUserId: string | null;
+            /**
+             * Format: uuid
+             * @description The one run of this month that is `LOCKED` or `PAID`, or `null` while none has been approved. A month never has two.
+             */
+            lockedRunId: string | null;
+            /**
+             * Format: date-time
+             * @description When the period was opened.
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the period last changed.
+             */
+            updatedAt: string;
+        };
+        PayrollPeriodList: {
+            items: components["schemas"]["PayrollPeriod"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description The month to open. It carries only the two fields that name the month: the first day, the last day and the status are the API's to decide, so a caller can never open a period that is not a whole calendar month. */
+        CreatePayrollPeriodRequest: {
+            /** @description The calendar year, like `2026`. */
+            year: number;
+            /** @description The calendar month, `1` for January to `12` for December. */
+            month: number;
+        };
+        /**
+         * @description Where a payroll run is in its life. A run only ever moves forward:
+         *     `DRAFT` to `PENDING_APPROVAL` to `LOCKED` to `PAID`, or
+         *     `PENDING_APPROVAL` to `REJECTED`, which is the end of that run. Every
+         *     status carries the evidence of how it got there.
+         *
+         *     - `DRAFT`: calculated and not yet submitted. Only the maker may submit
+         *       it, and calculating again simply makes another draft.
+         *     - `PENDING_APPROVAL`: waiting for a checker. Carries the submitter and
+         *       the time they submitted.
+         *     - `LOCKED`: approved. Nothing about the run or its lines can change
+         *       again (a database trigger refuses it) and every payslip PDF exists.
+         *       Carries the approver and the time.
+         *     - `PAID`: the bank file has been sent and an ADMIN recorded it. Carries
+         *       who marked it, when, and the bank's reference.
+         *     - `REJECTED`: the checker refused it, with a reason. Terminal: nothing
+         *       moves backwards, so the maker fixes the cause and calculates a new run.
+         * @enum {string}
+         */
+        PayrollRunStatus: "DRAFT" | "PENDING_APPROVAL" | "LOCKED" | "PAID" | "REJECTED";
+        /**
+         * @description Why an employee who was employed during the period has no line on this
+         *     run. Every one of them is listed, so nobody is ever silently dropped.
+         *
+         *     - `SUSPENDED`: the worker is temporarily blocked from clocking in and
+         *       from payroll. They are left off on purpose and paid nothing.
+         *     - `NO_PAY_TERMS`: the worker has no pay terms effective by the period's
+         *       last day, so there is no salary to calculate. Set their pay terms and
+         *       calculate a new run.
+         * @enum {string}
+         */
+        PayrollRunExclusionReason: "SUSPENDED" | "NO_PAY_TERMS";
+        /** @description One employee who was employed during the period but has no line on this run, and why. */
+        PayrollRunExclusion: {
+            employee: components["schemas"]["EmployeeRef"];
+            reason: components["schemas"]["PayrollRunExclusionReason"];
+        };
+        /** @description The run's money, added up across every line. No field carries a `minimum`: a run made only of adjustment lines can be negative. */
+        PayrollRunTotals: {
+            /** @description Basic salary across every line, pro-rated where a worker joined or left inside the period. */
+            totalBasicPesewas: number;
+            /** @description Overtime pay across every line. */
+            totalOvertimePesewas: number;
+            /** @description Taxable allowances across every line. */
+            totalTaxableAllowancePesewas: number;
+            /** @description Non-taxable allowances across every line. */
+            totalNonTaxableAllowancePesewas: number;
+            /** @description Gross pay: basic plus overtime plus both allowances. */
+            totalGrossPesewas: number;
+            /** @description The workers' own SSNIT contributions, 5.5% of basic, deducted from their pay. */
+            totalSsnitEmployeePesewas: number;
+            /** @description PAYE withheld across every line. */
+            totalPayePesewas: number;
+            /** @description Other deductions across every line, such as uniform or loan instalments. */
+            totalOtherDeductionsPesewas: number;
+            /** @description What the workers are actually paid, and what the bank file adds up to: gross minus employee SSNIT, PAYE and other deductions. */
+            totalNetPayPesewas: number;
+            /** @description The employer's SSNIT contributions, 13% of basic. A company cost, never deducted from anyone's pay; the Tier 1 and Tier 2 split is in the statutory summary. */
+            totalSsnitEmployerPesewas: number;
+        };
+        /** @description Who is on the run, and who is deliberately not. */
+        PayrollRunSummary: {
+            /** @description How many lines the run has, adjustment lines included. */
+            lineCount: number;
+            /** @description How many different employees are paid on this run. */
+            employeeCount: number;
+            /** @description How many of the lines correct a line on an earlier run. */
+            adjustmentLineCount: number;
+            /** @description Employees who were employed during the period but have no line, with the reason for each. Empty when everybody was paid. */
+            excluded: components["schemas"]["PayrollRunExclusion"][];
+        };
+        /** @description One calculation of one period's pay: a snapshot with its totals, its summary and the evidence of every status it has been through. Several runs may exist for a period, drafts and rejected ones, but only ever one that is `LOCKED` or `PAID`. */
+        PayrollRun: {
+            /**
+             * Format: uuid
+             * @description The run's ID.
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The payroll period this run calculates.
+             */
+            periodId: string;
+            /**
+             * Format: date
+             * @description The period's first day, copied when the run was calculated.
+             */
+            periodStartDate: string;
+            /**
+             * Format: date
+             * @description The period's last day. The pay terms and the tax table version used are the ones effective on this day.
+             */
+            periodEndDate: string;
+            status: components["schemas"]["PayrollRunStatus"];
+            /**
+             * Format: uuid
+             * @description The tax table version every line of this run was calculated with. That row can never be edited once a run refers to it.
+             */
+            taxTableId: string;
+            /**
+             * @description The tax year of that version, like `2026`.
+             * @example 2026
+             */
+            taxYear: number;
+            totals: components["schemas"]["PayrollRunTotals"];
+            summary: components["schemas"]["PayrollRunSummary"];
+            /**
+             * Format: date-time
+             * @description When the draft was calculated. A run is never created any other way, so there is no separate `createdAt`.
+             */
+            calculatedAt: string;
+            /**
+             * Format: uuid
+             * @description **The maker**: whoever calculated the draft. They are the only person who may submit it, and they may never approve it.
+             */
+            calculatedByUserId: string;
+            /**
+             * Format: date-time
+             * @description When the maker submitted it for approval. `null` while the run is `DRAFT`.
+             */
+            submittedAt: string | null;
+            /**
+             * Format: uuid
+             * @description The maker who submitted it. `null` while the run is `DRAFT`.
+             */
+            submittedByUserId: string | null;
+            /** @description What the maker wanted the checker to look at, or `null`. */
+            submissionNote: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: date-time
+             * @description When the run was approved and locked. `null` until then.
+             */
+            approvedAt: string | null;
+            /**
+             * Format: uuid
+             * @description **The checker**: the ADMIN who approved it. Never the same person as `submittedByUserId` — the server compares the two, and so does a database `CHECK`.
+             */
+            approvedByUserId: string | null;
+            /** @description What the checker looked at before approving, or `null`. */
+            approvalNote: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: date-time
+             * @description When the run was rejected. `null` unless it is `REJECTED`.
+             */
+            rejectedAt: string | null;
+            /**
+             * Format: uuid
+             * @description The ADMIN who rejected it. Never the submitter.
+             */
+            rejectedByUserId: string | null;
+            /** @description Why the checker rejected it, in their own words. `REJECTED` is terminal: the maker fixes the cause and calculates a new run. */
+            rejectionReason: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: date-time
+             * @description When an ADMIN recorded the payment in SAMTEC. `null` until the run is `PAID`.
+             */
+            paidAt: string | null;
+            /**
+             * Format: uuid
+             * @description The ADMIN who marked the run paid. `null` until then.
+             */
+            paidByUserId: string | null;
+            /**
+             * Format: date
+             * @description The day the money actually left the company's bank, as recorded by that ADMIN. `null` until the run is `PAID`.
+             */
+            paidOn: string | null;
+            /** @description The bank's reference for the transfer, so a payment can be traced. `null` when none was given. */
+            paymentReference: string | null;
+            /** @description Anything worth recording about the payment, or `null`. */
+            paymentNote: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: date-time
+             * @description The run's last status change. A `LOCKED` or `PAID` run's lines never change again.
+             */
+            updatedAt: string;
+        };
+        PayrollRunList: {
+            items: components["schemas"]["PayrollRun"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description Which period to calculate. Nothing else is accepted: who is on the run is decided by the rules, never by the caller. */
+        CreatePayrollRunRequest: {
+            /**
+             * Format: uuid
+             * @description The `OPEN` payroll period to calculate a draft for.
+             */
+            periodId: string;
+        };
+        /** @description Submitting a draft for approval. Nothing is required, so `{}` is a valid body. */
+        SubmitPayrollRunRequest: {
+            /** @description Anything the checker should know before they look. Shown with the run; never copied into the audit log. */
+            note?: components["schemas"]["ResolutionNote"];
+        };
+        /** @description Approving a run and locking it. Nothing is required, so `{}` is a valid body. */
+        ApprovePayrollRunRequest: {
+            /** @description What the checker looked at before approving. Shown with the run. */
+            note?: components["schemas"]["ResolutionNote"];
+        };
+        /** @description Rejecting a run, with the reason the maker needs to act on. */
+        RejectPayrollRunRequest: {
+            /** @description Why the run is wrong, written for the maker to act on. `REJECTED` is terminal, so this is what tells them what to fix before calculating a new run. Shown with the run; never copied into the audit log, because a person may type a staff number or an account number into it and the audit log can never be edited. */
+            reason: components["schemas"]["ResolutionNote"];
+        };
+        /** @description Recording that a locked run has been paid. */
+        MarkPayrollRunPaidRequest: {
+            /**
+             * Format: date
+             * @description The day the money left the company's bank. It may not be in the future.
+             */
+            paidOn: string;
+            /** @description The bank's reference for the transfer, so a payment can be traced later. Shown with the run; never copied into the audit log. */
+            paymentReference?: string;
+            /** @description Anything worth recording about the payment, such as a second transfer for a late account. Shown with the run; never copied into the audit log. */
+            note?: components["schemas"]["ResolutionNote"];
+        };
+        /** @description One employee's pay for one run, with every input it was calculated from copied into it, so a locked run can be re-checked without reading anything else. On an adjustment line (`adjustsLineId` is set) the money and minute fields are **differences** from the line being corrected and may be negative; on an ordinary line they never are. That is why no money or minute field carries a `minimum`. The day counts are never negative: they always describe this line's own period as calendar facts. Bank and mobile money details are never here. */
+        PayrollLine: {
+            /**
+             * Format: uuid
+             * @description The line's ID.
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The run this line belongs to.
+             */
+            runId: string;
+            employee: components["schemas"]["EmployeeRef"];
+            employeeStatus: components["schemas"]["EmployeeStatus"];
+            /**
+             * Format: uuid
+             * @description The earlier line this one corrects, or `null` for an ordinary line.
+             */
+            adjustsLineId: string | null;
+            /**
+             * Format: uuid
+             * @description The run that earlier line sits on, so the dashboard can open it without searching. `null` for an ordinary line.
+             */
+            adjustsRunId: string | null;
+            /** @description Why the correction exists, in plain language, for example `late clock-out confirmed for 2026-08-30`. `null` for an ordinary line. */
+            adjustmentNote: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: uuid
+             * @description The pay terms row used: the latest one effective on or before the period's last day.
+             */
+            payTermsId: string;
+            /**
+             * Format: date
+             * @description The day those pay terms took effect.
+             */
+            payTermsEffectiveFrom: string;
+            /** @description The monthly salary from the pay terms, before any pro-rating. */
+            basicMonthlyPesewas: number;
+            /** @description What one hour of overtime pays, from the pay terms. */
+            overtimeHourlyPesewas: number;
+            /** @description Calendar days in the period: the bottom of the pro-rating fraction. */
+            daysInPeriod: number;
+            /** @description Calendar days of the period the worker was employed for: the top of the pro-rating fraction. Fewer than `daysInPeriod` only when they joined or left inside it. */
+            daysEmployed: number;
+            /** @description The basic pay this line carries: `basicMonthlyPesewas` times `daysEmployed` divided by `daysInPeriod`. Hours worked never reduce it — absence is handled by the exception queue, not by docking pay. */
+            basicPesewas: number;
+            /** @description What the worker's shift pattern scheduled on the dates they have confirmed segments, 480 a day where no pattern is assigned. The basic pay assumes these. From Phase 5, detection rule R3 compares it with `punchedMinutes`. */
+            scheduledMinutes: number;
+            /** @description Minutes actually worked: the sum of the `CONFIRMED` work segments whose work date falls in the period. Disputed and voided segments are not paid and are not counted here. */
+            punchedMinutes: number;
+            /** @description The part of `punchedMinutes` inside the scheduled length of each work date. */
+            regularMinutes: number;
+            /** @description The part of `punchedMinutes` beyond the scheduled length of each work date. `regularMinutes` plus `overtimeMinutes` is always `punchedMinutes`. */
+            overtimeMinutes: number;
+            /** @description `overtimeMinutes` divided by 60, times `overtimeHourlyPesewas`. There is no night or public-holiday premium in version 1. */
+            overtimePesewas: number;
+            /** @description The monthly taxable allowance from the pay terms, copied whole: version 1 pro-rates only the basic. */
+            taxableAllowancePesewas: number;
+            /** @description The monthly non-taxable allowance from the pay terms, copied whole. */
+            nonTaxableAllowancePesewas: number;
+            /** @description Gross pay: `basicPesewas` plus `overtimePesewas` plus both allowances. */
+            grossPesewas: number;
+            /** @description The taxed part of the gross: `grossPesewas` minus `nonTaxableAllowancePesewas`. */
+            taxableGrossPesewas: number;
+            /** @description The worker's own SSNIT contribution, 5.5% of `basicPesewas`, deducted from their pay. */
+            ssnitEmployeePesewas: number;
+            /** @description The employer's SSNIT contribution, 13% of `basicPesewas`. A company cost: it is never part of the net-pay sum. */
+            ssnitEmployerPesewas: number;
+            /** @description The 13.5% of `basicPesewas` that SSNIT keeps for Tier 1. */
+            ssnitTier1Pesewas: number;
+            /** @description The 5% of `basicPesewas` paid into the worker's Tier 2 fund. Both percentages are worked out from basic; the 5% is not a slice of the employer's 13%. */
+            ssnitTier2Pesewas: number;
+            /** @description What PAYE is worked out from: `taxableGrossPesewas` minus `ssnitEmployeePesewas`. */
+            chargeableIncomePesewas: number;
+            /** @description PAYE from the graduated monthly bands of the tax table version below. Version 1 applies no personal reliefs. */
+            payePesewas: number;
+            /** @description The monthly deduction copied from the pay terms' `otherDeductionPesewas`, such as a uniform or a loan instalment. */
+            otherDeductionsPesewas: number;
+            /** @description What the worker is paid: `grossPesewas` minus `ssnitEmployeePesewas` minus `payePesewas` minus `otherDeductionsPesewas`. A database `CHECK` proves this on every line, and the employer's SSNIT never appears in it. */
+            netPayPesewas: number;
+            /**
+             * Format: uuid
+             * @description The tax table version used, the one effective on the period's last day. That row can never be edited or deleted once a run refers to it, so this line's arithmetic can always be reproduced.
+             */
+            taxTableId: string;
+            /**
+             * @description The tax year of that version, like `2026`.
+             * @example 2026
+             */
+            taxYear: number;
+        };
+        PayrollLineList: {
+            items: components["schemas"]["PayrollLine"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description What one run owes the statutory funds, SSNIT and the GRA. Every amount is the sum of the matching field across the run's lines, and every percentage is shown in basis points beside the amount it produced, so a figure can be checked by hand. Version 1 reports these amounts; paying them stays manual. */
+        PayrollStatutorySummary: {
+            /**
+             * Format: uuid
+             * @description The run these figures come from.
+             */
+            runId: string;
+            status: components["schemas"]["PayrollRunStatus"];
+            /**
+             * Format: uuid
+             * @description The payroll period the run calculates.
+             */
+            periodId: string;
+            /**
+             * Format: date
+             * @description The period's first day.
+             */
+            periodStartDate: string;
+            /**
+             * Format: date
+             * @description The period's last day.
+             */
+            periodEndDate: string;
+            /**
+             * Format: uuid
+             * @description The tax table version the percentages below come from.
+             */
+            taxTableId: string;
+            /**
+             * @description The tax year of that version, like `2026`.
+             * @example 2026
+             */
+            taxYear: number;
+            /** @description How many workers these figures cover. */
+            employeeCount: number;
+            /** @description The basic pay every SSNIT percentage below is worked out from. */
+            totalBasicPesewas: number;
+            /** @description The workers' own rate in basis points: 550 is 5.5%. */
+            ssnitEmployeeBasisPoints: number;
+            /** @description The workers' own SSNIT contributions, deducted from their pay. */
+            totalSsnitEmployeePesewas: number;
+            /** @description The employer's rate in basis points: 1300 is 13%. */
+            ssnitEmployerBasisPoints: number;
+            /** @description The employer's SSNIT contributions. A company cost, never deducted from anyone's pay. */
+            totalSsnitEmployerPesewas: number;
+            /** @description The whole 18.5% that goes to SSNIT: the workers' 5.5% plus the employer's 13%. */
+            totalSsnitPesewas: number;
+            /** @description The Tier 1 rate in basis points: 1350 is 13.5%. */
+            ssnitTier1BasisPoints: number;
+            /** @description The part of the 18.5% SSNIT keeps for Tier 1. */
+            totalSsnitTier1Pesewas: number;
+            /** @description The Tier 2 rate in basis points: 500 is 5%. */
+            ssnitTier2BasisPoints: number;
+            /** @description The part paid into the workers' Tier 2 funds. Both percentages are of basic, so Tier 1 plus Tier 2 is the whole 18.5%; the 5% is not a slice of the employer's 13%. */
+            totalSsnitTier2Pesewas: number;
+            /** @description The PAYE withheld from every line, due to the GRA. */
+            totalPayePesewas: number;
+            /**
+             * Format: date-time
+             * @description When these figures were worked out from the run's lines.
+             */
+            generatedAt: string;
+        };
+        /** @description One worker's pay for one period, frozen when the run locked. It carries every number needed to check the pay by hand — the pay terms that were used, the hours, the tax table version, and each step from gross to net — so nothing else has to be fetched, which matters because a guard may not read a run, its lines or the tax tables. There is one payslip per payroll line, so a correction raised in a later period has a payslip of its own. An adjustment payslip may carry negative amounts and minutes, so no money or minute field has a `minimum`. It never carries bank or mobile money details: those live only in the bank export. */
+        Payslip: {
+            /**
+             * Format: uuid
+             * @description The payslip's ID.
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The payroll line this payslip was made from. One payslip per line.
+             */
+            lineId: string;
+            /**
+             * Format: uuid
+             * @description The run that produced it.
+             */
+            runId: string;
+            /**
+             * Format: uuid
+             * @description The period the run covers.
+             */
+            periodId: string;
+            /**
+             * Format: date
+             * @description The first day of the period.
+             */
+            periodStartDate: string;
+            /**
+             * Format: date
+             * @description The last day of the period. The pay terms and tax table in force on this day are the ones used.
+             */
+            periodEndDate: string;
+            employee: components["schemas"]["EmployeeRef"];
+            /** @description `LOCKED` until an ADMIN marks the run paid, then `PAID`; no other value can ever appear on a payslip, because a payslip exists only once its run is locked. Read live from the run, so it can change after the PDF was made, as can `paidAt`; everything else here is the frozen snapshot. */
+            runStatus: components["schemas"]["PayrollRunStatus"];
+            /**
+             * Format: date-time
+             * @description When an ADMIN marked the run paid, or `null` while it is only locked.
+             */
+            paidAt: string | null;
+            /** @description The full monthly salary from the pay terms used, before any pro-rating. */
+            basicMonthlyPesewas: number;
+            /** @description Calendar days in the period: the bottom of the pro-rating fraction. */
+            daysInPeriod: number;
+            /** @description Calendar days of the period the worker was employed for: the top of the pro-rating fraction. */
+            daysEmployed: number;
+            /** @description Basic pay for the period: the monthly salary pro-rated by days employed. Hours worked never reduce it. */
+            basicPesewas: number;
+            /** @description What the shift pattern scheduled on the days worked, so the overtime minutes below can be checked against something. */
+            scheduledMinutes: number;
+            /** @description Confirmed minutes worked within the scheduled length of each day's shift. They are already covered by the basic. */
+            regularMinutes: number;
+            /** @description Confirmed minutes worked beyond the scheduled length of each day's shift. */
+            overtimeMinutes: number;
+            /** @description Minutes the worker actually punched in the period, from confirmed work segments: `regularMinutes` plus `overtimeMinutes`. */
+            punchedMinutes: number;
+            /** @description The overtime rate for one hour, copied from the pay terms used. */
+            overtimeHourlyPesewas: number;
+            /** @description Overtime pay: the overtime minutes at the overtime rate. */
+            overtimePesewas: number;
+            /** @description The monthly allowance that is taxed, copied from the pay terms used. */
+            taxableAllowancePesewas: number;
+            /** @description The monthly allowance that is not taxed, copied from the pay terms used. */
+            nonTaxableAllowancePesewas: number;
+            /** @description Gross pay: basic plus overtime plus both allowances. */
+            grossPesewas: number;
+            /** @description The part of gross that is taxed: basic plus overtime plus the taxable allowance, leaving the non-taxable allowance out. */
+            taxableGrossPesewas: number;
+            /** @description The employee SSNIT rate used, in basis points (550 means 5.5%). */
+            ssnitEmployeeBasisPoints: number;
+            /** @description The worker's own SSNIT contribution, worked out on the basic and deducted from their pay. */
+            ssnitEmployeePesewas: number;
+            /** @description The employer SSNIT rate used, in basis points (1300 means 13%). */
+            ssnitEmployerBasisPoints: number;
+            /** @description What the company pays SSNIT on top of the salary. Shown so the worker can see it; it is never deducted from their pay. */
+            ssnitEmployerPesewas: number;
+            /** @description The income PAYE was worked out on: taxable gross minus the worker's SSNIT contribution. */
+            chargeableIncomePesewas: number;
+            /** @description Income tax, from the graduated monthly bands of the tax table named below. */
+            payePesewas: number;
+            /** @description Other monthly deductions copied from the pay terms used, such as a uniform or a loan instalment. */
+            otherDeductionsPesewas: number;
+            /** @description What the worker is paid: gross minus employee SSNIT, minus PAYE, minus other deductions. The employer's SSNIT is never in this sum. */
+            netPayPesewas: number;
+            /**
+             * Format: uuid
+             * @description The frozen tax table version used, so the arithmetic can always be reproduced.
+             */
+            taxTableId: string;
+            /**
+             * @description The tax year of that version, like `2026`, so the payslip names its own rates.
+             * @example 2026
+             */
+            taxYear: number;
+            /**
+             * Format: uuid
+             * @description For a correction, the earlier payroll line this one puts right; `null` on an ordinary payslip.
+             */
+            adjustsLineId: string | null;
+            /** @description Why the correction exists, so the worker is told; `null` on an ordinary payslip. */
+            adjustmentNote: components["schemas"]["ResolutionNote"] | null;
+            /**
+             * Format: date-time
+             * @description When the PDF was made: the moment the run was locked.
+             */
+            pdfGeneratedAt: string;
+            /** @description Size of the stored PDF in bytes. */
+            pdfSizeBytes: number;
+            /** @description SHA-256 of the stored PDF bytes, so what was sent can be proved to be exactly what exists. */
+            pdfSha256: string;
+        };
+        PayslipList: {
+            items: components["schemas"]["Payslip"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description One step of the graduated PAYE table. Bands apply in order: each one taxes the next slice of chargeable monthly income. A band has no ID of its own, because bands are only ever read and written as a whole table. */
+        TaxBand: {
+            /** @description Its position in the table, starting at 1. Bands are applied in this order. */
+            ordinal: number;
+            /** @description How much chargeable monthly income this band covers, in pesewas (the 2026 first band is 49000, GHS 490). `null` only on the last band, which has no upper limit. */
+            widthPesewas: number | null;
+            /** @description The tax rate on this slice as basis points (1750 is 17.5%). */
+            rateBasisPoints: number;
+        };
+        /** @description One frozen version of Ghana's statutory rates: the four SSNIT percentages, the graduated PAYE monthly bands, and where the figures came from. A run copies the version in force on its period's last day, so a locked run's arithmetic can always be reproduced. A version is never edited or deleted — a rate change is a new version — which is why there is no `updatedAt` here. */
+        TaxTable: {
+            /**
+             * Format: uuid
+             * @description The tax table version's ID.
+             */
+            id: string;
+            /**
+             * @description The tax year these rates belong to, like `2026`. Not unique on its own: a mid-year budget makes a second version for the same year.
+             * @example 2026
+             */
+            taxYear: number;
+            /**
+             * Format: date
+             * @description The first day this version applies.
+             */
+            effectiveFrom: string;
+            /**
+             * Format: date
+             * @description The last day it applies, or `null` when no end was set. A later version supersedes this one without changing it.
+             */
+            effectiveTo: string | null;
+            /** @description The employee's SSNIT contribution as basis points of basic pay (550 is 5.5%). The only SSNIT amount ever deducted from a worker. */
+            ssnitEmployeeBasisPoints: number;
+            /** @description The employer's SSNIT contribution as basis points of basic pay (1300 is 13%). A company cost, never a deduction and never in the net pay sum. */
+            ssnitEmployerBasisPoints: number;
+            /** @description The share of basic pay SSNIT keeps for Tier 1, as basis points (1350 is 13.5%). Part of the 18.5% total. */
+            ssnitTier1BasisPoints: number;
+            /** @description The share of basic pay that goes to the worker's Tier 2 fund, as basis points (500 is 5%). Part of the 18.5% total, not a slice of the employer's 13%. */
+            ssnitTier2BasisPoints: number;
+            /** @description The graduated PAYE monthly bands in order, from the first (0%) to the top, unbounded one. */
+            bands: components["schemas"]["TaxBand"][];
+            /**
+             * @description What the figures were read from, like `GRA PAYE rates 2026`.
+             * @example GRA PAYE rates 2026
+             */
+            sourceName: string;
+            /**
+             * Format: uri
+             * @description The published page or document the figures came from.
+             */
+            sourceUrl: string;
+            /**
+             * Format: date
+             * @description The day a person last checked these figures against that source. A rate nobody can trace is a rate nobody can defend.
+             */
+            sourceCheckedOn: string;
+            /**
+             * Format: date-time
+             * @description When this version was added.
+             */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description The ADMIN who added it. Nothing here changes afterwards, so there is no updater.
+             */
+            createdByUserId: string;
+        };
+        TaxTableList: {
+            items: components["schemas"]["TaxTable"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description A new version of the statutory rates. Only the last band may leave out its width; the server rejects a gap or a wrong order in `ordinal`, a band other than the last with `widthPesewas: null`, and a `sourceCheckedOn` in the future. */
+        CreateTaxTableRequest: {
+            /** @description The tax year these rates belong to, like `2026`. */
+            taxYear: number;
+            /**
+             * Format: date
+             * @description The first day this version applies. No other version of this company may start on the same day.
+             */
+            effectiveFrom: string;
+            /**
+             * Format: date
+             * @description Leave it out unless this version is already known to stop on a given day: a later version supersedes this one on its own, because a period always uses the version with the latest `effectiveFrom` on or before its last day, and a frozen row can never be edited to close it. Must not be before `effectiveFrom`.
+             */
+            effectiveTo?: string | null;
+            /** @description The employee's rate in basis points: 550 is 5.5%. */
+            ssnitEmployeeBasisPoints: number;
+            /** @description The employer's rate in basis points: 1300 is 13%. */
+            ssnitEmployerBasisPoints: number;
+            /** @description The Tier 1 rate in basis points: 1350 is 13.5%. */
+            ssnitTier1BasisPoints: number;
+            /** @description The Tier 2 rate in basis points: 500 is 5%. It is of basic pay, not a slice of the employer's 13%. */
+            ssnitTier2BasisPoints: number;
+            /** @description The graduated PAYE monthly bands in order. `ordinal` runs from 1 with no gaps, and the last band **must** have `widthPesewas: null` while no earlier one may: without an open top band the highest earners would be silently untaxed. */
+            bands: components["schemas"]["TaxBand"][];
+            /** @description What the figures were read from. */
+            sourceName: string;
+            /**
+             * Format: uri
+             * @description The published page or document the figures came from.
+             */
+            sourceUrl: string;
+            /**
+             * Format: date
+             * @description The day a person last checked these figures against that source. It may not be in the future.
+             */
+            sourceCheckedOn: string;
+        };
+        /** @description One effective-dated row of what an employee is paid. Rows are never edited: each change is a new row, and a run reads the row with the latest `effectiveFrom` on or before the period's last day and copies every value into the payroll line. Hours worked never reduce `basicMonthlyPesewas` — absence is handled by the exception queue, not by docking pay. */
+        EmployeePayTerms: {
+            /**
+             * Format: uuid
+             * @description This pay terms row's ID.
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The employee these terms belong to.
+             */
+            employeeId: string;
+            /**
+             * Format: date
+             * @description The first day these terms apply. A row with a later date supersedes this one.
+             */
+            effectiveFrom: string;
+            /** @description The monthly salary in pesewas. Paid in full for a whole period, and pro-rated by calendar days employed when the worker joined or left inside it. */
+            basicMonthlyPesewas: number;
+            /** @description Paid per hour of overtime, in pesewas. Overtime is the confirmed minutes beyond what the shift pattern schedules for that date. */
+            overtimeHourlyPesewas: number;
+            /** @description A monthly allowance that is taxed, in pesewas. */
+            taxableAllowancePesewas: number;
+            /** @description A monthly allowance that is not taxed, in pesewas. */
+            nonTaxableAllowancePesewas: number;
+            /** @description A monthly deduction taken after tax, in pesewas, such as a uniform or a loan instalment. It reaches the payroll line as `otherDeductionsPesewas`. */
+            otherDeductionPesewas: number;
+            /**
+             * Format: date-time
+             * @description When this row was stored.
+             */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description Who stored it. The row is never edited, so this never changes.
+             */
+            createdByUserId: string;
+        };
+        EmployeePayTermsList: {
+            items: components["schemas"]["EmployeePayTerms"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        /** @description What an employee is paid from a given date. Every field is required: the new row states the whole of the worker's pay from `effectiveFrom`, and nothing is carried over from the row before it. Storing it adds a row; it never changes one. Each money field is capped so the value always fits the database's `INTEGER` column. */
+        SetEmployeePayTermsRequest: {
+            /**
+             * Format: date
+             * @description The first day these terms apply. This employee may not already have a row starting on that day.
+             */
+            effectiveFrom: string;
+            /** @description The monthly salary in pesewas. */
+            basicMonthlyPesewas: number;
+            /** @description Paid per hour of overtime, in pesewas. Send `0` when the worker gets no overtime pay. */
+            overtimeHourlyPesewas: number;
+            /** @description A monthly allowance that is taxed, in pesewas. Send `0` for none. */
+            taxableAllowancePesewas: number;
+            /** @description A monthly allowance that is not taxed, in pesewas. Send `0` for none. */
+            nonTaxableAllowancePesewas: number;
+            /** @description A monthly deduction taken after tax, in pesewas. Send `0` for none. */
+            otherDeductionPesewas: number;
+        };
+        /** @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is. */
+        EmployeePaymentDetails: {
+            /**
+             * Format: uuid
+             * @description The employee these details belong to.
+             */
+            employeeId: string;
+            /** @description The bank the salary is paid into, or `null` if none is on file. */
+            bankName: string | null;
+            /** @description The name on the account, exactly as the bank holds it, or `null`. */
+            accountName: string | null;
+            /** @description The account number the bank export pays into, or `null`. */
+            accountNumber: string | null;
+            /** @description The mobile money number, or `null`. Written `+233` and nine digits, like every other phone number in the contract. */
+            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+            /**
+             * Format: date-time
+             * @description When these details were last changed.
+             */
+            updatedAt: string;
+            /**
+             * Format: uuid
+             * @description Who last changed them.
+             */
+            updatedByUserId: string;
+        };
+        /** @description Replaces an employee's payment details. All four fields are required: send `null` for anything the worker does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
+        SetEmployeePaymentDetailsRequest: {
+            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            bankName: string | null;
+            /** @description The name on the account, exactly as the bank holds it, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            accountName: string | null;
+            /** @description The account number, digits only, or `null`. */
+            accountNumber: string | null;
+            /** @description The mobile money number in `+233` form, or `null`. */
+            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+        };
     };
     responses: {
         /** @description The signature is wrong, the device is unknown or switched off, the route does not accept this kind of device, or the timestamp is more than 5 minutes from the server clock. Always the same answer, so nobody can learn which device IDs exist. */
@@ -2816,10 +3986,16 @@ export interface components {
         ShiftPatternId: string;
         /** @description The enrolled face's ID. */
         CredentialId: string;
+        /** @description The payroll period's ID. */
+        PayrollPeriodId: string;
+        /** @description The payroll run's ID. */
+        PayrollRunId: string;
+        /** @description The payslip's ID. */
+        PayslipId: string;
     };
     requestBodies: never;
     headers: {
-        /** @description Always `no-store`: the response carries a one-time secret, so no browser or proxy may keep a copy. */
+        /** @description Always `no-store`: the response carries a one-time secret or personal data, so no browser or proxy may keep a copy. */
         NoStore: "no-store";
     };
     pathItems: never;
@@ -2971,6 +4147,36 @@ export type PunchFeedItem = components['schemas']['PunchFeedItem'];
 export type PunchFeedList = components['schemas']['PunchFeedList'];
 export type ClockInAttempt = components['schemas']['ClockInAttempt'];
 export type ClockInAttemptList = components['schemas']['ClockInAttemptList'];
+export type PayrollPeriodStatus = components['schemas']['PayrollPeriodStatus'];
+export type PayrollPeriod = components['schemas']['PayrollPeriod'];
+export type PayrollPeriodList = components['schemas']['PayrollPeriodList'];
+export type CreatePayrollPeriodRequest = components['schemas']['CreatePayrollPeriodRequest'];
+export type PayrollRunStatus = components['schemas']['PayrollRunStatus'];
+export type PayrollRunExclusionReason = components['schemas']['PayrollRunExclusionReason'];
+export type PayrollRunExclusion = components['schemas']['PayrollRunExclusion'];
+export type PayrollRunTotals = components['schemas']['PayrollRunTotals'];
+export type PayrollRunSummary = components['schemas']['PayrollRunSummary'];
+export type PayrollRun = components['schemas']['PayrollRun'];
+export type PayrollRunList = components['schemas']['PayrollRunList'];
+export type CreatePayrollRunRequest = components['schemas']['CreatePayrollRunRequest'];
+export type SubmitPayrollRunRequest = components['schemas']['SubmitPayrollRunRequest'];
+export type ApprovePayrollRunRequest = components['schemas']['ApprovePayrollRunRequest'];
+export type RejectPayrollRunRequest = components['schemas']['RejectPayrollRunRequest'];
+export type MarkPayrollRunPaidRequest = components['schemas']['MarkPayrollRunPaidRequest'];
+export type PayrollLine = components['schemas']['PayrollLine'];
+export type PayrollLineList = components['schemas']['PayrollLineList'];
+export type PayrollStatutorySummary = components['schemas']['PayrollStatutorySummary'];
+export type Payslip = components['schemas']['Payslip'];
+export type PayslipList = components['schemas']['PayslipList'];
+export type TaxBand = components['schemas']['TaxBand'];
+export type TaxTable = components['schemas']['TaxTable'];
+export type TaxTableList = components['schemas']['TaxTableList'];
+export type CreateTaxTableRequest = components['schemas']['CreateTaxTableRequest'];
+export type EmployeePayTerms = components['schemas']['EmployeePayTerms'];
+export type EmployeePayTermsList = components['schemas']['EmployeePayTermsList'];
+export type SetEmployeePayTermsRequest = components['schemas']['SetEmployeePayTermsRequest'];
+export type EmployeePaymentDetails = components['schemas']['EmployeePaymentDetails'];
+export type SetEmployeePaymentDetailsRequest = components['schemas']['SetEmployeePaymentDetailsRequest'];
 export type ResponseDeviceNotTrusted = components['responses']['DeviceNotTrusted'];
 export type ResponsePayloadTooLarge = components['responses']['PayloadTooLarge'];
 export type ResponseBusy = components['responses']['Busy'];
@@ -2993,6 +4199,9 @@ export type ParameterPostId = components['parameters']['PostId'];
 export type ParameterUserId = components['parameters']['UserId'];
 export type ParameterShiftPatternId = components['parameters']['ShiftPatternId'];
 export type ParameterCredentialId = components['parameters']['CredentialId'];
+export type ParameterPayrollPeriodId = components['parameters']['PayrollPeriodId'];
+export type ParameterPayrollRunId = components['parameters']['PayrollRunId'];
+export type ParameterPayslipId = components['parameters']['PayslipId'];
 export type HeaderNoStore = components['headers']['NoStore'];
 export type $defs = Record<string, never>;
 export interface operations {
@@ -5018,6 +6227,669 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listPayrollPeriods: {
+        parameters: {
+            query?: {
+                /** @description Only months with this status. Leave it out for every month. */
+                status?: components["schemas"]["PayrollPeriodStatus"];
+                /** @description Only months in this calendar year, like `2026`. */
+                year?: number;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of payroll months. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollPeriodList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createPayrollPeriod: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePayrollPeriodRequest"];
+            };
+        };
+        responses: {
+            /** @description The payroll month was opened. */
+            201: {
+                headers: {
+                    /** @description URL of the payroll periods list. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollPeriod"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    closePayrollPeriod: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll period's ID. */
+                periodId: components["parameters"]["PayrollPeriodId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The period, now `CLOSED`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollPeriod"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listPayrollRuns: {
+        parameters: {
+            query?: {
+                /** @description Only runs for this payroll period. */
+                periodId?: string;
+                /** @description Only runs in this status. Leave it out for every status. */
+                status?: components["schemas"]["PayrollRunStatus"];
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of payroll runs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createPayrollRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePayrollRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The draft run was calculated. */
+            201: {
+                headers: {
+                    /** @description URL of the new run. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getPayrollRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The payroll run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPayrollLines: {
+        parameters: {
+            query?: {
+                /** @description Only this employee's lines on this run. */
+                employeeId?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of payroll lines. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollLineList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitPayrollRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitPayrollRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, now waiting for approval. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    approvePayrollRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovePayrollRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, now locked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectPayrollRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectPayrollRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, now rejected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    markPayrollRunPaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkPayrollRunPaidRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, now marked paid. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    downloadPayrollRunBankExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bank transfer file. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `payroll-run-<runId>.csv`, so the browser saves the file instead of showing it. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example "staff_number","full_name","bank_name","account_name","account_number","momo_number","net_pay_pesewas","net_pay_ghs","employee_reference","details_changed_after_approval"
+                     *     "SMT-00042","Kwame Mensah","GCB Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
+                     *     "SMT-00043","Ama Boateng","","","","+233241234567","96320","963.20","SAMTEC-2026-09-SMT-00043","yes"
+                     */
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getPayrollRunStatutorySummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The statutory amounts for this run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollStatutorySummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPayslips: {
+        parameters: {
+            query?: {
+                /** @description Only this employee's payslips. A GUARD may pass only their own; anyone else's answers `404`. */
+                employeeId?: string;
+                /** @description Only payslips from runs covering this payroll period. */
+                periodId?: string;
+                /** @description Only payslips from this payroll run. */
+                runId?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of payslips. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayslipList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPayslip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payslip's ID. */
+                payslipId: components["parameters"]["PayslipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The payslip. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Payslip"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadPayslipPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payslip's ID. */
+                payslipId: components["parameters"]["PayslipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored payslip PDF. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`. The file name is `payslip-<staffNumber>-<YYYY-MM>.pdf`, and an adjustment payslip adds `-adjustment-<first 8 characters of the payslip id>` before the extension, because a worker can hold two payslips for one month. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTaxTables: {
+        parameters: {
+            query?: {
+                /** @description Only versions for this tax year, like `2026`. */
+                taxYear?: number;
+                /** @description Only the one version a period ending on this day would use: the latest `effectiveFrom` on or before it. At most one item comes back. */
+                effectiveOn?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of tax table versions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxTableList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createTaxTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaxTableRequest"];
+            };
+        };
+        responses: {
+            /** @description The tax table version was stored. */
+            201: {
+                headers: {
+                    /** @description URL of the tax table list. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxTable"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listEmployeePayTerms: {
+        parameters: {
+            query?: {
+                /** @description Only the row a run would use for a period ending on this day: the latest `effectiveFrom` on or before it. At most one item comes back. */
+                effectiveOn?: string;
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of this employee's pay terms. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePayTermsList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setEmployeePayTerms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmployeePayTermsRequest"];
+            };
+        };
+        responses: {
+            /** @description The new pay terms row. The row before it is unchanged. */
+            201: {
+                headers: {
+                    /** @description URL of this employee's pay terms. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePayTerms"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    setEmployeePaymentDetails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmployeePaymentDetailsRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored payment details. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePaymentDetails"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

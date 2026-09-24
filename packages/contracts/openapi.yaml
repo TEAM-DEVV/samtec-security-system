@@ -72,6 +72,11 @@ tags:
       Consent, enrolled faces and fingerprint keys, the duplicate-enrollment
       queue, and exemptions. Never an image or a template. Built in Phase 3.
   # --- Payroll (Phase 4) --- Samuel adds payroll tags here, and nowhere else.
+  - name: Payroll
+    description: >-
+      Pay terms, payment details, payroll months, runs, payslips and the Ghana
+      statutory tables (PAYE and SSNIT). Money is always an integer number of
+      pesewas. Built in Phase 4.
   # --- Detection (Phase 5) --- Francis adds detection tags here.
 
 security:
@@ -2777,6 +2782,1036 @@ paths:
           $ref: "#/components/responses/Forbidden"
 
   # --- Payroll (Phase 4) --- Samuel adds /payroll paths here, and nowhere else.
+
+  /payroll/periods:
+    get:
+      tags: [Payroll]
+      operationId: listPayrollPeriods
+      summary: List payroll months
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD, who may read only their own payslips. A
+        payroll period is one calendar month: `year` and `month` name it, and
+        `startDate` and `endDate` are its first and last day, worked out by the
+        API. Newest month first. Filter by `status` to find the months still
+        `OPEN`, or by `year` for one year.
+      parameters:
+        - name: status
+          in: query
+          description: Only months with this status. Leave it out for every month.
+          schema:
+            $ref: "#/components/schemas/PayrollPeriodStatus"
+        - name: year
+          in: query
+          description: Only months in this calendar year, like `2026`.
+          schema:
+            type: integer
+            minimum: 2020
+            maximum: 2100
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of payroll months.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollPeriodList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      operationId: createPayrollPeriod
+      summary: Open a payroll month
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Opens the month that payroll runs are
+        calculated for. Send only the `year` and the `month`; the API works out
+        `startDate` and `endDate` itself, so a period is always exactly one
+        whole calendar month and nobody can open half a month by hand. A new
+        period starts `OPEN`. There is only ever one period per month: a month
+        that already has one answers `409`. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePayrollPeriodRequest"
+            examples:
+              september2026:
+                summary: Open September 2026
+                value:
+                  year: 2026
+                  month: 9
+      responses:
+        "201":
+          description: The payroll month was opened.
+          headers:
+            Location:
+              description: URL of the payroll periods list.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollPeriod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/periods/{periodId}/close:
+    parameters:
+      - $ref: "#/components/parameters/PayrollPeriodId"
+    post:
+      tags: [Payroll]
+      operationId: closePayrollPeriod
+      summary: Close a payroll month
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Marks the month finished. The period moves
+        `OPEN` to `CLOSED` and never goes back, and the API records who closed
+        it and when, together. Afterwards no new run may be calculated for the
+        month, and a draft still sitting in it can no longer be submitted,
+        approved or rejected; a run that is already `LOCKED` may still be marked
+        paid and its bank file downloaded, because the money often leaves after
+        month end. A correction for a closed month becomes an adjustment line on
+        the next month's run. Closing a period changes nothing in attendance:
+        punches, work segments and the exception queue carry on exactly as
+        before, because a run is a snapshot of what it read. A period that is
+        already `CLOSED` answers `409`. Audited.
+      responses:
+        "200":
+          description: The period, now `CLOSED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollPeriod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs:
+    get:
+      tags: [Payroll]
+      operationId: listPayrollRuns
+      summary: List payroll runs
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Every run of the company, newest first.
+        Each one carries its totals, its summary and the full evidence of every
+        status it has been through. A period may hold several runs, drafts and
+        rejected ones, but only ever one that is `LOCKED` or `PAID`. Narrow the
+        list with `periodId` and `status`. No bank or mobile money details
+        appear here; they exist only inside a run's bank export.
+      parameters:
+        - name: periodId
+          in: query
+          description: Only runs for this payroll period.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Only runs in this status. Leave it out for every status.
+          schema:
+            $ref: "#/components/schemas/PayrollRunStatus"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of payroll runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRunList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Payroll]
+      operationId: createPayrollRun
+      summary: Calculate a draft payroll run
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, and **the caller becomes the maker**, so
+        they may never approve this run. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Calculates a new `DRAFT` run for an `OPEN`
+        period from the work segments and pay terms visible right now, and
+        copies every input into its lines. Everyone employed for at least one
+        day of the period who has pay terms effective by its last day gets a
+        line, `PENDING_ENROLLMENT` workers included: being employed and being
+        enrolled in biometrics are different things. A `SUSPENDED` worker, and
+        anyone with no pay terms yet, is left off and listed in
+        `summary.excluded` with the reason, so nobody is silently dropped. Only
+        `CONFIRMED` work segments are paid, and a segment belongs to the period
+        its work date falls in, so a night shift that starts on the last day of
+        the month is paid in the month it started. Calculating again makes
+        **another** draft. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePayrollRunRequest"
+            examples:
+              calculateSeptember2026:
+                summary: Calculate September 2026
+                value:
+                  periodId: 01927c3e-9f00-7abc-8def-0000000000a1
+      responses:
+        "201":
+          description: The draft run was calculated.
+          headers:
+            Location:
+              description: URL of the new run.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      tags: [Payroll]
+      operationId: getPayrollRun
+      summary: Get one payroll run
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. One run with its totals, its summary and
+        the full evidence of every status it has been through: who calculated
+        it, who submitted it and when, who approved or rejected it and why, and
+        who recorded the payment. The workers deliberately left off the run are
+        in `summary.excluded`. A run of another company answers `404`.
+      responses:
+        "200":
+          description: The payroll run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/runs/{runId}/lines:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      tags: [Payroll]
+      operationId: listPayrollLines
+      summary: List the lines of a payroll run
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD, who reads their own payslip instead. One
+        page of the run's lines, sorted by staff number, with an employee's
+        adjustment lines after their ordinary line. Every line copies each input
+        it was calculated from, so a locked run can be re-checked years later
+        without reading anything else. Bank and mobile money details are never
+        on a line; they appear only in the bank export. Filter to one person
+        with `employeeId`.
+      parameters:
+        - name: employeeId
+          in: query
+          description: Only this employee's lines on this run.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of payroll lines.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollLineList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/runs/{runId}/submit:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    post:
+      tags: [Payroll]
+      operationId: submitPayrollRun
+      summary: Submit a draft run for approval
+      description: >-
+        **Roles:** ADMIN or HR_PAYROLL, but only **the maker**, the person who
+        calculated this run; anybody else answers `403`. A SUPERVISOR sees no
+        payroll at all (`403`), and so does a GUARD. Moves a `DRAFT` run to
+        `PENDING_APPROVAL` and records the submitter and the time together. From
+        Phase 5, detection rule R3 will refuse a submission whose paid hours and
+        punched hours disagree without explanation; version 1 records
+        `punchedMinutes` and `scheduledMinutes` on every line as the evidence a
+        checker needs, and lets the submission through. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitPayrollRunRequest"
+            examples:
+              withANote:
+                summary: Submit, telling the checker what to look at
+                value:
+                  note: Three guards have overtime this month; the Tema post was short-staffed.
+              noNote:
+                summary: Submit with nothing to add
+                value: {}
+      responses:
+        "200":
+          description: The run, now waiting for approval.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    post:
+      tags: [Payroll]
+      operationId: approvePayrollRun
+      summary: Approve a run and lock it
+      description: >-
+        **Roles:** ADMIN, but **never the person who submitted it** (`403`): the
+        maker is never the checker, and the same rule is a `CHECK` in the
+        database. HR_PAYROLL, SUPERVISOR and GUARD may never approve (`403`). An
+        ADMIN may prepare a run, and then a different ADMIN must approve it.
+        Moves a `PENDING_APPROVAL` run to `LOCKED`, records the approver and the
+        time together, and generates one payslip PDF for every line in the same
+        transaction, so what was sent is exactly what exists. A locked run can
+        never be changed again: a database trigger refuses every update and
+        delete on it and on its lines, and a correction becomes an adjustment
+        line on the next period's run. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovePayrollRunRequest"
+            examples:
+              withANote:
+                summary: Approve, recording what was checked
+                value:
+                  note: Checked every overtime line against the exception queue.
+              noNote:
+                summary: Approve with nothing to add
+                value: {}
+      responses:
+        "200":
+          description: The run, now locked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/reject:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    post:
+      tags: [Payroll]
+      operationId: rejectPayrollRun
+      summary: Reject a run with a reason
+      description: >-
+        **Roles:** ADMIN, but **never the person who submitted it** (`403`).
+        HR_PAYROLL, SUPERVISOR and GUARD may never reject (`403`). Moves a
+        `PENDING_APPROVAL` run to `REJECTED` and records the checker, the time
+        and the reason they gave. `REJECTED` is terminal and nothing ever moves
+        backwards: the maker fixes the cause, such as a wrong pay term or a
+        missing clock-out still sitting in the exception queue, and calculates a
+        **new** run. The rejected run stays for the record and is never deleted.
+        Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectPayrollRunRequest"
+            examples:
+              aWrongOvertimeRate:
+                summary: Send it back to the maker
+                value:
+                  reason: SMT-00042 is on the old overtime rate. Fix the pay terms and calculate again.
+      responses:
+        "200":
+          description: The run, now rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/mark-paid:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    post:
+      tags: [Payroll]
+      operationId: markPayrollRunPaid
+      summary: Record that a locked run has been paid
+      description: >-
+        **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never mark a run
+        paid (`403`). Moves a `LOCKED` run to `PAID` after the bank file has
+        been sent, recording who marked it, when, the day the money actually
+        left and the bank's reference. No second person is required here,
+        because the money has already gone: the control that matters is the
+        approval before it. Nothing about the run or its lines changes, and it
+        works after the period has been closed. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkPayrollRunPaidRequest"
+            examples:
+              paidByBankTransfer:
+                summary: Paid on the last working day
+                value:
+                  paidOn: "2026-09-28"
+                  paymentReference: GCB-TRF-2026-09-0042
+                  note: One transfer for the whole run.
+      responses:
+        "200":
+          description: The run, now marked paid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/bank-export:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      tags: [Payroll]
+      operationId: downloadPayrollRunBankExport
+      summary: Download the bank transfer file
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD; this file carries account numbers and must
+        never reach either. Downloads the bank transfer file for a `LOCKED` or
+        `PAID` run as **`text/csv`**, one of only two answers in this contract
+        that are not JSON. One row per employee, sorted by staff number,
+        carrying their net pay summed across every line of the run so a person
+        is paid once, and their bank or mobile money details. A run that has not
+        been approved has no bank file (`409`): the file exists only after a
+        checker has signed it off. Rows totalling zero or less are left out,
+        because a bank file cannot take a negative payment; that money is
+        recovered by an adjustment line in a later run, and the line and the
+        payslip still show it. An employee whose payment details are missing
+        still gets a row with the bank columns empty, so the payroll officer can
+        see who to chase.
+
+        **Every cell is quoted and escaped as RFC 4180 says**: the value is
+        wrapped in double quotes and any double quote inside it is doubled, so
+        a name or an account holder containing a comma, a quote or a line break
+        can never break a row apart or add one. A cell whose value begins with
+        `=`, `+`, `-`, `@`, a tab or a carriage return is written with a
+        leading apostrophe, so a spreadsheet treats it as text instead of
+        running it as a formula.
+
+        The last column, `details_changed_after_approval`, is `yes` when that
+        employee's bank or mobile money details were changed **after** the run
+        was approved. The approval covers what each worker is owed, not where
+        it is sent, so whoever uploads this file can see at a glance that a
+        destination moved after the checker signed it off, and stop.
+
+        The answer is never cached, and no account number is ever written to a
+        log or an error message. **Audited:** who downloaded the file, for which
+        run, and when.
+      responses:
+        "200":
+          description: The bank transfer file.
+          headers:
+            Content-Disposition:
+              description: >-
+                Always `attachment`, with the file name
+                `payroll-run-<runId>.csv`, so the browser saves the file instead
+                of showing it.
+              schema:
+                type: string
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                "staff_number","full_name","bank_name","account_name","account_number","momo_number","net_pay_pesewas","net_pay_ghs","employee_reference","details_changed_after_approval"
+                "SMT-00042","Kwame Mensah","GCB Bank","Kwame Mensah","1234567890123","","148750","1487.50","SAMTEC-2026-09-SMT-00042","no"
+                "SMT-00043","Ama Boateng","","","","+233241234567","96320","963.20","SAMTEC-2026-09-SMT-00043","yes"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/statutory-summary:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      tags: [Payroll]
+      operationId: getPayrollRunStatutorySummary
+      summary: What the run owes SSNIT and the GRA
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. What the company owes the statutory funds
+        for this run: the workers' own SSNIT contribution (5.5% of basic,
+        deducted from their pay), the employer's contribution (13% of basic, a
+        company cost), how that 18.5% splits into Tier 1 (13.5%) and Tier 2
+        (5%) — **both worked out from basic**, so the 5% is not a slice of the
+        employer's 13% — and the total PAYE withheld and due to the GRA. Every
+        percentage comes from the run's own tax table version and is shown in
+        basis points beside the amount it produced, so a figure can be checked
+        by hand. On a run that is not yet `LOCKED` these figures can still
+        change. Version 1 reports these amounts; paying them stays manual.
+      responses:
+        "200":
+          description: The statutory amounts for this run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayrollStatutorySummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/payslips:
+    get:
+      tags: [Payroll]
+      operationId: listPayslips
+      summary: List payslips
+      description: >-
+        **Roles:** ADMIN and HR_PAYROLL for the whole company; a GUARD only for
+        themselves. A SUPERVISOR sees no payroll at all (`403`). A payslip
+        exists only once its run is `LOCKED`, because the PDF is made in the
+        same transaction that locks the run, so a draft, a run waiting for
+        approval and a rejected run have none. A guard's list is always scoped
+        to their own employee record whatever they ask for, and an `employeeId`,
+        `periodId` or `runId` the caller may not see answers `404`, never `403`.
+        A guard account with no employee record sees an empty page. Newest
+        period first.
+      parameters:
+        - name: employeeId
+          in: query
+          description: >-
+            Only this employee's payslips. A GUARD may pass only their own;
+            anyone else's answers `404`.
+          schema:
+            type: string
+            format: uuid
+        - name: periodId
+          in: query
+          description: Only payslips from runs covering this payroll period.
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: query
+          description: Only payslips from this payroll run.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of payslips.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayslipList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/payslips/{payslipId}:
+    parameters:
+      - $ref: "#/components/parameters/PayslipId"
+    get:
+      tags: [Payroll]
+      operationId: getPayslip
+      summary: Get one payslip
+      description: >-
+        **Roles:** the owning guard, ADMIN, HR_PAYROLL. A guard reading another
+        guard's payslip gets `404`, never `403`, so nobody can learn which
+        payslips exist. A SUPERVISOR sees no payroll at all (`403`). Everything
+        needed to check the pay by hand is on the payslip itself — the pay terms
+        used, the hours, the tax table version, and every step from gross to net
+        — so the run does not have to be fetched as well. It was frozen when the
+        run locked and never changes; only `runStatus` and `paidAt` are read
+        live from the run.
+      responses:
+        "200":
+          description: The payslip.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payslip"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/payslips/{payslipId}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/PayslipId"
+    get:
+      tags: [Payroll]
+      operationId: downloadPayslipPdf
+      summary: Download a payslip as a PDF
+      description: >-
+        **Roles:** the owning guard, ADMIN, HR_PAYROLL. A guard asking for
+        another guard's payslip gets `404`, never `403`. A SUPERVISOR sees no
+        payroll at all (`403`). Returns the stored PDF byte for byte. It was
+        generated once, inside the transaction that locked the run, and is never
+        regenerated, so what was sent to the worker is exactly what exists here.
+        The answer is `application/pdf`, one of only two in this contract that
+        are not JSON, and it always carries `Content-Disposition: attachment`,
+        so a browser saves the file rather than opening it in a tab. Only the
+        `200` is binary: an error is still `application/problem+json`, so a
+        client must check the status before treating the body as a PDF.
+        **Audited:** who downloaded which payslip, and when.
+      responses:
+        "200":
+          description: The stored payslip PDF.
+          headers:
+            Content-Disposition:
+              description: >-
+                Always `attachment`. The file name is
+                `payslip-<staffNumber>-<YYYY-MM>.pdf`, and an adjustment payslip
+                adds `-adjustment-<first 8 characters of the payslip id>` before
+                the extension, because a worker can hold two payslips for one
+                month.
+              schema:
+                type: string
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payroll/tax-tables:
+    get:
+      tags: [Payroll]
+      operationId: listTaxTables
+      summary: List the statutory tax table versions
+      description: >-
+        **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never call it
+        (`403`): HR prepares runs but does not maintain the rates, which is why
+        the tax year is copied onto every run, line and payslip. Every version
+        of Ghana's statutory rates this company has: the four SSNIT percentages,
+        the graduated PAYE bands, and where each figure came from. Newest
+        `effectiveFrom` first. A run uses the version with the latest
+        `effectiveFrom` on or before its period's **last** day, so a period that
+        straddles a rate change uses the newer one; give `effectiveOn` to see
+        exactly which version a given day falls under. A version is **frozen**
+        once a run has used it, which is why there is no `PUT` and no `DELETE`
+        anywhere on this resource: a rate change is a new version, and a locked
+        run's arithmetic can always be reproduced.
+      parameters:
+        - name: taxYear
+          in: query
+          description: Only versions for this tax year, like `2026`.
+          schema:
+            type: integer
+            minimum: 2020
+            maximum: 2100
+        - name: effectiveOn
+          in: query
+          description: >-
+            Only the one version a period ending on this day would use: the
+            latest `effectiveFrom` on or before it. At most one item comes back.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of tax table versions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxTableList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      operationId: createTaxTable
+      summary: Add a new version of the statutory rates
+      description: >-
+        **Roles:** ADMIN. Every other role answers `403`. Rates change with
+        every national budget, so a change is a **new** version and never an
+        edit: nothing on this resource can be updated or deleted, and a version
+        a run has used is frozen by the database itself. Send the four SSNIT
+        percentages as basis points — 550 employee, 1300 employer, 1350 Tier 1,
+        500 Tier 2 — remembering that the Tier 2 5% is of **basic pay**, not a
+        slice of the employer's 13%, and that only the employee's 5.5% is ever
+        deducted from a worker. Send the PAYE monthly bands in order, each
+        covering the next slice of chargeable income, with `widthPesewas: null`
+        on the top band because it has no upper limit; `ordinal` runs from 1
+        with no gaps, and only the last band may leave its width out.
+        `sourceName`, `sourceUrl` and `sourceCheckedOn` are required, because a
+        rate nobody can trace is a rate nobody can defend. A later version
+        supersedes an earlier one without touching it, so leave `effectiveTo`
+        out unless this version is already known to stop on a given day. Two
+        versions may not start on the same day (`409`). Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaxTableRequest"
+            examples:
+              ghana2026:
+                summary: The 2026 PAYE and SSNIT rates
+                value:
+                  taxYear: 2026
+                  effectiveFrom: "2026-01-01"
+                  ssnitEmployeeBasisPoints: 550
+                  ssnitEmployerBasisPoints: 1300
+                  ssnitTier1BasisPoints: 1350
+                  ssnitTier2BasisPoints: 500
+                  bands:
+                    - ordinal: 1
+                      widthPesewas: 49000
+                      rateBasisPoints: 0
+                    - ordinal: 2
+                      widthPesewas: 10000
+                      rateBasisPoints: 500
+                    - ordinal: 3
+                      widthPesewas: 50000
+                      rateBasisPoints: 1000
+                    - ordinal: 4
+                      widthPesewas: 200000
+                      rateBasisPoints: 1750
+                    - ordinal: 5
+                      widthPesewas: 200000
+                      rateBasisPoints: 2500
+                    - ordinal: 6
+                      widthPesewas: 1491000
+                      rateBasisPoints: 3000
+                    - ordinal: 7
+                      widthPesewas: null
+                      rateBasisPoints: 3500
+                  sourceName: GRA PAYE rates 2026
+                  sourceUrl: https://gra.gov.gh/domestic-tax/tax-types/paye/
+                  sourceCheckedOn: "2026-01-05"
+      responses:
+        "201":
+          description: The tax table version was stored.
+          headers:
+            Location:
+              description: URL of the tax table list.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxTable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /employees/{employeeId}/pay-terms:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Payroll]
+      operationId: listEmployeePayTerms
+      summary: An employee's pay terms, newest first
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD, who may read their own payslips but not
+        their pay terms. What this employee is paid, and what they were paid
+        before. Pay terms are effective-dated and **never edited**, so every
+        change is its own row and an old payslip can always be explained. A run
+        reads the row with the latest `effectiveFrom` on or before the period's
+        **last** day and copies every value into the payroll line; give
+        `effectiveOn` to get just that one row. An employee with no pay terms
+        yet answers `200` with an empty list: they are simply left off a run and
+        listed in its summary. An employee this caller may not see answers
+        `404`.
+      parameters:
+        - name: effectiveOn
+          in: query
+          description: >-
+            Only the row a run would use for a period ending on this day: the
+            latest `effectiveFrom` on or before it. At most one item comes back.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of this employee's pay terms.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeePayTermsList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Payroll]
+      operationId: setEmployeePayTerms
+      summary: Set an employee's pay from a date
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. **This never changes an existing row.** Pay
+        terms are effective-dated history: every call stores a **new** row and
+        the row before it stays exactly as it was, so a payslip from March can
+        always be explained by the terms in force in March — which is why the
+        answer is `201` and not `200`. Send every field: the new row states the
+        whole of what the worker is paid from `effectiveFrom`, and nothing is
+        carried over, so an allowance left out is not an allowance that keeps
+        its old value. A locked run keeps the values it copied into its lines,
+        so back-dating a correction never rewrites a payslip that has already
+        been sent; calculate the open draft again to pick the new terms up. Two
+        rows for the same employee may not start on the same day (`409`).
+        Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetEmployeePayTermsRequest"
+            examples:
+              guardFromOctober:
+                summary: A guard's pay from 1 October 2026
+                value:
+                  effectiveFrom: "2026-10-01"
+                  basicMonthlyPesewas: 120000
+                  overtimeHourlyPesewas: 900
+                  taxableAllowancePesewas: 15000
+                  nonTaxableAllowancePesewas: 5000
+                  otherDeductionPesewas: 2000
+      responses:
+        "201":
+          description: The new pay terms row. The row before it is unchanged.
+          headers:
+            Location:
+              description: URL of this employee's pay terms.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeePayTerms"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /employees/{employeeId}/payment-details:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    put:
+      tags: [Payroll]
+      operationId: setEmployeePaymentDetails
+      summary: Set where an employee's salary is paid
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. The bank account and mobile money number
+        the bank export pays into. One row per employee, and unlike pay terms
+        this row **is** edited in place, which is why the answer is `200`: what
+        you send replaces what was there. Send all four fields, with `null` for
+        anything the worker does not have, so a detail is only ever cleared on
+        purpose and never by being left out. A worker with no details is simply
+        missing from the bank file; nothing else changes. **This is personal
+        data.** It is never written to a log, never put in an error message and
+        never returned by any list endpoint, so no run, line or payslip carries
+        it; a rejected field is named, never quoted. The audit entry records
+        that the details changed and who changed them, never the values, and the
+        answer carries `Cache-Control: no-store`. There is no `GET`: these
+        details exist to be paid into, and the only other place they are read is
+        the run's bank export.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetEmployeePaymentDetailsRequest"
+            examples:
+              bankAndMomo:
+                summary: A bank account and a mobile money number
+                value:
+                  bankName: GCB Bank
+                  accountName: Kwame Mensah
+                  accountNumber: "1234567890123"
+                  momoNumber: "+233241234567"
+              momoOnly:
+                summary: Mobile money only
+                value:
+                  bankName: null
+                  accountName: null
+                  accountNumber: null
+                  momoNumber: "+233241234567"
+      responses:
+        "200":
+          description: The stored payment details.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeePaymentDetails"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # --- Detection (Phase 5) --- Francis adds /detection paths here.
 
 components:
@@ -2839,8 +3874,8 @@ components:
   headers:
     NoStore:
       description: >-
-        Always `no-store`: the response carries a one-time secret, so no
-        browser or proxy may keep a copy.
+        Always `no-store`: the response carries a one-time secret or personal
+        data, so no browser or proxy may keep a copy.
       schema:
         type: string
         const: no-store
@@ -2943,6 +3978,36 @@ components:
       schema:
         type: string
         format: uuid
+
+    # --- Payroll (Phase 4) ---
+    PayrollPeriodId:
+      name: periodId
+      in: path
+      required: true
+      description: The payroll period's ID.
+      schema:
+        type: string
+        format: uuid
+
+    PayrollRunId:
+      name: runId
+      in: path
+      required: true
+      description: The payroll run's ID.
+      schema:
+        type: string
+        format: uuid
+
+    PayslipId:
+      name: payslipId
+      in: path
+      required: true
+      description: The payslip's ID.
+      schema:
+        type: string
+        format: uuid
+
+    # --- Detection (Phase 5) --- Francis adds detection path parameters here.
 
   responses:
     DeviceNotTrusted:
@@ -4601,7 +5666,11 @@ components:
       type: string
       minLength: 3
       maxLength: 500
-      description: Why. Shown to other reviewers; never copied into the audit log.
+      description: >-
+        Why, in a person's own words. Shown with the record it belongs to. The
+        action and who did it are audited; this text never is, because a person
+        may type a staff number or an account number into it and the audit log
+        can never be edited.
 
     DismissResolution:
       type: object
@@ -5465,7 +6534,1590 @@ components:
     # --- Payroll (Phase 4) --- Samuel adds payroll schemas here, and nowhere
     # else. Every name carries its module: PayrollPeriod, PayrollRun,
     # PayrollLine, TaxTable, Payslip; operationIds listPayrollRuns,
-    # approvePayrollRun, and so on.
+    # approvePayrollRun, and so on. The two families hanging off an employee
+    # keep that resource's name on purpose — EmployeePayTerms and
+    # EmployeePaymentDetails, like the existing EmployeeBiometrics.
+
+    PayrollPeriodStatus:
+      type: string
+      enum: [OPEN, CLOSED]
+      description: |
+        Where a payroll month is in its life. There are only two values, and it
+        never moves backwards.
+
+        - `OPEN`: the month payroll is still working on. Runs may be
+          calculated, submitted and approved for it.
+        - `CLOSED`: the month is finished, and it never reopens. No new run may
+          be calculated for it, and a late punch or a correction becomes an
+          adjustment line on the next month's run. Closing changes nothing in
+          attendance.
+
+    PayrollPeriod:
+      type: object
+      description: >-
+        One payroll month. Runs are calculated for a period, and a period is
+        closed when the month is finished.
+      required:
+        [
+          id,
+          year,
+          month,
+          startDate,
+          endDate,
+          status,
+          closedAt,
+          closedByUserId,
+          lockedRunId,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The period's ID.
+        year:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The calendar year, like `2026`. With `month` it names the period.
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: >-
+            The calendar month, `1` for January to `12` for December. There is
+            only ever one period per month.
+        startDate:
+          type: string
+          format: date
+          description: The month's first day, like `2026-09-01`. Worked out by the API.
+        endDate:
+          type: string
+          format: date
+          description: >-
+            The month's last day, like `2026-09-30`. A run pays the work
+            segments whose work date falls between `startDate` and `endDate`,
+            and reads each employee's pay terms and the tax table version
+            effective on this day.
+        status:
+          $ref: "#/components/schemas/PayrollPeriodStatus"
+        closedAt:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When the period was closed, or `null` while it is `OPEN`. Always set
+            together with `closedByUserId`.
+        closedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            The user who closed the period, or `null` while it is `OPEN`. Always
+            set together with `closedAt`.
+        lockedRunId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            The one run of this month that is `LOCKED` or `PAID`, or `null` while
+            none has been approved. A month never has two.
+        createdAt:
+          type: string
+          format: date-time
+          description: When the period was opened.
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the period last changed.
+
+    PayrollPeriodList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PayrollPeriod"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreatePayrollPeriodRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        The month to open. It carries only the two fields that name the month:
+        the first day, the last day and the status are the API's to decide, so a
+        caller can never open a period that is not a whole calendar month.
+      required: [year, month]
+      properties:
+        year:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The calendar year, like `2026`.
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: The calendar month, `1` for January to `12` for December.
+
+    PayrollRunStatus:
+      type: string
+      enum: [DRAFT, PENDING_APPROVAL, LOCKED, PAID, REJECTED]
+      description: |
+        Where a payroll run is in its life. A run only ever moves forward:
+        `DRAFT` to `PENDING_APPROVAL` to `LOCKED` to `PAID`, or
+        `PENDING_APPROVAL` to `REJECTED`, which is the end of that run. Every
+        status carries the evidence of how it got there.
+
+        - `DRAFT`: calculated and not yet submitted. Only the maker may submit
+          it, and calculating again simply makes another draft.
+        - `PENDING_APPROVAL`: waiting for a checker. Carries the submitter and
+          the time they submitted.
+        - `LOCKED`: approved. Nothing about the run or its lines can change
+          again (a database trigger refuses it) and every payslip PDF exists.
+          Carries the approver and the time.
+        - `PAID`: the bank file has been sent and an ADMIN recorded it. Carries
+          who marked it, when, and the bank's reference.
+        - `REJECTED`: the checker refused it, with a reason. Terminal: nothing
+          moves backwards, so the maker fixes the cause and calculates a new run.
+
+    PayrollRunExclusionReason:
+      type: string
+      enum: [SUSPENDED, NO_PAY_TERMS]
+      description: |
+        Why an employee who was employed during the period has no line on this
+        run. Every one of them is listed, so nobody is ever silently dropped.
+
+        - `SUSPENDED`: the worker is temporarily blocked from clocking in and
+          from payroll. They are left off on purpose and paid nothing.
+        - `NO_PAY_TERMS`: the worker has no pay terms effective by the period's
+          last day, so there is no salary to calculate. Set their pay terms and
+          calculate a new run.
+
+    PayrollRunExclusion:
+      type: object
+      description: >-
+        One employee who was employed during the period but has no line on this
+        run, and why.
+      required: [employee, reason]
+      properties:
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        reason:
+          $ref: "#/components/schemas/PayrollRunExclusionReason"
+
+    PayrollRunTotals:
+      type: object
+      description: >-
+        The run's money, added up across every line. No field carries a
+        `minimum`: a run made only of adjustment lines can be negative.
+      required:
+        [
+          totalBasicPesewas,
+          totalOvertimePesewas,
+          totalTaxableAllowancePesewas,
+          totalNonTaxableAllowancePesewas,
+          totalGrossPesewas,
+          totalSsnitEmployeePesewas,
+          totalPayePesewas,
+          totalOtherDeductionsPesewas,
+          totalNetPayPesewas,
+          totalSsnitEmployerPesewas,
+        ]
+      properties:
+        totalBasicPesewas:
+          type: integer
+          description: >-
+            Basic salary across every line, pro-rated where a worker joined or
+            left inside the period.
+        totalOvertimePesewas:
+          type: integer
+          description: Overtime pay across every line.
+        totalTaxableAllowancePesewas:
+          type: integer
+          description: Taxable allowances across every line.
+        totalNonTaxableAllowancePesewas:
+          type: integer
+          description: Non-taxable allowances across every line.
+        totalGrossPesewas:
+          type: integer
+          description: "Gross pay: basic plus overtime plus both allowances."
+        totalSsnitEmployeePesewas:
+          type: integer
+          description: >-
+            The workers' own SSNIT contributions, 5.5% of basic, deducted from
+            their pay.
+        totalPayePesewas:
+          type: integer
+          description: PAYE withheld across every line.
+        totalOtherDeductionsPesewas:
+          type: integer
+          description: >-
+            Other deductions across every line, such as uniform or loan
+            instalments.
+        totalNetPayPesewas:
+          type: integer
+          description: >-
+            What the workers are actually paid, and what the bank file adds up
+            to: gross minus employee SSNIT, PAYE and other deductions.
+        totalSsnitEmployerPesewas:
+          type: integer
+          description: >-
+            The employer's SSNIT contributions, 13% of basic. A company cost,
+            never deducted from anyone's pay; the Tier 1 and Tier 2 split is in
+            the statutory summary.
+
+    PayrollRunSummary:
+      type: object
+      description: Who is on the run, and who is deliberately not.
+      required: [lineCount, employeeCount, adjustmentLineCount, excluded]
+      properties:
+        lineCount:
+          type: integer
+          minimum: 0
+          description: How many lines the run has, adjustment lines included.
+        employeeCount:
+          type: integer
+          minimum: 0
+          description: How many different employees are paid on this run.
+        adjustmentLineCount:
+          type: integer
+          minimum: 0
+          description: How many of the lines correct a line on an earlier run.
+        excluded:
+          type: array
+          description: >-
+            Employees who were employed during the period but have no line, with
+            the reason for each. Empty when everybody was paid.
+          items:
+            $ref: "#/components/schemas/PayrollRunExclusion"
+
+    PayrollRun:
+      type: object
+      description: >-
+        One calculation of one period's pay: a snapshot with its totals, its
+        summary and the evidence of every status it has been through. Several
+        runs may exist for a period, drafts and rejected ones, but only ever one
+        that is `LOCKED` or `PAID`.
+      required:
+        [
+          id,
+          periodId,
+          periodStartDate,
+          periodEndDate,
+          status,
+          taxTableId,
+          taxYear,
+          totals,
+          summary,
+          calculatedAt,
+          calculatedByUserId,
+          submittedAt,
+          submittedByUserId,
+          submissionNote,
+          approvedAt,
+          approvedByUserId,
+          approvalNote,
+          rejectedAt,
+          rejectedByUserId,
+          rejectionReason,
+          paidAt,
+          paidByUserId,
+          paidOn,
+          paymentReference,
+          paymentNote,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The run's ID.
+        periodId:
+          type: string
+          format: uuid
+          description: The payroll period this run calculates.
+        periodStartDate:
+          type: string
+          format: date
+          description: The period's first day, copied when the run was calculated.
+        periodEndDate:
+          type: string
+          format: date
+          description: >-
+            The period's last day. The pay terms and the tax table version used
+            are the ones effective on this day.
+        status:
+          $ref: "#/components/schemas/PayrollRunStatus"
+        taxTableId:
+          type: string
+          format: uuid
+          description: >-
+            The tax table version every line of this run was calculated with.
+            That row can never be edited once a run refers to it.
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The tax year of that version, like `2026`.
+          examples: [2026]
+        totals:
+          $ref: "#/components/schemas/PayrollRunTotals"
+        summary:
+          $ref: "#/components/schemas/PayrollRunSummary"
+        calculatedAt:
+          type: string
+          format: date-time
+          description: >-
+            When the draft was calculated. A run is never created any other way,
+            so there is no separate `createdAt`.
+        calculatedByUserId:
+          type: string
+          format: uuid
+          description: >-
+            **The maker**: whoever calculated the draft. They are the only
+            person who may submit it, and they may never approve it.
+        submittedAt:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When the maker submitted it for approval. `null` while the run is
+            `DRAFT`.
+        submittedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The maker who submitted it. `null` while the run is `DRAFT`.
+        submissionNote:
+          description: What the maker wanted the checker to look at, or `null`.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        approvedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the run was approved and locked. `null` until then.
+        approvedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            **The checker**: the ADMIN who approved it. Never the same person as
+            `submittedByUserId` — the server compares the two, and so does a
+            database `CHECK`.
+        approvalNote:
+          description: What the checker looked at before approving, or `null`.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        rejectedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the run was rejected. `null` unless it is `REJECTED`.
+        rejectedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The ADMIN who rejected it. Never the submitter.
+        rejectionReason:
+          description: >-
+            Why the checker rejected it, in their own words. `REJECTED` is
+            terminal: the maker fixes the cause and calculates a new run.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        paidAt:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When an ADMIN recorded the payment in SAMTEC. `null` until the run is
+            `PAID`.
+        paidByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The ADMIN who marked the run paid. `null` until then.
+        paidOn:
+          type: [string, "null"]
+          format: date
+          description: >-
+            The day the money actually left the company's bank, as recorded by
+            that ADMIN. `null` until the run is `PAID`.
+        paymentReference:
+          type: [string, "null"]
+          description: >-
+            The bank's reference for the transfer, so a payment can be traced.
+            `null` when none was given.
+        paymentNote:
+          description: Anything worth recording about the payment, or `null`.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        updatedAt:
+          type: string
+          format: date-time
+          description: >-
+            The run's last status change. A `LOCKED` or `PAID` run's lines never
+            change again.
+
+    PayrollRunList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PayrollRun"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreatePayrollRunRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Which period to calculate. Nothing else is accepted: who is on the run
+        is decided by the rules, never by the caller.
+      required: [periodId]
+      properties:
+        periodId:
+          type: string
+          format: uuid
+          description: The `OPEN` payroll period to calculate a draft for.
+
+    SubmitPayrollRunRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Submitting a draft for approval. Nothing is required, so `{}` is a valid
+        body.
+      properties:
+        note:
+          description: >-
+            Anything the checker should know before they look. Shown with the
+            run; never copied into the audit log.
+          allOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+
+    ApprovePayrollRunRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Approving a run and locking it. Nothing is required, so `{}` is a valid
+        body.
+      properties:
+        note:
+          description: What the checker looked at before approving. Shown with the run.
+          allOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+
+    RejectPayrollRunRequest:
+      type: object
+      additionalProperties: false
+      description: Rejecting a run, with the reason the maker needs to act on.
+      required: [reason]
+      properties:
+        reason:
+          description: >-
+            Why the run is wrong, written for the maker to act on. `REJECTED` is
+            terminal, so this is what tells them what to fix before calculating
+            a new run. Shown with the run; never copied into the audit log,
+            because a person may type a staff number or an account number into
+            it and the audit log can never be edited.
+          allOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+
+    MarkPayrollRunPaidRequest:
+      type: object
+      additionalProperties: false
+      description: Recording that a locked run has been paid.
+      required: [paidOn]
+      properties:
+        paidOn:
+          type: string
+          format: date
+          description: >-
+            The day the money left the company's bank. It may not be in the
+            future.
+        paymentReference:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: >-
+            The bank's reference for the transfer, so a payment can be traced
+            later. Shown with the run; never copied into the audit log.
+        note:
+          description: >-
+            Anything worth recording about the payment, such as a second
+            transfer for a late account. Shown with the run; never copied into
+            the audit log.
+          allOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+
+    PayrollLine:
+      type: object
+      description: >-
+        One employee's pay for one run, with every input it was calculated from
+        copied into it, so a locked run can be re-checked without reading
+        anything else. On an adjustment line (`adjustsLineId` is set) the money
+        and minute fields are **differences** from the line being corrected and
+        may be negative; on an ordinary line they never are. That is why no
+        money or minute field carries a `minimum`. The day counts are never
+        negative: they always describe this line's own period as calendar facts.
+        Bank and mobile money details are never here.
+      required:
+        [
+          id,
+          runId,
+          employee,
+          employeeStatus,
+          adjustsLineId,
+          adjustsRunId,
+          adjustmentNote,
+          payTermsId,
+          payTermsEffectiveFrom,
+          basicMonthlyPesewas,
+          overtimeHourlyPesewas,
+          daysInPeriod,
+          daysEmployed,
+          basicPesewas,
+          scheduledMinutes,
+          punchedMinutes,
+          regularMinutes,
+          overtimeMinutes,
+          overtimePesewas,
+          taxableAllowancePesewas,
+          nonTaxableAllowancePesewas,
+          grossPesewas,
+          taxableGrossPesewas,
+          ssnitEmployeePesewas,
+          ssnitEmployerPesewas,
+          ssnitTier1Pesewas,
+          ssnitTier2Pesewas,
+          chargeableIncomePesewas,
+          payePesewas,
+          otherDeductionsPesewas,
+          netPayPesewas,
+          taxTableId,
+          taxYear,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The line's ID.
+        runId:
+          type: string
+          format: uuid
+          description: The run this line belongs to.
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        employeeStatus:
+          $ref: "#/components/schemas/EmployeeStatus"
+        adjustsLineId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            The earlier line this one corrects, or `null` for an ordinary line.
+        adjustsRunId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            The run that earlier line sits on, so the dashboard can open it
+            without searching. `null` for an ordinary line.
+        adjustmentNote:
+          description: >-
+            Why the correction exists, in plain language, for example `late
+            clock-out confirmed for 2026-08-30`. `null` for an ordinary line.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        payTermsId:
+          type: string
+          format: uuid
+          description: >-
+            The pay terms row used: the latest one effective on or before the
+            period's last day.
+        payTermsEffectiveFrom:
+          type: string
+          format: date
+          description: The day those pay terms took effect.
+        basicMonthlyPesewas:
+          type: integer
+          description: The monthly salary from the pay terms, before any pro-rating.
+        overtimeHourlyPesewas:
+          type: integer
+          description: What one hour of overtime pays, from the pay terms.
+        daysInPeriod:
+          type: integer
+          minimum: 1
+          description: "Calendar days in the period: the bottom of the pro-rating fraction."
+        daysEmployed:
+          type: integer
+          minimum: 0
+          description: >-
+            Calendar days of the period the worker was employed for: the top of
+            the pro-rating fraction. Fewer than `daysInPeriod` only when they
+            joined or left inside it.
+        basicPesewas:
+          type: integer
+          description: >-
+            The basic pay this line carries: `basicMonthlyPesewas` times
+            `daysEmployed` divided by `daysInPeriod`. Hours worked never reduce
+            it — absence is handled by the exception queue, not by docking pay.
+        scheduledMinutes:
+          type: integer
+          description: >-
+            What the worker's shift pattern scheduled on the dates they have
+            confirmed segments, 480 a day where no pattern is assigned. The
+            basic pay assumes these. From Phase 5, detection rule R3 compares it
+            with `punchedMinutes`.
+        punchedMinutes:
+          type: integer
+          description: >-
+            Minutes actually worked: the sum of the `CONFIRMED` work segments
+            whose work date falls in the period. Disputed and voided segments
+            are not paid and are not counted here.
+        regularMinutes:
+          type: integer
+          description: >-
+            The part of `punchedMinutes` inside the scheduled length of each
+            work date.
+        overtimeMinutes:
+          type: integer
+          description: >-
+            The part of `punchedMinutes` beyond the scheduled length of each
+            work date. `regularMinutes` plus `overtimeMinutes` is always
+            `punchedMinutes`.
+        overtimePesewas:
+          type: integer
+          description: >-
+            `overtimeMinutes` divided by 60, times `overtimeHourlyPesewas`.
+            There is no night or public-holiday premium in version 1.
+        taxableAllowancePesewas:
+          type: integer
+          description: >-
+            The monthly taxable allowance from the pay terms, copied whole:
+            version 1 pro-rates only the basic.
+        nonTaxableAllowancePesewas:
+          type: integer
+          description: The monthly non-taxable allowance from the pay terms, copied whole.
+        grossPesewas:
+          type: integer
+          description: >-
+            Gross pay: `basicPesewas` plus `overtimePesewas` plus both
+            allowances.
+        taxableGrossPesewas:
+          type: integer
+          description: >-
+            The taxed part of the gross: `grossPesewas` minus
+            `nonTaxableAllowancePesewas`.
+        ssnitEmployeePesewas:
+          type: integer
+          description: >-
+            The worker's own SSNIT contribution, 5.5% of `basicPesewas`,
+            deducted from their pay.
+        ssnitEmployerPesewas:
+          type: integer
+          description: >-
+            The employer's SSNIT contribution, 13% of `basicPesewas`. A company
+            cost: it is never part of the net-pay sum.
+        ssnitTier1Pesewas:
+          type: integer
+          description: The 13.5% of `basicPesewas` that SSNIT keeps for Tier 1.
+        ssnitTier2Pesewas:
+          type: integer
+          description: >-
+            The 5% of `basicPesewas` paid into the worker's Tier 2 fund. Both
+            percentages are worked out from basic; the 5% is not a slice of the
+            employer's 13%.
+        chargeableIncomePesewas:
+          type: integer
+          description: >-
+            What PAYE is worked out from: `taxableGrossPesewas` minus
+            `ssnitEmployeePesewas`.
+        payePesewas:
+          type: integer
+          description: >-
+            PAYE from the graduated monthly bands of the tax table version
+            below. Version 1 applies no personal reliefs.
+        otherDeductionsPesewas:
+          type: integer
+          description: >-
+            The monthly deduction copied from the pay terms'
+            `otherDeductionPesewas`, such as a uniform or a loan instalment.
+        netPayPesewas:
+          type: integer
+          description: >-
+            What the worker is paid: `grossPesewas` minus `ssnitEmployeePesewas`
+            minus `payePesewas` minus `otherDeductionsPesewas`. A database
+            `CHECK` proves this on every line, and the employer's SSNIT never
+            appears in it.
+        taxTableId:
+          type: string
+          format: uuid
+          description: >-
+            The tax table version used, the one effective on the period's last
+            day. That row can never be edited or deleted once a run refers to
+            it, so this line's arithmetic can always be reproduced.
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The tax year of that version, like `2026`.
+          examples: [2026]
+
+    PayrollLineList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PayrollLine"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    PayrollStatutorySummary:
+      type: object
+      description: >-
+        What one run owes the statutory funds, SSNIT and the GRA. Every amount
+        is the sum of the matching field across the run's lines, and every
+        percentage is shown in basis points beside the amount it produced, so a
+        figure can be checked by hand. Version 1 reports these amounts; paying
+        them stays manual.
+      required:
+        [
+          runId,
+          status,
+          periodId,
+          periodStartDate,
+          periodEndDate,
+          taxTableId,
+          taxYear,
+          employeeCount,
+          totalBasicPesewas,
+          ssnitEmployeeBasisPoints,
+          totalSsnitEmployeePesewas,
+          ssnitEmployerBasisPoints,
+          totalSsnitEmployerPesewas,
+          totalSsnitPesewas,
+          ssnitTier1BasisPoints,
+          totalSsnitTier1Pesewas,
+          ssnitTier2BasisPoints,
+          totalSsnitTier2Pesewas,
+          totalPayePesewas,
+          generatedAt,
+        ]
+      properties:
+        runId:
+          type: string
+          format: uuid
+          description: The run these figures come from.
+        status:
+          $ref: "#/components/schemas/PayrollRunStatus"
+        periodId:
+          type: string
+          format: uuid
+          description: The payroll period the run calculates.
+        periodStartDate:
+          type: string
+          format: date
+          description: The period's first day.
+        periodEndDate:
+          type: string
+          format: date
+          description: The period's last day.
+        taxTableId:
+          type: string
+          format: uuid
+          description: The tax table version the percentages below come from.
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The tax year of that version, like `2026`.
+          examples: [2026]
+        employeeCount:
+          type: integer
+          minimum: 0
+          description: How many workers these figures cover.
+        totalBasicPesewas:
+          type: integer
+          description: The basic pay every SSNIT percentage below is worked out from.
+        ssnitEmployeeBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The workers' own rate in basis points: 550 is 5.5%."
+        totalSsnitEmployeePesewas:
+          type: integer
+          description: The workers' own SSNIT contributions, deducted from their pay.
+        ssnitEmployerBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The employer's rate in basis points: 1300 is 13%."
+        totalSsnitEmployerPesewas:
+          type: integer
+          description: >-
+            The employer's SSNIT contributions. A company cost, never deducted
+            from anyone's pay.
+        totalSsnitPesewas:
+          type: integer
+          description: >-
+            The whole 18.5% that goes to SSNIT: the workers' 5.5% plus the
+            employer's 13%.
+        ssnitTier1BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The Tier 1 rate in basis points: 1350 is 13.5%."
+        totalSsnitTier1Pesewas:
+          type: integer
+          description: The part of the 18.5% SSNIT keeps for Tier 1.
+        ssnitTier2BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The Tier 2 rate in basis points: 500 is 5%."
+        totalSsnitTier2Pesewas:
+          type: integer
+          description: >-
+            The part paid into the workers' Tier 2 funds. Both percentages are
+            of basic, so Tier 1 plus Tier 2 is the whole 18.5%; the 5% is not a
+            slice of the employer's 13%.
+        totalPayePesewas:
+          type: integer
+          description: The PAYE withheld from every line, due to the GRA.
+        generatedAt:
+          type: string
+          format: date-time
+          description: When these figures were worked out from the run's lines.
+
+    Payslip:
+      type: object
+      description: >-
+        One worker's pay for one period, frozen when the run locked. It carries
+        every number needed to check the pay by hand — the pay terms that were
+        used, the hours, the tax table version, and each step from gross to net
+        — so nothing else has to be fetched, which matters because a guard may
+        not read a run, its lines or the tax tables. There is one payslip per
+        payroll line, so a correction raised in a later period has a payslip of
+        its own. An adjustment payslip may carry negative amounts and minutes,
+        so no money or minute field has a `minimum`. It never carries bank or
+        mobile money details: those live only in the bank export.
+      required:
+        [
+          id,
+          lineId,
+          runId,
+          periodId,
+          periodStartDate,
+          periodEndDate,
+          employee,
+          runStatus,
+          paidAt,
+          basicMonthlyPesewas,
+          daysInPeriod,
+          daysEmployed,
+          basicPesewas,
+          scheduledMinutes,
+          regularMinutes,
+          overtimeMinutes,
+          punchedMinutes,
+          overtimeHourlyPesewas,
+          overtimePesewas,
+          taxableAllowancePesewas,
+          nonTaxableAllowancePesewas,
+          grossPesewas,
+          taxableGrossPesewas,
+          ssnitEmployeeBasisPoints,
+          ssnitEmployeePesewas,
+          ssnitEmployerBasisPoints,
+          ssnitEmployerPesewas,
+          chargeableIncomePesewas,
+          payePesewas,
+          otherDeductionsPesewas,
+          netPayPesewas,
+          taxTableId,
+          taxYear,
+          adjustsLineId,
+          adjustmentNote,
+          pdfGeneratedAt,
+          pdfSizeBytes,
+          pdfSha256,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The payslip's ID.
+        lineId:
+          type: string
+          format: uuid
+          description: The payroll line this payslip was made from. One payslip per line.
+        runId:
+          type: string
+          format: uuid
+          description: The run that produced it.
+        periodId:
+          type: string
+          format: uuid
+          description: The period the run covers.
+        periodStartDate:
+          type: string
+          format: date
+          description: The first day of the period.
+        periodEndDate:
+          type: string
+          format: date
+          description: >-
+            The last day of the period. The pay terms and tax table in force on
+            this day are the ones used.
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        runStatus:
+          description: >-
+            `LOCKED` until an ADMIN marks the run paid, then `PAID`; no other
+            value can ever appear on a payslip, because a payslip exists only
+            once its run is locked. Read live from the run, so it can change
+            after the PDF was made, as can `paidAt`; everything else here is the
+            frozen snapshot.
+          allOf:
+            - $ref: "#/components/schemas/PayrollRunStatus"
+        paidAt:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When an ADMIN marked the run paid, or `null` while it is only
+            locked.
+        basicMonthlyPesewas:
+          type: integer
+          description: >-
+            The full monthly salary from the pay terms used, before any
+            pro-rating.
+        daysInPeriod:
+          type: integer
+          minimum: 1
+          description: "Calendar days in the period: the bottom of the pro-rating fraction."
+        daysEmployed:
+          type: integer
+          minimum: 0
+          description: >-
+            Calendar days of the period the worker was employed for: the top of
+            the pro-rating fraction.
+        basicPesewas:
+          type: integer
+          description: >-
+            Basic pay for the period: the monthly salary pro-rated by days
+            employed. Hours worked never reduce it.
+        scheduledMinutes:
+          type: integer
+          description: >-
+            What the shift pattern scheduled on the days worked, so the overtime
+            minutes below can be checked against something.
+        regularMinutes:
+          type: integer
+          description: >-
+            Confirmed minutes worked within the scheduled length of each day's
+            shift. They are already covered by the basic.
+        overtimeMinutes:
+          type: integer
+          description: >-
+            Confirmed minutes worked beyond the scheduled length of each day's
+            shift.
+        punchedMinutes:
+          type: integer
+          description: >-
+            Minutes the worker actually punched in the period, from confirmed
+            work segments: `regularMinutes` plus `overtimeMinutes`.
+        overtimeHourlyPesewas:
+          type: integer
+          description: The overtime rate for one hour, copied from the pay terms used.
+        overtimePesewas:
+          type: integer
+          description: "Overtime pay: the overtime minutes at the overtime rate."
+        taxableAllowancePesewas:
+          type: integer
+          description: >-
+            The monthly allowance that is taxed, copied from the pay terms used.
+        nonTaxableAllowancePesewas:
+          type: integer
+          description: >-
+            The monthly allowance that is not taxed, copied from the pay terms
+            used.
+        grossPesewas:
+          type: integer
+          description: "Gross pay: basic plus overtime plus both allowances."
+        taxableGrossPesewas:
+          type: integer
+          description: >-
+            The part of gross that is taxed: basic plus overtime plus the
+            taxable allowance, leaving the non-taxable allowance out.
+        ssnitEmployeeBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The employee SSNIT rate used, in basis points (550 means 5.5%).
+        ssnitEmployeePesewas:
+          type: integer
+          description: >-
+            The worker's own SSNIT contribution, worked out on the basic and
+            deducted from their pay.
+        ssnitEmployerBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The employer SSNIT rate used, in basis points (1300 means 13%).
+        ssnitEmployerPesewas:
+          type: integer
+          description: >-
+            What the company pays SSNIT on top of the salary. Shown so the
+            worker can see it; it is never deducted from their pay.
+        chargeableIncomePesewas:
+          type: integer
+          description: >-
+            The income PAYE was worked out on: taxable gross minus the worker's
+            SSNIT contribution.
+        payePesewas:
+          type: integer
+          description: >-
+            Income tax, from the graduated monthly bands of the tax table named
+            below.
+        otherDeductionsPesewas:
+          type: integer
+          description: >-
+            Other monthly deductions copied from the pay terms used, such as a
+            uniform or a loan instalment.
+        netPayPesewas:
+          type: integer
+          description: >-
+            What the worker is paid: gross minus employee SSNIT, minus PAYE,
+            minus other deductions. The employer's SSNIT is never in this sum.
+        taxTableId:
+          type: string
+          format: uuid
+          description: >-
+            The frozen tax table version used, so the arithmetic can always be
+            reproduced.
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: >-
+            The tax year of that version, like `2026`, so the payslip names its
+            own rates.
+          examples: [2026]
+        adjustsLineId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            For a correction, the earlier payroll line this one puts right;
+            `null` on an ordinary payslip.
+        adjustmentNote:
+          description: >-
+            Why the correction exists, so the worker is told; `null` on an
+            ordinary payslip.
+          oneOf:
+            - $ref: "#/components/schemas/ResolutionNote"
+            - type: "null"
+        pdfGeneratedAt:
+          type: string
+          format: date-time
+          description: "When the PDF was made: the moment the run was locked."
+        pdfSizeBytes:
+          type: integer
+          minimum: 1
+          description: Size of the stored PDF in bytes.
+        pdfSha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: >-
+            SHA-256 of the stored PDF bytes, so what was sent can be proved to
+            be exactly what exists.
+
+    PayslipList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payslip"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    TaxBand:
+      type: object
+      additionalProperties: false
+      description: >-
+        One step of the graduated PAYE table. Bands apply in order: each one
+        taxes the next slice of chargeable monthly income. A band has no ID of
+        its own, because bands are only ever read and written as a whole table.
+      required: [ordinal, widthPesewas, rateBasisPoints]
+      properties:
+        ordinal:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: >-
+            Its position in the table, starting at 1. Bands are applied in this
+            order.
+        widthPesewas:
+          type: [integer, "null"]
+          minimum: 1
+          description: >-
+            How much chargeable monthly income this band covers, in pesewas
+            (the 2026 first band is 49000, GHS 490). `null` only on the last
+            band, which has no upper limit.
+        rateBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: The tax rate on this slice as basis points (1750 is 17.5%).
+
+    TaxTable:
+      type: object
+      description: >-
+        One frozen version of Ghana's statutory rates: the four SSNIT
+        percentages, the graduated PAYE monthly bands, and where the figures
+        came from. A run copies the version in force on its period's last day,
+        so a locked run's arithmetic can always be reproduced. A version is
+        never edited or deleted — a rate change is a new version — which is why
+        there is no `updatedAt` here.
+      required:
+        [
+          id,
+          taxYear,
+          effectiveFrom,
+          effectiveTo,
+          ssnitEmployeeBasisPoints,
+          ssnitEmployerBasisPoints,
+          ssnitTier1BasisPoints,
+          ssnitTier2BasisPoints,
+          bands,
+          sourceName,
+          sourceUrl,
+          sourceCheckedOn,
+          createdAt,
+          createdByUserId,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The tax table version's ID.
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: >-
+            The tax year these rates belong to, like `2026`. Not unique on its
+            own: a mid-year budget makes a second version for the same year.
+          examples: [2026]
+        effectiveFrom:
+          type: string
+          format: date
+          description: The first day this version applies.
+        effectiveTo:
+          type: [string, "null"]
+          format: date
+          description: >-
+            The last day it applies, or `null` when no end was set. A later
+            version supersedes this one without changing it.
+        ssnitEmployeeBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The employee's SSNIT contribution as basis points of basic pay
+            (550 is 5.5%). The only SSNIT amount ever deducted from a worker.
+        ssnitEmployerBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The employer's SSNIT contribution as basis points of basic pay
+            (1300 is 13%). A company cost, never a deduction and never in the
+            net pay sum.
+        ssnitTier1BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The share of basic pay SSNIT keeps for Tier 1, as basis points
+            (1350 is 13.5%). Part of the 18.5% total.
+        ssnitTier2BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The share of basic pay that goes to the worker's Tier 2 fund, as
+            basis points (500 is 5%). Part of the 18.5% total, not a slice of
+            the employer's 13%.
+        bands:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: >-
+            The graduated PAYE monthly bands in order, from the first (0%) to
+            the top, unbounded one.
+          items:
+            $ref: "#/components/schemas/TaxBand"
+        sourceName:
+          type: string
+          description: What the figures were read from, like `GRA PAYE rates 2026`.
+          examples: ["GRA PAYE rates 2026"]
+        sourceUrl:
+          type: string
+          format: uri
+          description: The published page or document the figures came from.
+        sourceCheckedOn:
+          type: string
+          format: date
+          description: >-
+            The day a person last checked these figures against that source. A
+            rate nobody can trace is a rate nobody can defend.
+        createdAt:
+          type: string
+          format: date-time
+          description: When this version was added.
+        createdByUserId:
+          type: string
+          format: uuid
+          description: >-
+            The ADMIN who added it. Nothing here changes afterwards, so there is
+            no updater.
+
+    TaxTableList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaxTable"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreateTaxTableRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        A new version of the statutory rates. Only the last band may leave out
+        its width; the server rejects a gap or a wrong order in `ordinal`, a
+        band other than the last with `widthPesewas: null`, and a
+        `sourceCheckedOn` in the future.
+      required:
+        [
+          taxYear,
+          effectiveFrom,
+          ssnitEmployeeBasisPoints,
+          ssnitEmployerBasisPoints,
+          ssnitTier1BasisPoints,
+          ssnitTier2BasisPoints,
+          bands,
+          sourceName,
+          sourceUrl,
+          sourceCheckedOn,
+        ]
+      properties:
+        taxYear:
+          type: integer
+          minimum: 2020
+          maximum: 2100
+          description: The tax year these rates belong to, like `2026`.
+        effectiveFrom:
+          type: string
+          format: date
+          description: >-
+            The first day this version applies. No other version of this company
+            may start on the same day.
+        effectiveTo:
+          type: [string, "null"]
+          format: date
+          description: >-
+            Leave it out unless this version is already known to stop on a given
+            day: a later version supersedes this one on its own, because a
+            period always uses the version with the latest `effectiveFrom` on or
+            before its last day, and a frozen row can never be edited to close
+            it. Must not be before `effectiveFrom`.
+        ssnitEmployeeBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The employee's rate in basis points: 550 is 5.5%."
+        ssnitEmployerBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The employer's rate in basis points: 1300 is 13%."
+        ssnitTier1BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: "The Tier 1 rate in basis points: 1350 is 13.5%."
+        ssnitTier2BasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The Tier 2 rate in basis points: 500 is 5%. It is of basic pay, not
+            a slice of the employer's 13%.
+        bands:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: >-
+            The graduated PAYE monthly bands in order. `ordinal` runs from 1
+            with no gaps, and the last band **must** have `widthPesewas: null`
+            while no earlier one may: without an open top band the highest
+            earners would be silently untaxed.
+          items:
+            $ref: "#/components/schemas/TaxBand"
+        sourceName:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: What the figures were read from.
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 500
+          description: The published page or document the figures came from.
+        sourceCheckedOn:
+          type: string
+          format: date
+          description: >-
+            The day a person last checked these figures against that source. It
+            may not be in the future.
+
+    EmployeePayTerms:
+      type: object
+      description: >-
+        One effective-dated row of what an employee is paid. Rows are never
+        edited: each change is a new row, and a run reads the row with the
+        latest `effectiveFrom` on or before the period's last day and copies
+        every value into the payroll line. Hours worked never reduce
+        `basicMonthlyPesewas` — absence is handled by the exception queue, not
+        by docking pay.
+      required:
+        [
+          id,
+          employeeId,
+          effectiveFrom,
+          basicMonthlyPesewas,
+          overtimeHourlyPesewas,
+          taxableAllowancePesewas,
+          nonTaxableAllowancePesewas,
+          otherDeductionPesewas,
+          createdAt,
+          createdByUserId,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: This pay terms row's ID.
+        employeeId:
+          type: string
+          format: uuid
+          description: The employee these terms belong to.
+        effectiveFrom:
+          type: string
+          format: date
+          description: >-
+            The first day these terms apply. A row with a later date supersedes
+            this one.
+        basicMonthlyPesewas:
+          type: integer
+          minimum: 0
+          description: >-
+            The monthly salary in pesewas. Paid in full for a whole period, and
+            pro-rated by calendar days employed when the worker joined or left
+            inside it.
+        overtimeHourlyPesewas:
+          type: integer
+          minimum: 0
+          description: >-
+            Paid per hour of overtime, in pesewas. Overtime is the confirmed
+            minutes beyond what the shift pattern schedules for that date.
+        taxableAllowancePesewas:
+          type: integer
+          minimum: 0
+          description: A monthly allowance that is taxed, in pesewas.
+        nonTaxableAllowancePesewas:
+          type: integer
+          minimum: 0
+          description: A monthly allowance that is not taxed, in pesewas.
+        otherDeductionPesewas:
+          type: integer
+          minimum: 0
+          description: >-
+            A monthly deduction taken after tax, in pesewas, such as a uniform
+            or a loan instalment. It reaches the payroll line as
+            `otherDeductionsPesewas`.
+        createdAt:
+          type: string
+          format: date-time
+          description: When this row was stored.
+        createdByUserId:
+          type: string
+          format: uuid
+          description: Who stored it. The row is never edited, so this never changes.
+
+    EmployeePayTermsList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeePayTerms"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    SetEmployeePayTermsRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        What an employee is paid from a given date. Every field is required: the
+        new row states the whole of the worker's pay from `effectiveFrom`, and
+        nothing is carried over from the row before it. Storing it adds a row;
+        it never changes one. Each money field is capped so the value always
+        fits the database's `INTEGER` column.
+      required:
+        [
+          effectiveFrom,
+          basicMonthlyPesewas,
+          overtimeHourlyPesewas,
+          taxableAllowancePesewas,
+          nonTaxableAllowancePesewas,
+          otherDeductionPesewas,
+        ]
+      properties:
+        effectiveFrom:
+          type: string
+          format: date
+          description: >-
+            The first day these terms apply. This employee may not already have
+            a row starting on that day.
+        basicMonthlyPesewas:
+          type: integer
+          minimum: 0
+          maximum: 2000000000
+          description: The monthly salary in pesewas.
+        overtimeHourlyPesewas:
+          type: integer
+          minimum: 0
+          maximum: 2000000000
+          description: >-
+            Paid per hour of overtime, in pesewas. Send `0` when the worker gets
+            no overtime pay.
+        taxableAllowancePesewas:
+          type: integer
+          minimum: 0
+          maximum: 2000000000
+          description: A monthly allowance that is taxed, in pesewas. Send `0` for none.
+        nonTaxableAllowancePesewas:
+          type: integer
+          minimum: 0
+          maximum: 2000000000
+          description: >-
+            A monthly allowance that is not taxed, in pesewas. Send `0` for
+            none.
+        otherDeductionPesewas:
+          type: integer
+          minimum: 0
+          maximum: 2000000000
+          description: >-
+            A monthly deduction taken after tax, in pesewas. Send `0` for none.
+
+    EmployeePaymentDetails:
+      type: object
+      description: >-
+        Where an employee's salary is paid: one row per employee, edited in
+        place. **Personal data** — it is never logged, never put in an error
+        message and never returned by a list endpoint, so it appears only here
+        and inside the run's bank export. The row has no ID of its own: it is
+        addressed by the employee, the way `EmployeeBiometrics` is.
+      required:
+        [employeeId, bankName, accountName, accountNumber, momoNumber, updatedAt, updatedByUserId]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+          description: The employee these details belong to.
+        bankName:
+          type: [string, "null"]
+          description: The bank the salary is paid into, or `null` if none is on file.
+        accountName:
+          type: [string, "null"]
+          description: >-
+            The name on the account, exactly as the bank holds it, or `null`.
+        accountNumber:
+          type: [string, "null"]
+          description: The account number the bank export pays into, or `null`.
+        momoNumber:
+          description: >-
+            The mobile money number, or `null`. Written `+233` and nine digits,
+            like every other phone number in the contract.
+          oneOf:
+            - $ref: "#/components/schemas/GhanaPhoneNumber"
+            - type: "null"
+        updatedAt:
+          type: string
+          format: date-time
+          description: When these details were last changed.
+        updatedByUserId:
+          type: string
+          format: uuid
+          description: Who last changed them.
+
+    SetEmployeePaymentDetailsRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Replaces an employee's payment details. All four fields are required:
+        send `null` for anything the worker does not have, so a detail is only
+        ever cleared on purpose. Nothing sent here is logged or echoed in an
+        error message — a rejected field is named, never quoted.
+      required: [bankName, accountName, accountNumber, momoNumber]
+      properties:
+        bankName:
+          type: [string, "null"]
+          minLength: 2
+          maxLength: 100
+          pattern: "^[^=+@\\t\\r\\n\"-][^\\t\\r\\n]*$"
+          description: >-
+            The bank the salary is paid into, or `null`. Because this value is
+            written into the bank file, it may not contain a tab or a line
+            break, and may not begin with `=`, `+`, `-`, `@` or a quote,
+            which a spreadsheet would read as a formula.
+        accountName:
+          type: [string, "null"]
+          minLength: 2
+          maxLength: 100
+          pattern: "^[^=+@\\t\\r\\n\"-][^\\t\\r\\n]*$"
+          description: >-
+            The name on the account, exactly as the bank holds it, or `null`.
+            Because this value is written into the bank file, it may not contain
+            a tab or a line break, and may not begin with `=`, `+`, `-`,
+            `@` or a quote, which a spreadsheet would read as a formula.
+        accountNumber:
+          type: [string, "null"]
+          pattern: "^[0-9]{5,20}$"
+          description: The account number, digits only, or `null`.
+        momoNumber:
+          description: The mobile money number in `+233` form, or `null`.
+          oneOf:
+            - $ref: "#/components/schemas/GhanaPhoneNumber"
+            - type: "null"
+
 
     # --- Detection (Phase 5) --- Francis adds detection schemas here.
     # DetectionRule, DetectionAlert; operationIds listDetectionAlerts,

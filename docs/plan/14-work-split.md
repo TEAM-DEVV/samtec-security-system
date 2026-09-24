@@ -201,7 +201,7 @@ these by eye after every merge from `main`.
 
 | File | What goes wrong | The rule |
 |---|---|---|
-| `packages/contracts/openapi.yaml` | Two appends to the same three blocks | Append only inside **your own `# --- … ---` banner**. Keep both sides |
+| `packages/contracts/openapi.yaml` | Two appends to the same **four** blocks: tags, paths, `components/parameters` and schemas | Append only inside **your own `# --- … ---` banner**. Keep both sides |
 | `packages/contracts/src/generated/api.d.ts` | 216 KB of conflict that looks terrifying | **Never hand-merge.** Take either side, run `pnpm contracts:generate`, commit |
 | `pnpm-lock.yaml` | A hand-merge silently pins a different version | **Never hand-merge.** Take `main`'s, run `pnpm install`, commit |
 | `apps/api/prisma/schema.prisma` | The conflict lands in `model Company` and `model Employee`, not at the end | Keep **both** back-relation lists in full. New models go at the end under your own comment |
