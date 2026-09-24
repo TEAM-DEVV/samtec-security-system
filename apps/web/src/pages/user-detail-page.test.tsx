@@ -124,6 +124,44 @@ describe('UserDetailPage', () => {
     expect(screen.queryByRole('button', { name: 'Reset sign-in' })).not.toBeInTheDocument();
   });
 
+  it('offers the confirm button to a different administrator, and never to the one who asked', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    // Promoting somebody leaves their account waiting for a second administrator.
+    renderAccountPage(SUPERVISOR_ID);
+    await screen.findByRole('heading', { name: 'Yaw Boateng' });
+    await user.selectOptions(screen.getByLabelText('Role'), 'ADMIN');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Awaiting a second administrator')).toBeInTheDocument();
+
+    // The administrator who made the change is told to ask somebody else.
+    expect(screen.getByText(/another administrator must confirm it/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Confirm this administrator' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('lets the second administrator confirm, and the account becomes usable', async () => {
+    // One administrator promotes somebody, through the API rather than the
+    // screen, so the page below is opened fresh as the *other* administrator.
+    await signInForTests('admin@samtec.example');
+    await fetchClient.PATCH('/users/{userId}', {
+      params: { path: { userId: SUPERVISOR_ID } },
+      body: { role: 'ADMIN', employeeId: null },
+    });
+
+    await signInForTests('admin2@samtec.example');
+    const user = userEvent.setup();
+    renderAccountPage(SUPERVISOR_ID);
+
+    const confirm = await screen.findByRole('button', { name: 'Confirm this administrator' });
+    await user.click(confirm);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Awaiting a second administrator')).not.toBeInTheDocument();
+    });
+  });
+
   it('says calmly when there is no such account', async () => {
     await signInForTests('admin@samtec.example');
     renderAccountPage(NOBODY);
