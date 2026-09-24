@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 // contract ever gains a status that has no label or colour here.
 export const userStatusLabels: Record<UserAccountStatus, string> = {
   AWAITING_PASSWORD: 'Awaiting password',
+  AWAITING_CONFIRMATION: 'Awaiting a second administrator',
   ACTIVE: 'Active',
   DEACTIVATED: 'Switched off',
 };
@@ -13,6 +14,8 @@ export const userStatusLabels: Record<UserAccountStatus, string> = {
 /** One plain sentence per status, for the account page. */
 export const userStatusDescriptions: Record<UserAccountStatus, string> = {
   AWAITING_PASSWORD: 'Waiting for the person to choose a password with their one-time link.',
+  AWAITING_CONFIRMATION:
+    'An administrator account waits for a different administrator to confirm it. Until then it cannot sign in at all, password or not.',
   ACTIVE: 'Can sign in.',
   DEACTIVATED: 'Cannot sign in. Nothing is deleted; switch it back on at any time.',
 };
@@ -21,6 +24,8 @@ const statusStyles: Record<UserAccountStatus, string> = {
   ACTIVE:
     'border-emerald-600/25 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
   AWAITING_PASSWORD:
+    'border-amber-600/30 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
+  AWAITING_CONFIRMATION:
     'border-amber-600/30 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
   DEACTIVATED:
     'border-slate-400/40 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
