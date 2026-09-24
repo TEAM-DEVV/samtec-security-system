@@ -179,19 +179,58 @@ export function signedPost(
     .send(text);
 }
 
-/** Registers a device through the API, as an administrator would. */
+/**
+ * Registers a device through the API and switches it on, as two
+ * administrators would.
+ *
+ * Every new key is born switched off, and the person who issued it may not
+ * switch it on (Phase 7, docs/plan/06, "Two administrators"), so this needs
+ * both administrators — which is why it takes the whole company rather than
+ * one token.
+ */
 export async function registerDevice(
   app: NestExpressApplication,
-  adminToken: string,
+  company: AttendanceCompany,
   siteId: string,
   name: string,
+  kind: 'MOCK' | 'ZKTECO' | 'FACE_KIOSK' = 'MOCK',
 ): Promise<TestDevice> {
+  const tokens = await tokensFor(app, company);
   const response = await request(app.getHttpServer())
     .post('/api/v1/devices')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ name, siteId, kind: 'MOCK' })
+    .set('Authorization', `Bearer ${tokens.admin}`)
+    .send({ name, siteId, kind })
     .expect(201);
-  return { id: response.body.device.id, secret: response.body.secret };
+  const device = { id: response.body.device.id as string, secret: response.body.secret as string };
+  await switchDeviceOn(app, tokens.secondAdmin, device.id);
+  return device;
+}
+
+/**
+ * Switches a device on as the company's **second** administrator, whoever
+ * registered it. Most tests only need a working device; this is the one line
+ * that gets them one (docs/plan/06, 'Two administrators').
+ */
+export async function activateDevice(
+  app: NestExpressApplication,
+  company: AttendanceCompany,
+  deviceId: string,
+): Promise<void> {
+  const tokens = await tokensFor(app, company);
+  await switchDeviceOn(app, tokens.secondAdmin, deviceId);
+}
+
+/** The second administrator's half: they check the device is really at the site. */
+export async function switchDeviceOn(
+  app: NestExpressApplication,
+  otherAdminToken: string,
+  deviceId: string,
+): Promise<void> {
+  await request(app.getHttpServer())
+    .patch(`/api/v1/devices/${deviceId}`)
+    .set('Authorization', `Bearer ${otherAdminToken}`)
+    .send({ status: 'ACTIVE' })
+    .expect(200);
 }
 
 /** Access tokens for each of the company's accounts, as if they had signed in. */
