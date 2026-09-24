@@ -16,11 +16,13 @@ import type {
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
+import { deriveKey } from '../identity/secret-box.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   ListAlertsQuery,
@@ -73,6 +75,7 @@ export class DetectionService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceFactsService,
+    private readonly config: AppConfig,
   ) {}
 
   /**
@@ -411,6 +414,7 @@ export class DetectionService {
         shared.map((row) => ({ kind: 'phone' as const, ...row })),
         { sharedBy: thresholds.sharedBy ?? 2 },
         now,
+        deriveKey(this.config.authSecret, 'detection-fingerprint'),
       );
     }
     if (code === 'R7') {

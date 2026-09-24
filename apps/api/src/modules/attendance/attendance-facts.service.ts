@@ -105,6 +105,12 @@ export class AttendanceFactsService {
         dedupe: 'COLLISION',
         verdict: null,
         collisionEmployeeId: { not: null },
+        // A record another review already blocked keeps its own dedupe and
+        // verdict for ever, because the database refuses to decide a blocked
+        // face. Asking an investigator to decide it would be an alert nobody
+        // could ever clear. The duplicate queue leaves them out for the same
+        // reason (`biometric-reviews.service.ts`).
+        status: { not: 'BLOCKED' },
       },
       select: {
         id: true,
@@ -143,7 +149,10 @@ export class AttendanceFactsService {
         direction: 'IN',
         serverTime: { gte: from },
       },
-      select: { employeeId: true, siteId: true, method: true },
+      select: { employeeId: true, siteId: true, method: true, serverTime: true },
+      // Newest first, so the site on the alert is where they were last seen
+      // rather than whichever row came back first.
+      orderBy: { serverTime: 'desc' },
     });
     const byEmployee = new Map<
       string,
@@ -180,14 +189,28 @@ export class AttendanceFactsService {
     companyId: string,
     from: Date,
   ): Promise<{ employeeId: string; coSigns: number }[]> {
+    // Only the ones that let somebody in. A supervisor's face is recorded as
+    // MATCHED the moment the kiosk recognises it, before anything is
+    // decided, so counting attempts would count every refused co-sign too —
+    // and a supervisor whose co-signs are all refused is the opposite of the
+    // person this rule is looking for.
+    //
+    // A co-sign's punch carries the attempt's own id as its device event id,
+    // which is what joins the two.
+    const punches = await this.prisma.punchEvent.findMany({
+      where: { companyId, method: 'PIN_FALLBACK', serverTime: { gte: from } },
+      select: { deviceEventId: true },
+    });
+    if (punches.length === 0) {
+      return [];
+    }
     const rows = await this.prisma.clockInAttempt.groupBy({
       by: ['employeeId'],
       where: {
         companyId,
         purpose: 'CO_SIGN',
-        outcome: 'MATCHED',
         employeeId: { not: null },
-        attemptedAt: { gte: from },
+        id: { in: punches.map((punch) => punch.deviceEventId) },
       },
       _count: { _all: true },
     });

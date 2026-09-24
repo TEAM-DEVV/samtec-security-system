@@ -103,6 +103,21 @@ But the evidence **records the split** — how many of those minutes were
 a staff number) — so a checker looking at a flagged line sees immediately
 whether the hours rest on a face or on somebody's word.
 
+## 3b. Somebody who has left
+
+Two different questions, so two different answers, and they are written down
+here so the rules stay consistent as more are built:
+
+- **A rule about what already happened keeps a leaver.** R1, R4, R5, R7, R8,
+  R9 and R10 look at enrollments, shifts and punches that are already on the
+  record. Somebody leaving does not unmake them, the money has already gone
+  out, and an unresolved duplicate enrollment is exactly how a ghost carries
+  on after the person it was built from has gone.
+- **A rule about who people are now leaves them out.** R2 asks whether two
+  workers share a detail only one person should have. A leaver's old phone
+  number turning up on a current worker's record is a question for HR, not a
+  fraud alert, so R2 looks only at people who have not left.
+
 ## 4. Detection does not repeat the exception queue
 
 R4 and R10 describe things Phase 2 already raises per event, as `OVERLAP` and

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 
 /**
@@ -324,6 +324,8 @@ export function identityCollision(
   shared: readonly SharedDetail[],
   thresholds: { sharedBy: number },
   now: Date,
+  /** The server's own key, so the fingerprint below cannot be looked up. */
+  fingerprintKey: Buffer,
 ): Finding[] {
   return shared
     .filter((detail) => detail.employeeIds.length >= thresholds.sharedBy)
@@ -332,7 +334,7 @@ export function identityCollision(
       // of them naming the same group.
       detail.employeeIds.map((employeeId) => ({
         ruleCode: 'R2' as const,
-        dedupeKey: `R2:${detail.kind}:${employeeId}:${fingerprintOf(detail.value)}`,
+        dedupeKey: `R2:${detail.kind}:${employeeId}:${fingerprintOf(detail.value, fingerprintKey)}`,
         employeeId,
         windowFrom: now,
         windowTo: now,
@@ -387,7 +389,7 @@ export function fallbackAbuse(
   const from = new Date(now.getTime() - thresholds.days * DAY_MS);
   const month = isoMonth(now);
   const byWorker = workers
-    .filter((worker) => worker.clockIns >= thresholds.minimumClockIns)
+    .filter((worker) => worker.clockIns > 0 && worker.clockIns >= thresholds.minimumClockIns)
     .filter((worker) => (worker.flagged * 100) / worker.clockIns > thresholds.sharePercent)
     .map((worker) => ({
       ruleCode: 'R7' as const,
@@ -417,14 +419,19 @@ export function fallbackAbuse(
 }
 
 /**
- * A short, one-way fingerprint of a detail, for a dedupe key.
+ * A short fingerprint of a detail, for a dedupe key.
  *
  * The key has to change when the shared number changes, but it must not be a
- * second place a worker's phone number is written down. A hash gives the
- * first without the second.
+ * second place a worker's phone number is written down. A **plain** hash
+ * would not do that: every Ghanaian mobile number fits in a table anybody
+ * could build in a second, so a bare SHA-256 of one is the number itself
+ * with extra steps.
+ *
+ * Keyed with the server's own secret, it cannot be looked up by anyone
+ * holding only the rows.
  */
-function fingerprintOf(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+function fingerprintOf(value: string, key: Buffer): string {
+  return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

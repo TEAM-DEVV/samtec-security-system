@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
@@ -158,6 +159,7 @@ describe('R2 · identity collision', () => {
       ],
       { sharedBy: 2 },
       NOW,
+      Buffer.from('a-test-key-for-the-fingerprint'),
     );
 
     // One finding each, so it shows on both people's files.

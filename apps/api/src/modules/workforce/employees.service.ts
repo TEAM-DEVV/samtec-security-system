@@ -716,6 +716,10 @@ export class EmployeesService {
    * is why detection raises a question about it rather than an accusation.
    * Only the numbers that repeat leave this method; nobody's number is
    * returned on its own.
+   *
+   * **People who have left are not counted.** This rule asks who people are
+   * now, not what already happened: a leaver's old number turning up on a
+   * current worker is a question for HR, not a fraud alert (docs/plan/08 §3b).
    */
   async sharedPhoneNumbers(
     companyId: string,
