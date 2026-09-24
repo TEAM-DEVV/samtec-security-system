@@ -451,14 +451,15 @@ export class DetectionService {
           workingDays: days,
         },
         now,
+        // The window really asked for, so an investigator is told how far
+        // back the evidence comes from rather than how many days had data.
+        from,
       );
     }
     if (code === 'R9') {
       const days = thresholds.medianDays ?? 30;
-      const devices = await this.attendance.deviceActivity(
-        companyId,
-        new Date(now.getTime() - days * DAY_MS),
-      );
+      const from = new Date(now.getTime() - days * DAY_MS);
+      const devices = await this.attendance.deviceActivity(companyId, from, now);
       return deviceAnomaly(
         devices,
         {
@@ -467,6 +468,7 @@ export class DetectionService {
           clockDriftMinutes: thresholds.clockDriftMinutes ?? 5,
         },
         now,
+        from,
       );
     }
     if (code === 'R10') {

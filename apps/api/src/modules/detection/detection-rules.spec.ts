@@ -227,6 +227,7 @@ describe('R8 · robot regularity', () => {
       ],
       { standardDeviationMinutes: 3, workingDays: 10 },
       NOW,
+      daysAgo(30),
     );
 
     expect(found.map((row) => row.employeeId)).toEqual(['too-perfect']);
@@ -236,11 +237,36 @@ describe('R8 · robot regularity', () => {
     expect(found[0]?.evidence.usualTime).toBe('05:59');
   });
 
+  it('knows a clock is a circle, so a night shift is not exempt', () => {
+    // 23:58, 00:02, 23:59, 00:01 — four minutes apart, not twenty-three
+    // hours and fifty-six. A guard on nights is exactly the person this rule
+    // is about, so treating the times as points on a line would miss them.
+    const aroundMidnight = [1438, 2, 1439, 1, 1438, 0, 2, 1439, 1, 0, 1438, 2];
+
+    const found = robotRegularity(
+      [{ employeeId: 'night-shift', minutesOfDay: aroundMidnight }],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.spreadMinutes).toBeLessThan(3);
+    // The middle of those times is midnight itself, not the middle of the
+    // number line, which would have been the middle of the afternoon.
+    expect(found[0]?.evidence.usualTime).toMatch(/^00:0[01]$|^23:5[89]$/);
+  });
+
   it('waits for enough days before calling anything a pattern', () => {
     const threeIdenticalDays = [{ employeeId: 'new', minutesOfDay: sameEveryDay(359, 3) }];
 
     expect(
-      robotRegularity(threeIdenticalDays, { standardDeviationMinutes: 3, workingDays: 10 }, NOW),
+      robotRegularity(
+        threeIdenticalDays,
+        { standardDeviationMinutes: 3, workingDays: 10 },
+        NOW,
+        daysAgo(30),
+      ),
     ).toEqual([]);
   });
 });
@@ -266,6 +292,7 @@ describe('R9 · device anomaly', () => {
       ],
       { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
       NOW,
+      daysAgo(30),
     );
 
     // Against its own history, never against another device: a busy gate is
@@ -284,6 +311,7 @@ describe('R9 · device anomaly', () => {
       ],
       { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
       NOW,
+      daysAgo(30),
     );
 
     // A terminal running fast makes a late arrival look punctual every day,
@@ -293,11 +321,30 @@ describe('R9 · device anomaly', () => {
     expect(found.find((row) => row.deviceId === 'slow')?.evidence.fast).toBe(false);
   });
 
+  it('raises a wandering clock once a month, not once a sweep', () => {
+    const drifting = [
+      { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+    ];
+    const tomorrow = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+    const nextMonth = new Date('2026-10-02T10:00:00.000Z');
+    const thresholds = { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 };
+
+    const today = deviceAnomaly(drifting, thresholds, NOW, daysAgo(30))[0]?.dedupeKey;
+    const again = deviceAnomaly(drifting, thresholds, tomorrow, daysAgo(30))[0]?.dedupeKey;
+    const later = deviceAnomaly(drifting, thresholds, nextMonth, daysAgo(30))[0]?.dedupeKey;
+
+    // A drifting clock is one standing fact, not a daily event. Raising it
+    // every sweep is how a queue becomes wallpaper.
+    expect(again).toBe(today);
+    expect(later).not.toBe(today);
+  });
+
   it('says nothing about a device with barely any history', () => {
     const found = deviceAnomaly(
       [{ deviceId: 'new', deviceName: 'ACC-06', dailyCounts: [1, 90], clockDriftSeconds: 0 }],
       { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
       NOW,
+      daysAgo(30),
     );
 
     expect(found).toEqual([]);

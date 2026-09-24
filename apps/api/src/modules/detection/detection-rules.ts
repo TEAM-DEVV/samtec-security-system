@@ -458,24 +458,25 @@ export function robotRegularity(
   people: readonly ClockInTimes[],
   thresholds: { standardDeviationMinutes: number; workingDays: number },
   now: Date,
+  windowFrom: Date,
 ): Finding[] {
   return people
     .filter((person) => person.minutesOfDay.length >= thresholds.workingDays)
-    .map((person) => ({ person, spread: standardDeviation(person.minutesOfDay) }))
-    .filter(({ spread }) => spread < thresholds.standardDeviationMinutes)
-    .map(({ person, spread }) => ({
+    .map((person) => ({ person, clock: aroundTheClock(person.minutesOfDay) }))
+    .filter(({ clock }) => clock.spread < thresholds.standardDeviationMinutes)
+    .map(({ person, clock }) => ({
       ruleCode: 'R8' as const,
       dedupeKey: `R8:${person.employeeId}:${isoMonth(now)}`,
       employeeId: person.employeeId,
       siteId: person.siteId,
-      windowFrom: new Date(now.getTime() - person.minutesOfDay.length * DAY_MS),
+      windowFrom,
       windowTo: now,
       evidence: {
         days: person.minutesOfDay.length,
-        spreadMinutes: Math.round(spread * 10) / 10,
+        spreadMinutes: Math.round(clock.spread * 10) / 10,
         // The clock face, so a reader sees the pattern rather than the
         // statistic: "always 05:59" explains itself.
-        usualTime: clockFace(average(person.minutesOfDay)),
+        usualTime: clockFace(clock.middle),
       },
     }));
 }
@@ -509,19 +510,24 @@ export function deviceAnomaly(
   devices: readonly DeviceActivity[],
   thresholds: { volumeMultiple: number; medianDays: number; clockDriftMinutes: number },
   now: Date,
+  windowFrom: Date,
 ): Finding[] {
   const findings: Finding[] = [];
+  // A device needs a history to be unlike itself. A quarter of the window
+  // asked for, so tuning the window tunes this too, and never fewer than a
+  // week: a site that opened on Monday is not an anomaly on Friday.
+  const enoughHistory = Math.max(7, Math.floor(thresholds.medianDays / 4));
   for (const device of devices) {
     const today = device.dailyCounts.at(-1) ?? 0;
     const earlier = device.dailyCounts.slice(0, -1);
     const usual = median(earlier);
-    if (earlier.length >= 7 && usual > 0 && today > usual * thresholds.volumeMultiple) {
+    if (earlier.length >= enoughHistory && usual > 0 && today > usual * thresholds.volumeMultiple) {
       findings.push({
         ruleCode: 'R9',
         dedupeKey: `R9:volume:${device.deviceId}:${isoDate(now)}`,
         deviceId: device.deviceId,
         siteId: device.siteId,
-        windowFrom: new Date(now.getTime() - device.dailyCounts.length * DAY_MS),
+        windowFrom,
         windowTo: now,
         evidence: {
           punchesThatDay: today,
@@ -535,7 +541,11 @@ export function deviceAnomaly(
     if (driftMinutes > thresholds.clockDriftMinutes) {
       findings.push({
         ruleCode: 'R9',
-        dedupeKey: `R9:clock:${device.deviceId}:${isoDate(now)}`,
+        // A drifting clock is one standing fact about a device, not
+        // something that happens afresh each day. Keyed per month, it is
+        // raised once and raised again if it is still wrong next month —
+        // rather than every time somebody presses the sweep button.
+        dedupeKey: `R9:clock:${device.deviceId}:${isoMonth(now)}`,
         deviceId: device.deviceId,
         siteId: device.siteId,
         windowFrom: now,
@@ -551,14 +561,41 @@ export function deviceAnomaly(
   return findings;
 }
 
-/** The spread of a set of numbers about their own average. */
-function standardDeviation(values: readonly number[]): number {
-  if (values.length < 2) {
-    return Number.POSITIVE_INFINITY;
+/**
+ * How tightly a set of clock times sit together, and where their middle is.
+ *
+ * **A clock is a circle.** 23:58 and 00:02 are four minutes apart, not
+ * twenty-three hours and fifty-six — and a guard on nights is exactly the
+ * person this rule is about, so treating the times as points on a line would
+ * miss the manufactured logs it exists to catch and would never have looked
+ * wrong.
+ *
+ * Each time becomes an angle round the twenty-four hours; the middle is the
+ * direction they point on average, and the spread is how far they wander
+ * from it. The spread is the population one (divided by how many there are,
+ * not one fewer), which is the stricter reading of the threshold and the one
+ * the report's tuning table is built on.
+ */
+function aroundTheClock(minutes: readonly number[]): { middle: number; spread: number } {
+  if (minutes.length < 2) {
+    return { middle: minutes[0] ?? 0, spread: Number.POSITIVE_INFINITY };
   }
-  const mean = average(values);
-  const variance = values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const toAngle = (minute: number) => (minute / MINUTES_IN_A_DAY) * 2 * Math.PI;
+  const eastward = average(minutes.map((minute) => Math.cos(toAngle(minute))));
+  const northward = average(minutes.map((minute) => Math.sin(toAngle(minute))));
+  const middleAngle = Math.atan2(northward, eastward);
+  const middle =
+    ((middleAngle / (2 * Math.PI)) * MINUTES_IN_A_DAY + MINUTES_IN_A_DAY) % MINUTES_IN_A_DAY;
+  const spread = Math.sqrt(average(minutes.map((minute) => shortestWayRound(minute, middle) ** 2)));
+  return { middle, spread };
+}
+
+/** The smaller of the two ways round the clock between two times, in minutes. */
+function shortestWayRound(one: number, other: number): number {
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const apart = Math.abs(one - other) % MINUTES_IN_A_DAY;
+  return Math.min(apart, MINUTES_IN_A_DAY - apart);
 }
 
 function average(values: readonly number[]): number {

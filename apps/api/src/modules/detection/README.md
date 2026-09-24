@@ -56,5 +56,5 @@ R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
 **and** for the supervisor doing the letting in), R8 (robot regularity), R9
 (device anomaly, against a device's own history) and R10 (orphan punches).
 
-R8 (robot regularity) and R9 (device anomaly) join them. R11 is still in the
-catalogue, switched off and reported as skipped; R3 and R6 wait for payroll.
+R11 is still in the catalogue, switched off and reported as skipped; R3 and
+R6 wait for payroll.

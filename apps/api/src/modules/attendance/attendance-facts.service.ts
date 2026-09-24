@@ -1,5 +1,33 @@
 import { Injectable } from '@nestjs/common';
+import { toAccraDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
+
+/** Minutes past midnight in Accra, asked of the time zone database. */
+function accraMinuteOfDay(instant: Date): number {
+  const [hour, minute] = ACCRA_CLOCK.format(instant).split(':');
+  return Number(hour) * 60 + Number(minute);
+}
+
+/** Every calendar day from one moment to another, inclusive, in Accra. */
+function daysBetween(from: Date, to: Date): string[] {
+  const days: string[] = [];
+  const oneDay = 24 * 60 * 60 * 1000;
+  for (let at = from.getTime(); at <= to.getTime(); at += oneDay) {
+    days.push(toAccraDate(new Date(at)));
+  }
+  const last = toAccraDate(to);
+  if (days.at(-1) !== last) {
+    days.push(last);
+  }
+  return [...new Set(days)];
+}
+
+const ACCRA_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 /**
  * What the attendance module will tell another module about its own tables.
@@ -237,6 +265,10 @@ export class AttendanceFactsService {
         employeeId: { not: null },
         direction: 'IN',
         pairable: true,
+        // A device whose own clock the server already doubted cannot be used
+        // to judge how regular somebody's arrivals are: the fault would be
+        // the terminal's and the alert would be the worker's.
+        clockSuspect: false,
         serverTime: { gte: from },
       },
       select: { employeeId: true, siteId: true, deviceTime: true },
@@ -255,9 +287,9 @@ export class AttendanceFactsService {
         siteId: row.siteId,
         perDay: new Map<string, number>(),
       };
-      const day = row.deviceTime.toISOString().slice(0, 10);
+      const day = toAccraDate(row.deviceTime);
       if (!running.perDay.has(day)) {
-        running.perDay.set(day, row.deviceTime.getUTCHours() * 60 + row.deviceTime.getUTCMinutes());
+        running.perDay.set(day, accraMinuteOfDay(row.deviceTime));
       }
       byEmployee.set(row.employeeId, running);
     }
@@ -279,6 +311,7 @@ export class AttendanceFactsService {
   async deviceActivity(
     companyId: string,
     from: Date,
+    to: Date = new Date(),
   ): Promise<
     {
       deviceId: string;
@@ -302,16 +335,19 @@ export class AttendanceFactsService {
     const perDevice = new Map<string, Map<string, number>>();
     for (const punch of punches) {
       const days = perDevice.get(punch.deviceId) ?? new Map<string, number>();
-      const day = punch.serverTime.toISOString().slice(0, 10);
+      const day = toAccraDate(punch.serverTime);
       days.set(day, (days.get(day) ?? 0) + 1);
       perDevice.set(punch.deviceId, days);
     }
+    // Every calendar day in the window, in order, with a **zero** for a day
+    // the device said nothing. A silent day that was simply missing would
+    // shuffle the array along, so "the last entry" would be the last day the
+    // device spoke rather than today — and a spike from last week would keep
+    // being judged as though it had just happened.
+    const calendar = daysBetween(from, to);
     return devices.map((device) => {
       const days = perDevice.get(device.id) ?? new Map<string, number>();
-      // Oldest first, so the last entry is the day being judged.
-      const dailyCounts = [...days.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([, count]) => count);
+      const dailyCounts = calendar.map((day) => days.get(day) ?? 0);
       return {
         deviceId: device.id,
         deviceName: device.name,
