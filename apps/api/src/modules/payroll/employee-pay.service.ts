@@ -16,7 +16,7 @@
  * This module never writes the `employees` table. It asks the workforce
  * module whether a worker exists, which also decides the 404.
  */
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type {
   EmployeePaymentDetails as ApiPaymentDetails,
   EmployeePayTerms as ApiPayTerms,
@@ -24,7 +24,7 @@ import type {
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { fromIsoDate, toIsoDate } from '../../common/dates.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
@@ -33,6 +33,7 @@ import type {
   SetPaymentDetailsBody,
   SetPayTermsBody,
 } from './payroll.schemas.js';
+import { pageBefore } from './payroll-cursor.js';
 import { toApiPaymentDetails, toApiPayTerms } from './payroll-mapping.js';
 
 @Injectable()
@@ -69,7 +70,7 @@ export class EmployeePayService {
       return { items: row === null ? [] : [toApiPayTerms(row)], nextCursor: null };
     }
 
-    const after = this.effectiveFromBefore(query.cursor);
+    const after = pageBefore(query.cursor);
     const rows = await this.prisma.employeePayTerms.findMany({
       where: {
         companyId: viewer.companyId,
@@ -223,23 +224,4 @@ export class EmployeePayService {
   }
 
   // ---------------------------------------------------------------------------
-
-  /** The start date a cursor points just past, or a clear 400. */
-  private effectiveFromBefore(cursor: string | undefined): Date | undefined {
-    if (cursor === undefined) {
-      return undefined;
-    }
-    const value = decodeCursor(cursor);
-    if (value === undefined) {
-      throw new BadRequestException({
-        message: [
-          {
-            path: ['cursor'],
-            message: 'The cursor is not valid. Start again from the first page.',
-          },
-        ],
-      });
-    }
-    return fromIsoDate(value);
-  }
 }

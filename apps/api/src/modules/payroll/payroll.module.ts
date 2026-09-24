@@ -31,11 +31,6 @@ import { TaxTablesService } from './tax-tables.service.js';
   imports: [IdentityModule, WorkforceModule],
   controllers: [PayrollController, EmployeePayController],
   providers: [PayrollPeriodsService, TaxTablesService, EmployeePayService, PayrollFactsService],
-  exports: [
-    PayrollPeriodsService,
-    TaxTablesService,
-    EmployeePayService,
-    PayrollFactsService,
-  ],
+  exports: [PayrollPeriodsService, TaxTablesService, EmployeePayService, PayrollFactsService],
 })
 export class PayrollModule {}

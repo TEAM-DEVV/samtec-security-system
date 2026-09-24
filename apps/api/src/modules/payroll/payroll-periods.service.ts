@@ -6,20 +6,16 @@
  * all three are also rules the database enforces, so this service's job is to
  * turn each of them into a clear answer rather than to be the only guard.
  */
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { PayrollPeriod as ApiPayrollPeriod, PayrollPeriodList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { fromIsoDate, toIsoDate } from '../../common/dates.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { PayrollPeriod, Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
 import type { CreatePeriodBody, ListPeriodsQuery } from './payroll.schemas.js';
+import { pageBefore } from './payroll-cursor.js';
 import { toApiPeriod } from './payroll-mapping.js';
 
 /** A run in either of these states is the one approved run of its month. */
@@ -34,7 +30,7 @@ export class PayrollPeriodsService {
 
   /** The company's payroll months, newest first. */
   async list(viewer: SignedInUser, query: ListPeriodsQuery): Promise<PayrollPeriodList> {
-    const after = this.startsOnBefore(query.cursor);
+    const after = pageBefore(query.cursor);
     const rows = await this.prisma.payrollPeriod.findMany({
       where: {
         companyId: viewer.companyId,
@@ -171,24 +167,5 @@ export class PayrollPeriodsService {
       select: { id: true, periodId: true },
     });
     return new Map(runs.map((run) => [run.periodId, run.id]));
-  }
-
-  /** The start date a cursor points just past, or a clear 400. */
-  private startsOnBefore(cursor: string | undefined): Date | undefined {
-    if (cursor === undefined) {
-      return undefined;
-    }
-    const value = decodeCursor(cursor);
-    if (value === undefined) {
-      throw new BadRequestException({
-        message: [
-          {
-            path: ['cursor'],
-            message: 'The cursor is not valid. Start again from the first page.',
-          },
-        ],
-      });
-    }
-    return fromIsoDate(value);
   }
 }

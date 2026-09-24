@@ -10,14 +10,15 @@
  * Only an ADMIN may read or write these: the rates decide what every worker in
  * the company is taxed.
  */
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type { TaxTable as ApiTaxTable, TaxTableList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { fromIsoDate, toIsoDate } from '../../common/dates.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import type { CreateTaxTableBody, ListTaxTablesQuery } from './payroll.schemas.js';
+import { pageBefore } from './payroll-cursor.js';
 import { toApiTaxTable } from './payroll-mapping.js';
 
 /** Bands always travel with their table, and always in order. */
@@ -51,7 +52,7 @@ export class TaxTablesService {
       return { items: row === null ? [] : [toApiTaxTable(row)], nextCursor: null };
     }
 
-    const after = this.effectiveFromBefore(query.cursor);
+    const after = pageBefore(query.cursor);
     const rows = await this.prisma.taxTable.findMany({
       where: {
         companyId: viewer.companyId,
@@ -136,23 +137,4 @@ export class TaxTablesService {
   }
 
   // ---------------------------------------------------------------------------
-
-  /** The start date a cursor points just past, or a clear 400. */
-  private effectiveFromBefore(cursor: string | undefined): Date | undefined {
-    if (cursor === undefined) {
-      return undefined;
-    }
-    const value = decodeCursor(cursor);
-    if (value === undefined) {
-      throw new BadRequestException({
-        message: [
-          {
-            path: ['cursor'],
-            message: 'The cursor is not valid. Start again from the first page.',
-          },
-        ],
-      });
-    }
-    return fromIsoDate(value);
-  }
 }

@@ -446,6 +446,26 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .set(...bearer(token.hr))
         .expect(400);
     });
+
+    it('refuses a cursor that decodes cleanly but holds no date, with 400 and not 500', async () => {
+      // `aGVsbG8` is the word "hello" in base64url, so it survives the
+      // round-trip check and looks like a real cursor. Before this was caught
+      // it became an Invalid Date, and the database refused it with an error
+      // carrying no HTTP status — so a bad request answered 500.
+      for (const path of [
+        '/api/v1/payroll/periods?cursor=aGVsbG8',
+        `/api/v1/employees/${company.active.id}/pay-terms?cursor=aGVsbG8`,
+      ]) {
+        await api()
+          .get(path)
+          .set(...bearer(token.hr))
+          .expect(400);
+      }
+      await api()
+        .get('/api/v1/payroll/tax-tables?cursor=aGVsbG8')
+        .set(...bearer(token.admin))
+        .expect(400);
+    });
   });
 
   // -------------------------------------------------------------------------
