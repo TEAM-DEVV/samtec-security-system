@@ -31,6 +31,7 @@ import type {
 } from './detection.schemas.js';
 import {
   bilocation,
+  deviceAnomaly,
   duplicateEnrollment,
   type Finding,
   fallbackAbuse,
@@ -39,6 +40,7 @@ import {
   orphanPunches,
   RECURRENCE_CAP,
   RULE_CATALOGUE,
+  robotRegularity,
   SEVERITY_WEIGHT,
 } from './detection-rules.js';
 
@@ -434,6 +436,39 @@ export class DetectionService {
           supervisorCoSigns: thresholds.supervisorCoSigns ?? 20,
         },
         now,
+      );
+    }
+    if (code === 'R8') {
+      const days = thresholds.workingDays ?? 10;
+      // Three times the days asked for, so ten working days can be found
+      // inside a stretch that had weekends and rest days in it.
+      const from = new Date(now.getTime() - days * 3 * DAY_MS);
+      const people = await this.attendance.clockInTimesPerEmployee(companyId, from);
+      return robotRegularity(
+        people,
+        {
+          standardDeviationMinutes: thresholds.standardDeviationMinutes ?? 3,
+          workingDays: days,
+        },
+        now,
+        // The window really asked for, so an investigator is told how far
+        // back the evidence comes from rather than how many days had data.
+        from,
+      );
+    }
+    if (code === 'R9') {
+      const days = thresholds.medianDays ?? 30;
+      const from = new Date(now.getTime() - days * DAY_MS);
+      const devices = await this.attendance.deviceActivity(companyId, from, now);
+      return deviceAnomaly(
+        devices,
+        {
+          volumeMultiple: thresholds.volumeMultiple ?? 3,
+          medianDays: days,
+          clockDriftMinutes: thresholds.clockDriftMinutes ?? 5,
+        },
+        now,
+        from,
       );
     }
     if (code === 'R10') {

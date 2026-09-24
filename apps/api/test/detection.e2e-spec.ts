@@ -481,6 +481,8 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         'R4',
         'R5',
         'R7',
+        'R8',
+        'R9',
       ]);
     });
 

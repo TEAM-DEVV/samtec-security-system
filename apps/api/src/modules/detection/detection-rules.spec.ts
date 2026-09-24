@@ -2,12 +2,14 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
+  deviceAnomaly,
   duplicateEnrollment,
   fallbackAbuse,
   identityCollision,
   neverSeen,
   orphanPunches,
   RULE_CATALOGUE,
+  robotRegularity,
   SEVERITY_WEIGHT,
 } from './detection-rules.js';
 
@@ -209,6 +211,146 @@ describe('R7 · fallback abuse', () => {
   });
 });
 
+describe('R8 · robot regularity', () => {
+  const sameEveryDay = (minute: number, days: number) => Array.from({ length: days }, () => minute);
+
+  it('names a row of arrivals too alike to be a person', () => {
+    const found = robotRegularity(
+      [
+        // 05:59 to the minute, every day for a fortnight.
+        { employeeId: 'too-perfect', minutesOfDay: sameEveryDay(359, 14), siteId: 'site-a' },
+        // A real guard: traffic, a tro-tro, a child to drop off.
+        {
+          employeeId: 'human',
+          minutesOfDay: [352, 364, 358, 371, 349, 366, 355, 361, 347, 369, 357, 363],
+        },
+      ],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found.map((row) => row.employeeId)).toEqual(['too-perfect']);
+    expect(found[0]?.evidence.days).toBe(14);
+    expect(found[0]?.evidence.spreadMinutes).toBe(0);
+    // The clock face explains itself in a way the statistic does not.
+    expect(found[0]?.evidence.usualTime).toBe('05:59');
+  });
+
+  it('knows a clock is a circle, so a night shift is not exempt', () => {
+    // 23:58, 00:02, 23:59, 00:01 — four minutes apart, not twenty-three
+    // hours and fifty-six. A guard on nights is exactly the person this rule
+    // is about, so treating the times as points on a line would miss them.
+    const aroundMidnight = [1438, 2, 1439, 1, 1438, 0, 2, 1439, 1, 0, 1438, 2];
+
+    const found = robotRegularity(
+      [{ employeeId: 'night-shift', minutesOfDay: aroundMidnight }],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.spreadMinutes).toBeLessThan(3);
+    // The middle of those times is midnight itself, not the middle of the
+    // number line, which would have been the middle of the afternoon.
+    expect(found[0]?.evidence.usualTime).toMatch(/^00:0[01]$|^23:5[89]$/);
+  });
+
+  it('waits for enough days before calling anything a pattern', () => {
+    const threeIdenticalDays = [{ employeeId: 'new', minutesOfDay: sameEveryDay(359, 3) }];
+
+    expect(
+      robotRegularity(
+        threeIdenticalDays,
+        { standardDeviationMinutes: 3, workingDays: 10 },
+        NOW,
+        daysAgo(30),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('R9 · device anomaly', () => {
+  const steady = Array.from({ length: 20 }, () => 40);
+
+  it('notices a terminal sending far more than it ever has', () => {
+    const found = deviceAnomaly(
+      [
+        {
+          deviceId: 'spiking',
+          deviceName: 'ACC-01',
+          dailyCounts: [...steady, 200],
+          clockDriftSeconds: 0,
+        },
+        {
+          deviceId: 'busy',
+          deviceName: 'ACC-02',
+          dailyCounts: [...steady, 45],
+          clockDriftSeconds: 0,
+        },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    // Against its own history, never against another device: a busy gate is
+    // not an anomaly and a quiet one is not innocent.
+    expect(found.map((row) => row.deviceId)).toEqual(['spiking']);
+    expect(found[0]?.evidence.multiple).toBe(5);
+    expect(found[0]?.evidence.medianPunches).toBe(40);
+  });
+
+  it('notices a clock that has wandered, in either direction', () => {
+    const found = deviceAnomaly(
+      [
+        { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+        { deviceId: 'slow', deviceName: 'ACC-04', dailyCounts: steady, clockDriftSeconds: -600 },
+        { deviceId: 'right', deviceName: 'ACC-05', dailyCounts: steady, clockDriftSeconds: 30 },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    // A terminal running fast makes a late arrival look punctual every day,
+    // with nobody touching a record.
+    expect(found.map((row) => row.deviceId).sort()).toEqual(['fast', 'slow']);
+    expect(found.find((row) => row.deviceId === 'fast')?.evidence.fast).toBe(true);
+    expect(found.find((row) => row.deviceId === 'slow')?.evidence.fast).toBe(false);
+  });
+
+  it('raises a wandering clock once a month, not once a sweep', () => {
+    const drifting = [
+      { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+    ];
+    const tomorrow = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+    const nextMonth = new Date('2026-10-02T10:00:00.000Z');
+    const thresholds = { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 };
+
+    const today = deviceAnomaly(drifting, thresholds, NOW, daysAgo(30))[0]?.dedupeKey;
+    const again = deviceAnomaly(drifting, thresholds, tomorrow, daysAgo(30))[0]?.dedupeKey;
+    const later = deviceAnomaly(drifting, thresholds, nextMonth, daysAgo(30))[0]?.dedupeKey;
+
+    // A drifting clock is one standing fact, not a daily event. Raising it
+    // every sweep is how a queue becomes wallpaper.
+    expect(again).toBe(today);
+    expect(later).not.toBe(today);
+  });
+
+  it('says nothing about a device with barely any history', () => {
+    const found = deviceAnomaly(
+      [{ deviceId: 'new', deviceName: 'ACC-06', dailyCounts: [1, 90], clockDriftSeconds: 0 }],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found).toEqual([]);
+  });
+});
+
 describe('the catalogue', () => {
   it('has all eleven rules, and says which are built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
@@ -219,6 +361,8 @@ describe('the catalogue', () => {
       'R4',
       'R5',
       'R7',
+      'R8',
+      'R9',
       'R10',
     ]);
   });
