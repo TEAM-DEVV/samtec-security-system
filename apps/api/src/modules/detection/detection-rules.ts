@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { paidBeyondPresence } from '../../common/paid-beyond-presence.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 
 /**
@@ -61,7 +62,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A payslip paying more hours than the recorded shifts support.',
     severity: 'CRITICAL',
     thresholds: { toleranceMinutes: 60 },
-    built: false,
+    built: true,
   },
   {
     code: 'R4',
@@ -85,7 +86,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'Punches or pay after the day the worker left.',
     severity: 'CRITICAL',
     thresholds: {},
-    built: false,
+    built: true,
   },
   {
     code: 'R7',
@@ -101,7 +102,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'Clock-in times too alike to be a person walking to work.',
     severity: 'MEDIUM',
     thresholds: { standardDeviationMinutes: 3, workingDays: 10 },
-    built: false,
+    built: true,
   },
   {
     code: 'R9',
@@ -109,7 +110,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A terminal sending far more punches than it ever has, or with a wandering clock.',
     severity: 'MEDIUM',
     thresholds: { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
-    built: false,
+    built: true,
   },
   {
     code: 'R10',
@@ -125,7 +126,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A two-person decision settled by somebody who should not have settled it.',
     severity: 'HIGH',
     thresholds: {},
-    built: false,
+    built: true,
   },
 ];
 
@@ -432,6 +433,437 @@ export function fallbackAbuse(
  */
 function fingerprintOf(value: string, key: Buffer): string {
   return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
+}
+
+// --- R11 · Conflicted decision ------------------------------------------------
+
+export interface TwoPersonDecision {
+  kind: 'duplicate review' | 'exemption';
+  /** The record or request that was decided. */
+  recordId: string;
+  /** Everybody the decision was about: one worker, or the two in a duplicate review. */
+  employeeIds: string[];
+  /** The worker the alert is filed against. */
+  subjectEmployeeId: string;
+  decidedByUserId: string;
+  decidedAt: Date;
+}
+
+/** Who already had a hand in a worker's biometrics, and how. */
+export interface HandsOn {
+  employeeId: string;
+  userId: string;
+  /** What they did: enrolled a face, wiped one, or recorded a withdrawal. */
+  did: 'enrolled' | 'wiped' | 'withdrew';
+  /** When. A hand the decision itself made is not a hand they had **before** it. */
+  at: Date;
+}
+
+/**
+ * A two-person decision settled by somebody with a hand in it already.
+ *
+ * **This one is expected to fire**, and it is worth being clear why, because
+ * it is easy to read it the wrong way round.
+ *
+ * The direct links are refused outright: a database CHECK stops an ADMIN
+ * deciding the review of a face they enrolled themselves, and the service
+ * stops anybody who wiped a face for either worker, or recorded their
+ * withdrawal. Those are never allowed, so a finding pointing at one means
+ * something is wrong with **this system** — a migration or a repair script
+ * that went round the rules.
+ *
+ * The **indirect** link is a different thing, and it is allowed on purpose.
+ * An ADMIN who enrolled the *other* worker's face may still decide the
+ * review, because refusing that would deadlock a company with two ADMINs in
+ * the ordinary case — two brothers enrolled by different people
+ * (docs/plan/13 §2, decision 13). Those decisions are **flagged, not
+ * blocked**, and showing them to the payroll checker is the whole job of
+ * this rule. A finding there is routine and worth a look; it is not a bug
+ * report.
+ *
+ * What it never is, either way, is a finding about the worker. Nobody is
+ * accused of anything by a rule about who signed a form.
+ */
+export function conflictedDecision(
+  decisions: readonly TwoPersonDecision[],
+  hands: readonly HandsOn[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  const byEmployee = new Map<string, HandsOn[]>();
+  for (const hand of hands) {
+    byEmployee.set(hand.employeeId, [...(byEmployee.get(hand.employeeId) ?? []), hand]);
+  }
+  return decisions.flatMap((decision) => {
+    const clashes = decision.employeeIds
+      .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
+      .filter((hand) => hand.userId === decision.decidedByUserId)
+      // **Only a hand they had before.** Settling a duplicate as one person
+      // wipes the losing record, stamped with the decider's own name in the
+      // same breath as the decision — so without this, every by-the-book
+      // resolution would report itself, and the rule would be noise within
+      // a week.
+      .filter((hand) => hand.at.getTime() < decision.decidedAt.getTime());
+    if (clashes.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ruleCode: 'R11' as const,
+        // One per decision, ever: it is one question about one record, and
+        // the answer cannot change by asking again.
+        dedupeKey: `R11:${decision.kind === 'exemption' ? 'exemption' : 'review'}:${decision.recordId}`,
+        employeeId: decision.subjectEmployeeId,
+        windowFrom: clashes.reduce(
+          (earliest, hand) => (hand.at < earliest ? hand.at : earliest),
+          decision.decidedAt,
+        ),
+        windowTo: now,
+        evidence: {
+          decision: decision.kind,
+          recordId: decision.recordId,
+          // What the same person had already done. Never their name: an
+          // alert about a decision is not a file on the person who made it.
+          alsoDid: [...new Set(clashes.map((hand) => hand.did))].sort(),
+          // **Which worker** the earlier involvement was with. On a duplicate
+          // review the alert lands on one file while the history may be with
+          // the other, and a checker cannot act on an alert that does not say
+          // which.
+          concerningEmployeeIds: [...new Set(clashes.map((hand) => hand.employeeId))].sort(),
+          decidedByUserId: decision.decidedByUserId,
+        },
+      },
+    ];
+  });
+}
+
+// --- R8 · Robot regularity ---------------------------------------------------
+
+export interface ClockInTimes {
+  employeeId: string;
+  siteId?: string;
+  /** Minutes past midnight, one per working day, Accra time. */
+  minutesOfDay: number[];
+}
+
+/**
+ * Clock-in times too alike to be a person walking to work.
+ *
+ * A real guard arrives at 05:52, then 06:04, then 05:58 — traffic, a
+ * tro-tro, a child to drop off. A row of punches all within a minute of each
+ * other is the signature of somebody generating them, or of one person
+ * clocking in for a whole shift at once.
+ *
+ * It needs enough days to mean anything: a fortnight of identical arrivals
+ * is a pattern, three is a coincidence.
+ */
+export function robotRegularity(
+  people: readonly ClockInTimes[],
+  thresholds: { standardDeviationMinutes: number; workingDays: number },
+  now: Date,
+  windowFrom: Date,
+): Finding[] {
+  return people
+    .filter((person) => person.minutesOfDay.length >= thresholds.workingDays)
+    .map((person) => ({ person, clock: aroundTheClock(person.minutesOfDay) }))
+    .filter(({ clock }) => clock.spread < thresholds.standardDeviationMinutes)
+    .map(({ person, clock }) => ({
+      ruleCode: 'R8' as const,
+      dedupeKey: `R8:${person.employeeId}:${isoMonth(now)}`,
+      employeeId: person.employeeId,
+      siteId: person.siteId,
+      windowFrom,
+      windowTo: now,
+      evidence: {
+        days: person.minutesOfDay.length,
+        spreadMinutes: Math.round(clock.spread * 10) / 10,
+        // The clock face, so a reader sees the pattern rather than the
+        // statistic: "always 05:59" explains itself.
+        usualTime: clockFace(clock.middle),
+      },
+    }));
+}
+
+// --- R9 · Device anomaly -----------------------------------------------------
+
+export interface DeviceActivity {
+  deviceId: string;
+  deviceName: string;
+  siteId?: string;
+  /** Punches per day over the window, most recent last. */
+  dailyCounts: number[];
+  /** How far the device's own clock is off, in seconds. */
+  clockDriftSeconds: number | null;
+}
+
+/**
+ * A terminal behaving unlike itself.
+ *
+ * Two different smells. A **volume spike** — a device that has quietly sent
+ * forty punches a day suddenly sending two hundred — is what a replayed or
+ * manufactured batch looks like. A **drifting clock** matters because every
+ * punch carries the device's own time: a terminal running ten minutes fast
+ * can make a late arrival look punctual, every single day, with nobody
+ * touching a record.
+ *
+ * The comparison is against the device's **own** history, not against other
+ * devices: a busy gate is not an anomaly, and a quiet one is not innocent.
+ */
+export function deviceAnomaly(
+  devices: readonly DeviceActivity[],
+  thresholds: { volumeMultiple: number; medianDays: number; clockDriftMinutes: number },
+  now: Date,
+  windowFrom: Date,
+): Finding[] {
+  const findings: Finding[] = [];
+  // A device needs a history to be unlike itself. A quarter of the window
+  // asked for, so tuning the window tunes this too, and never fewer than a
+  // week: a site that opened on Monday is not an anomaly on Friday.
+  const enoughHistory = Math.max(7, Math.floor(thresholds.medianDays / 4));
+  for (const device of devices) {
+    const today = device.dailyCounts.at(-1) ?? 0;
+    const earlier = device.dailyCounts.slice(0, -1);
+    const usual = median(earlier);
+    if (earlier.length >= enoughHistory && usual > 0 && today > usual * thresholds.volumeMultiple) {
+      findings.push({
+        ruleCode: 'R9',
+        dedupeKey: `R9:volume:${device.deviceId}:${isoDate(now)}`,
+        deviceId: device.deviceId,
+        siteId: device.siteId,
+        windowFrom,
+        windowTo: now,
+        evidence: {
+          punchesThatDay: today,
+          medianPunches: usual,
+          multiple: Math.round((today / usual) * 10) / 10,
+          device: device.deviceName,
+        },
+      });
+    }
+    const driftMinutes = Math.abs(device.clockDriftSeconds ?? 0) / 60;
+    if (driftMinutes > thresholds.clockDriftMinutes) {
+      findings.push({
+        ruleCode: 'R9',
+        // A drifting clock is one standing fact about a device, not
+        // something that happens afresh each day. Keyed per month, it is
+        // raised once and raised again if it is still wrong next month —
+        // rather than every time somebody presses the sweep button.
+        dedupeKey: `R9:clock:${device.deviceId}:${isoMonth(now)}`,
+        deviceId: device.deviceId,
+        siteId: device.siteId,
+        windowFrom: now,
+        windowTo: now,
+        evidence: {
+          clockDriftMinutes: Math.round(driftMinutes * 10) / 10,
+          fast: (device.clockDriftSeconds ?? 0) > 0,
+          device: device.deviceName,
+        },
+      });
+    }
+  }
+  return findings;
+}
+
+// --- R3 · Paid without presence -----------------------------------------------
+
+/** One payslip line, beside the shifts the attendance tables hold for it. */
+export interface PaidPeriod {
+  lineId: string;
+  runId: string;
+  employeeId: string;
+  /** The period, as `YYYY-MM`, for a reader. */
+  period: string;
+  periodStartsOn: Date;
+  periodEndsOn: Date;
+  /** What the line paid for: its regular minutes plus its overtime minutes. */
+  paidMinutes: number;
+  /** Confirmed shifts inside the period, **counted again** at sweep time. */
+  presentMinutes: number;
+  /** Of those, the minutes a person typed in. */
+  manualMinutes: number;
+  /** Of those, the minutes a co-sign or a staff number made. */
+  fallbackMinutes: number;
+}
+
+/**
+ * A payslip paying for more hours than the shifts behind it support.
+ *
+ * The line's own `punchedMinutes` is deliberately **not** what it is compared
+ * against — that number was copied onto the line by the same run that paid
+ * it, so comparing a line with itself would prove nothing. The present
+ * minutes here are counted afresh from the attendance tables, which is what
+ * lets the rule see a line that was edited, a shift that was voided after the
+ * money went out, or a run built on segments that have been disputed since.
+ *
+ * Every `CONFIRMED` segment counts, whatever its basis, or the rule would
+ * fire on every honest correction an ADMIN made through the exception queue
+ * (docs/plan/08 §3). The split is carried in the evidence instead, so a
+ * checker sees at a glance whether the hours rest on a face or on somebody's
+ * word.
+ */
+export function paidWithoutPresence(
+  lines: readonly PaidPeriod[],
+  thresholds: { toleranceMinutes: number },
+  _now: Date,
+): Finding[] {
+  return lines
+    .map((line) => ({
+      line,
+      beyond: paidBeyondPresence(
+        line.paidMinutes,
+        line.presentMinutes,
+        thresholds.toleranceMinutes,
+      ),
+    }))
+    .filter(({ beyond }) => beyond > 0)
+    .map(({ line, beyond }) => ({
+      ruleCode: 'R3' as const,
+      // One per line, ever. A line freezes when its run is submitted, so
+      // asking again next week cannot give a different answer.
+      dedupeKey: `R3:${line.lineId}`,
+      employeeId: line.employeeId,
+      windowFrom: line.periodStartsOn,
+      windowTo: line.periodEndsOn,
+      evidence: {
+        period: line.period,
+        runId: line.runId,
+        lineId: line.lineId,
+        paidMinutes: line.paidMinutes,
+        presentMinutes: line.presentMinutes,
+        beyondToleranceMinutes: beyond,
+        manualMinutes: line.manualMinutes,
+        fallbackMinutes: line.fallbackMinutes,
+      },
+    }));
+}
+
+// --- R6 · Terminated but active -----------------------------------------------
+
+/** Somebody who has left, and whatever has happened on their record since. */
+export interface AfterLeaving {
+  employeeId: string;
+  siteId?: string;
+  /** The last day they were employed. */
+  leftOn: Date;
+  /** Punches the server received after that day ended. */
+  punchesAfter: number;
+  /** The last of them, as `YYYY-MM-DD`. */
+  lastPunchOn?: string;
+  /** Every settled payslip they have, whenever its period was. The rule decides which count. */
+  paidPeriods: readonly { period: string; startsOn: Date }[];
+}
+
+/**
+ * A worker who has left and whose record is still moving.
+ *
+ * There is no threshold and no tolerance: one punch, or one payslip, for
+ * somebody who is no longer employed is the whole finding. It is the plainest
+ * of the eleven, and the one a defence audience understands with no
+ * explanation at all.
+ *
+ * A period that **contains** the leaving day is not counted. Somebody who
+ * left on the 12th is paid for the first twelve days of that month and that
+ * payslip is correct; only a period beginning after they had gone is a
+ * question.
+ */
+export function terminatedButActive(
+  people: readonly AfterLeaving[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  return people
+    .map((person) => ({
+      person,
+      // Only a period that **begins** after the leaving day. The month
+      // somebody left in pays them for the days they worked in it, and that
+      // payslip is right — so `>`, and against the period's first day, not
+      // its last.
+      paidAfter: [
+        ...new Set(
+          person.paidPeriods
+            .filter((paid) => paid.startsOn.getTime() > person.leftOn.getTime())
+            .map((paid) => paid.period),
+        ),
+      ].sort(),
+    }))
+    .filter(({ person, paidAfter }) => person.punchesAfter > 0 || paidAfter.length > 0)
+    .map(({ person, paidAfter }) => ({
+      ruleCode: 'R6' as const,
+      // Keyed by the month it is noticed. The first alert is the question; if
+      // it is still happening next month that is a second question, not the
+      // same one left unanswered.
+      dedupeKey: `R6:${person.employeeId}:${isoMonth(now)}`,
+      employeeId: person.employeeId,
+      siteId: person.siteId,
+      windowFrom: person.leftOn,
+      windowTo: now,
+      evidence: {
+        leftOn: isoDate(person.leftOn),
+        punchesAfter: person.punchesAfter,
+        ...(person.lastPunchOn === undefined ? {} : { lastPunchOn: person.lastPunchOn }),
+        paidPeriodsAfter: paidAfter,
+      },
+    }));
+}
+
+/**
+ * How tightly a set of clock times sit together, and where their middle is.
+ *
+ * **A clock is a circle.** 23:58 and 00:02 are four minutes apart, not
+ * twenty-three hours and fifty-six — and a guard on nights is exactly the
+ * person this rule is about, so treating the times as points on a line would
+ * miss the manufactured logs it exists to catch and would never have looked
+ * wrong.
+ *
+ * Each time becomes an angle round the twenty-four hours; the middle is the
+ * direction they point on average, and the spread is how far they wander
+ * from it. The spread is the population one (divided by how many there are,
+ * not one fewer), which is the stricter reading of the threshold and the one
+ * the report's tuning table is built on.
+ */
+function aroundTheClock(minutes: readonly number[]): { middle: number; spread: number } {
+  if (minutes.length < 2) {
+    return { middle: minutes[0] ?? 0, spread: Number.POSITIVE_INFINITY };
+  }
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const toAngle = (minute: number) => (minute / MINUTES_IN_A_DAY) * 2 * Math.PI;
+  const eastward = average(minutes.map((minute) => Math.cos(toAngle(minute))));
+  const northward = average(minutes.map((minute) => Math.sin(toAngle(minute))));
+  const middleAngle = Math.atan2(northward, eastward);
+  const middle =
+    ((middleAngle / (2 * Math.PI)) * MINUTES_IN_A_DAY + MINUTES_IN_A_DAY) % MINUTES_IN_A_DAY;
+  const spread = Math.sqrt(average(minutes.map((minute) => shortestWayRound(minute, middle) ** 2)));
+  return { middle, spread };
+}
+
+/** The smaller of the two ways round the clock between two times, in minutes. */
+function shortestWayRound(one: number, other: number): number {
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const apart = Math.abs(one - other) % MINUTES_IN_A_DAY;
+  return Math.min(apart, MINUTES_IN_A_DAY - apart);
+}
+
+function average(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+/** The middle value, which one wild day cannot drag about the way an average can. */
+function median(values: readonly number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+    : (sorted[middle] ?? 0);
+}
+
+/** Minutes past midnight as a clock face: 359 becomes "05:59". */
+function clockFace(minutes: number): string {
+  const whole = Math.round(minutes);
+  const hour = Math.floor(whole / 60) % 24;
+  return `${String(hour).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -1,5 +1,34 @@
 import { Injectable } from '@nestjs/common';
+import { toAccraDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Minutes past midnight in Accra, asked of the time zone database. */
+function accraMinuteOfDay(instant: Date): number {
+  const [hour, minute] = ACCRA_CLOCK.format(instant).split(':');
+  return Number(hour) * 60 + Number(minute);
+}
+
+/** Every calendar day from one moment to another, inclusive, in Accra. */
+function daysBetween(from: Date, to: Date): string[] {
+  const days: string[] = [];
+  for (let at = from.getTime(); at <= to.getTime(); at += DAY_MS) {
+    days.push(toAccraDate(new Date(at)));
+  }
+  const last = toAccraDate(to);
+  if (days.at(-1) !== last) {
+    days.push(last);
+  }
+  return [...new Set(days)];
+}
+
+const ACCRA_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 /**
  * What the attendance module will tell another module about its own tables.
@@ -220,6 +249,255 @@ export class AttendanceFactsService {
   }
 
   /**
+   * Every two-person decision already on the record, and everybody who had
+   * a hand in those workers' biometrics before it (rule R11).
+   *
+   * It reads the decisions and the hands separately and lets the rule put
+   * them together, so the comparison itself can be tested without a
+   * database.
+   */
+  async twoPersonDecisions(companyId: string): Promise<{
+    decisions: {
+      kind: 'duplicate review' | 'exemption';
+      recordId: string;
+      employeeIds: string[];
+      subjectEmployeeId: string;
+      decidedByUserId: string;
+      decidedAt: Date;
+    }[];
+    hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[];
+  }> {
+    const [reviews, exemptions] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: {
+          companyId,
+          kind: 'FACE',
+          verdict: { not: null },
+          resolvedByUserId: { not: null },
+          resolvedAt: { not: null },
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          collisionEmployeeId: true,
+          resolvedByUserId: true,
+          resolvedAt: true,
+        },
+      }),
+      this.prisma.biometricExemption.findMany({
+        where: { companyId, reviewedByUserId: { not: null }, reviewedAt: { not: null } },
+        select: { id: true, employeeId: true, reviewedByUserId: true, reviewedAt: true },
+      }),
+    ]);
+
+    // Who decided and when are stored together or not at all — a database
+    // CHECK on each table says so — and both queries above ask for both. The
+    // narrowing below is how TypeScript is told that; it is not a place where
+    // a half-decided row quietly turns into a decision dated 1970, which would
+    // have hidden it from the rule rather than raised it.
+    const decisions = [
+      ...reviews
+        .filter(
+          (row): row is typeof row & { resolvedByUserId: string; resolvedAt: Date } =>
+            row.resolvedByUserId !== null && row.resolvedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'duplicate review' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId, row.collisionEmployeeId].filter(
+            (id): id is string => id !== null,
+          ),
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.resolvedByUserId,
+          decidedAt: row.resolvedAt,
+        })),
+      ...exemptions
+        .filter(
+          (row): row is typeof row & { reviewedByUserId: string; reviewedAt: Date } =>
+            row.reviewedByUserId !== null && row.reviewedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'exemption' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId],
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.reviewedByUserId,
+          decidedAt: row.reviewedAt,
+        })),
+    ];
+    if (decisions.length === 0) {
+      return { decisions: [], hands: [] };
+    }
+
+    const involved = [...new Set(decisions.flatMap((decision) => decision.employeeIds))];
+    const [credentials, withdrawals] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: { companyId, employeeId: { in: involved } },
+        select: {
+          employeeId: true,
+          enrolledByUserId: true,
+          enrolledAt: true,
+          wipedByUserId: true,
+          wipedAt: true,
+        },
+      }),
+      this.prisma.biometricConsent.findMany({
+        where: { companyId, employeeId: { in: involved }, status: 'WITHDRAWN' },
+        select: { employeeId: true, recordedByUserId: true, recordedAt: true },
+      }),
+    ]);
+    const hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[] = [];
+    for (const credential of credentials) {
+      if (credential.enrolledByUserId) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.enrolledByUserId,
+          did: 'enrolled',
+          at: credential.enrolledAt,
+        });
+      }
+      if (credential.wipedByUserId && credential.wipedAt) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.wipedByUserId,
+          did: 'wiped',
+          at: credential.wipedAt,
+        });
+      }
+    }
+    for (const withdrawal of withdrawals) {
+      hands.push({
+        employeeId: withdrawal.employeeId,
+        userId: withdrawal.recordedByUserId,
+        did: 'withdrew',
+        at: withdrawal.recordedAt,
+      });
+    }
+    return { decisions, hands };
+  }
+
+  /**
+   * What time each worker clocked in, day by day, since `from` (rule R8).
+   *
+   * One time per calendar day — the first clock-in of that day — because a
+   * worker with two shifts would otherwise look erratic when they are not.
+   * Ghana keeps GMT all year, so a moment's UTC minutes past midnight are
+   * also Accra's.
+   */
+  async clockInTimesPerEmployee(
+    companyId: string,
+    from: Date,
+  ): Promise<{ employeeId: string; siteId: string; minutesOfDay: number[] }[]> {
+    const rows = await this.prisma.punchEvent.findMany({
+      where: {
+        companyId,
+        employeeId: { not: null },
+        direction: 'IN',
+        pairable: true,
+        // A device whose own clock the server already doubted cannot be used
+        // to judge how regular somebody's arrivals are: the fault would be
+        // the terminal's and the alert would be the worker's.
+        clockSuspect: false,
+        serverTime: { gte: from },
+      },
+      select: { employeeId: true, siteId: true, deviceTime: true },
+      orderBy: { deviceTime: 'asc' },
+    });
+    const byEmployee = new Map<
+      string,
+      { employeeId: string; siteId: string; perDay: Map<string, number> }
+    >();
+    for (const row of rows) {
+      if (row.employeeId === null) {
+        continue;
+      }
+      const running = byEmployee.get(row.employeeId) ?? {
+        employeeId: row.employeeId,
+        siteId: row.siteId,
+        perDay: new Map<string, number>(),
+      };
+      const day = toAccraDate(row.deviceTime);
+      if (!running.perDay.has(day)) {
+        running.perDay.set(day, accraMinuteOfDay(row.deviceTime));
+      }
+      byEmployee.set(row.employeeId, running);
+    }
+    return [...byEmployee.values()].map((row) => ({
+      employeeId: row.employeeId,
+      siteId: row.siteId,
+      minutesOfDay: [...row.perDay.values()],
+    }));
+  }
+
+  /**
+   * How busy each device has been, day by day, and how far its own clock is
+   * off (rule R9).
+   *
+   * Every punch carries the device's own time, so a terminal running fast
+   * can make a late arrival look punctual every day with nobody touching a
+   * record — which is why the drift is reported beside the volume.
+   */
+  async deviceActivity(
+    companyId: string,
+    from: Date,
+    to: Date = new Date(),
+  ): Promise<
+    {
+      deviceId: string;
+      deviceName: string;
+      siteId: string;
+      dailyCounts: number[];
+      clockDriftSeconds: number | null;
+    }[]
+  > {
+    const devices = await this.prisma.device.findMany({
+      where: { companyId },
+      select: { id: true, name: true, siteId: true, lastClockDriftSeconds: true },
+    });
+    if (devices.length === 0) {
+      return [];
+    }
+    const punches = await this.prisma.punchEvent.findMany({
+      where: { companyId, serverTime: { gte: from } },
+      select: { deviceId: true, serverTime: true },
+    });
+    const perDevice = new Map<string, Map<string, number>>();
+    for (const punch of punches) {
+      const days = perDevice.get(punch.deviceId) ?? new Map<string, number>();
+      const day = toAccraDate(punch.serverTime);
+      days.set(day, (days.get(day) ?? 0) + 1);
+      perDevice.set(punch.deviceId, days);
+    }
+    // Every calendar day in the window, in order, with a **zero** for a day
+    // the device said nothing. A silent day that was simply missing would
+    // shuffle the array along, so "the last entry" would be the last day the
+    // device spoke rather than today — and a spike from last week would keep
+    // being judged as though it had just happened.
+    const calendar = daysBetween(from, to);
+    return devices.map((device) => {
+      const days = perDevice.get(device.id) ?? new Map<string, number>();
+      const dailyCounts = calendar.map((day) => days.get(day) ?? 0);
+      return {
+        deviceId: device.id,
+        deviceName: device.name,
+        siteId: device.siteId,
+        dailyCounts,
+        clockDriftSeconds: device.lastClockDriftSeconds,
+      };
+    });
+  }
+
+  /**
    * How many punches on each device matched nobody since `from` (rule R10),
    * and which numbers were tried — which is what tells a typo apart from
    * somebody working through numbers to see which ones answer.
@@ -274,5 +552,96 @@ export class AttendanceFactsService {
       punches: row.punches,
       numbersTried: [...row.numbersTried].sort(),
     }));
+  }
+
+  /**
+   * How many confirmed minutes each worker was actually on shift inside each
+   * payroll period (rule R3), and how many of those minutes rest on something
+   * other than a face.
+   *
+   * The key of the map is `<periodId>:<employeeId>`. Periods are months, so
+   * there are never many of them, and one query per period keeps each one a
+   * plain indexed range over `work_date`.
+   *
+   * Only `CONFIRMED` counts: a disputed shift is still being argued about and
+   * a voided one did not happen — the same rule payroll itself pays by.
+   */
+  async presentMinutesPerPeriod(
+    companyId: string,
+    periods: readonly { periodId: string; startsOn: Date; endsOn: Date }[],
+  ): Promise<Map<string, { minutes: number; manualMinutes: number; fallbackMinutes: number }>> {
+    const present = new Map<
+      string,
+      { minutes: number; manualMinutes: number; fallbackMinutes: number }
+    >();
+    const perPeriod = await Promise.all(
+      periods.map(async (period) => ({
+        periodId: period.periodId,
+        rows: await this.prisma.workSegment.groupBy({
+          by: ['employeeId', 'basis'],
+          where: {
+            companyId,
+            status: 'CONFIRMED',
+            workDate: { gte: period.startsOn, lte: period.endsOn },
+          },
+          _sum: { workedMinutes: true },
+        }),
+      })),
+    );
+    for (const { periodId, rows } of perPeriod) {
+      for (const row of rows) {
+        const key = `${periodId}:${row.employeeId}`;
+        const running = present.get(key) ?? { minutes: 0, manualMinutes: 0, fallbackMinutes: 0 };
+        const minutes = row._sum.workedMinutes ?? 0;
+        running.minutes += minutes;
+        if (row.basis === 'MANUAL') {
+          running.manualMinutes += minutes;
+        }
+        if (row.basis === 'PIN_FALLBACK') {
+          running.fallbackMinutes += minutes;
+        }
+        present.set(key, running);
+      }
+    }
+    return present;
+  }
+
+  /**
+   * Punches that arrived for somebody after the day they left (rule R6).
+   *
+   * It asks by **server time**, not device time. The server's clock is the
+   * one nobody holding a terminal can move, and a punch dated last month by a
+   * device that arrived today is exactly the shape this rule is looking for.
+   */
+  async punchesAfterLeaving(
+    companyId: string,
+    leavers: readonly { employeeId: string; leftOn: Date }[],
+  ): Promise<Map<string, { punches: number; lastPunchOn: string }>> {
+    if (leavers.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.punchEvent.groupBy({
+      by: ['employeeId'],
+      where: {
+        companyId,
+        OR: leavers.map((leaver) => ({
+          employeeId: leaver.employeeId,
+          // The day they left is theirs: the clock-out of a last shift is not
+          // a ghost. Anything from the day after is.
+          serverTime: { gte: new Date(leaver.leftOn.getTime() + DAY_MS) },
+        })),
+      },
+      _count: { _all: true },
+      _max: { serverTime: true },
+    });
+    const after = new Map<string, { punches: number; lastPunchOn: string }>();
+    for (const row of rows) {
+      const last = row._max.serverTime;
+      if (row.employeeId === null || last === null) {
+        continue;
+      }
+      after.set(row.employeeId, { punches: row._count._all, lastPunchOn: toAccraDate(last) });
+    }
+    return after;
   }
 }

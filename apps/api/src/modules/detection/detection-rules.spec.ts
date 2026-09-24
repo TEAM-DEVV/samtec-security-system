@@ -2,13 +2,18 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
+  conflictedDecision,
+  deviceAnomaly,
   duplicateEnrollment,
   fallbackAbuse,
   identityCollision,
   neverSeen,
   orphanPunches,
+  paidWithoutPresence,
   RULE_CATALOGUE,
+  robotRegularity,
   SEVERITY_WEIGHT,
+  terminatedButActive,
 } from './detection-rules.js';
 
 const NOW = new Date('2026-09-23T10:00:00.000Z');
@@ -209,17 +214,425 @@ describe('R7 · fallback abuse', () => {
   });
 });
 
+describe('R8 · robot regularity', () => {
+  const sameEveryDay = (minute: number, days: number) => Array.from({ length: days }, () => minute);
+
+  it('names a row of arrivals too alike to be a person', () => {
+    const found = robotRegularity(
+      [
+        // 05:59 to the minute, every day for a fortnight.
+        { employeeId: 'too-perfect', minutesOfDay: sameEveryDay(359, 14), siteId: 'site-a' },
+        // A real guard: traffic, a tro-tro, a child to drop off.
+        {
+          employeeId: 'human',
+          minutesOfDay: [352, 364, 358, 371, 349, 366, 355, 361, 347, 369, 357, 363],
+        },
+      ],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found.map((row) => row.employeeId)).toEqual(['too-perfect']);
+    expect(found[0]?.evidence.days).toBe(14);
+    expect(found[0]?.evidence.spreadMinutes).toBe(0);
+    // The clock face explains itself in a way the statistic does not.
+    expect(found[0]?.evidence.usualTime).toBe('05:59');
+  });
+
+  it('knows a clock is a circle, so a night shift is not exempt', () => {
+    // 23:58, 00:02, 23:59, 00:01 — four minutes apart, not twenty-three
+    // hours and fifty-six. A guard on nights is exactly the person this rule
+    // is about, so treating the times as points on a line would miss them.
+    const aroundMidnight = [1438, 2, 1439, 1, 1438, 0, 2, 1439, 1, 0, 1438, 2];
+
+    const found = robotRegularity(
+      [{ employeeId: 'night-shift', minutesOfDay: aroundMidnight }],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.spreadMinutes).toBeLessThan(3);
+    // The middle of those times is midnight itself, not the middle of the
+    // number line, which would have been the middle of the afternoon.
+    expect(found[0]?.evidence.usualTime).toMatch(/^00:0[01]$|^23:5[89]$/);
+  });
+
+  it('waits for enough days before calling anything a pattern', () => {
+    const threeIdenticalDays = [{ employeeId: 'new', minutesOfDay: sameEveryDay(359, 3) }];
+
+    expect(
+      robotRegularity(
+        threeIdenticalDays,
+        { standardDeviationMinutes: 3, workingDays: 10 },
+        NOW,
+        daysAgo(30),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('R9 · device anomaly', () => {
+  const steady = Array.from({ length: 20 }, () => 40);
+
+  it('notices a terminal sending far more than it ever has', () => {
+    const found = deviceAnomaly(
+      [
+        {
+          deviceId: 'spiking',
+          deviceName: 'ACC-01',
+          dailyCounts: [...steady, 200],
+          clockDriftSeconds: 0,
+        },
+        {
+          deviceId: 'busy',
+          deviceName: 'ACC-02',
+          dailyCounts: [...steady, 45],
+          clockDriftSeconds: 0,
+        },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    // Against its own history, never against another device: a busy gate is
+    // not an anomaly and a quiet one is not innocent.
+    expect(found.map((row) => row.deviceId)).toEqual(['spiking']);
+    expect(found[0]?.evidence.multiple).toBe(5);
+    expect(found[0]?.evidence.medianPunches).toBe(40);
+  });
+
+  it('notices a clock that has wandered, in either direction', () => {
+    const found = deviceAnomaly(
+      [
+        { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+        { deviceId: 'slow', deviceName: 'ACC-04', dailyCounts: steady, clockDriftSeconds: -600 },
+        { deviceId: 'right', deviceName: 'ACC-05', dailyCounts: steady, clockDriftSeconds: 30 },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    // A terminal running fast makes a late arrival look punctual every day,
+    // with nobody touching a record.
+    expect(found.map((row) => row.deviceId).sort()).toEqual(['fast', 'slow']);
+    expect(found.find((row) => row.deviceId === 'fast')?.evidence.fast).toBe(true);
+    expect(found.find((row) => row.deviceId === 'slow')?.evidence.fast).toBe(false);
+  });
+
+  it('raises a wandering clock once a month, not once a sweep', () => {
+    const drifting = [
+      { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+    ];
+    const tomorrow = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+    const nextMonth = new Date('2026-10-02T10:00:00.000Z');
+    const thresholds = { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 };
+
+    const today = deviceAnomaly(drifting, thresholds, NOW, daysAgo(30))[0]?.dedupeKey;
+    const again = deviceAnomaly(drifting, thresholds, tomorrow, daysAgo(30))[0]?.dedupeKey;
+    const later = deviceAnomaly(drifting, thresholds, nextMonth, daysAgo(30))[0]?.dedupeKey;
+
+    // A drifting clock is one standing fact, not a daily event. Raising it
+    // every sweep is how a queue becomes wallpaper.
+    expect(again).toBe(today);
+    expect(later).not.toBe(today);
+  });
+
+  it('says nothing about a device with barely any history', () => {
+    const found = deviceAnomaly(
+      [{ deviceId: 'new', deviceName: 'ACC-06', dailyCounts: [1, 90], clockDriftSeconds: 0 }],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+      daysAgo(30),
+    );
+
+    expect(found).toEqual([]);
+  });
+});
+
+describe('R11 · conflicted decision', () => {
+  const decision = {
+    kind: 'duplicate review' as const,
+    recordId: 'face-9',
+    employeeIds: ['abena', 'grace'],
+    subjectEmployeeId: 'abena',
+    decidedByUserId: 'admin-one',
+    decidedAt: daysAgo(2),
+  };
+
+  it('finds nothing when the two-person rule held, which is the normal answer', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-three', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    // This rule is a backstop, not a detector: an empty answer is the one
+    // it should almost always give.
+    expect(found).toEqual([]);
+  });
+
+  it('does not report a decision for the wipe that the decision itself made', () => {
+    // Settling a duplicate as one person wipes the losing record, stamped
+    // with the decider's own name in the same breath as the decision. Every
+    // by-the-book resolution would otherwise report itself, and the rule
+    // would be noise inside a week.
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: decision.decidedAt },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toEqual([]);
+  });
+
+  it('names a decision settled by somebody who had already had a hand in it', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        // The same ADMIN enrolled the other record's face, then decided
+        // whether the two were the same person.
+        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('abena');
+    expect(found[0]?.evidence.alsoDid).toEqual(['enrolled']);
+    // The history is with Grace, though the alert lands on Abena's file: a
+    // checker cannot act on an alert that does not say which.
+    expect(found[0]?.evidence.concerningEmployeeIds).toEqual(['grace']);
+    expect(found[0]?.dedupeKey).toBe('R11:review:face-9');
+    // An alert about a decision is not a file on the person who made it.
+    expect(JSON.stringify(found)).not.toMatch(/name|email/i);
+  });
+
+  it('lists every way the same person was already involved, once each', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'abena', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found[0]?.evidence.alsoDid).toEqual(['wiped', 'withdrew']);
+  });
+
+  it('tells an exemption apart from a duplicate review', () => {
+    const found = conflictedDecision(
+      [
+        {
+          kind: 'exemption',
+          recordId: 'exemption-3',
+          employeeIds: ['kwame'],
+          subjectEmployeeId: 'kwame',
+          decidedByUserId: 'admin-one',
+          decidedAt: daysAgo(1),
+        },
+      ],
+      [{ employeeId: 'kwame', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) }],
+      {},
+      NOW,
+    );
+
+    expect(found[0]?.dedupeKey).toBe('R11:exemption:exemption-3');
+    expect(found[0]?.evidence.decision).toBe('exemption');
+  });
+});
+
+describe('R3 · paid without presence', () => {
+  const line = {
+    lineId: 'line-1',
+    runId: 'run-1',
+    employeeId: 'ghost',
+    period: '2026-08',
+    periodStartsOn: new Date('2026-08-01T00:00:00.000Z'),
+    periodEndsOn: new Date('2026-08-31T00:00:00.000Z'),
+    paidMinutes: 9600,
+    presentMinutes: 9600,
+    manualMinutes: 0,
+    fallbackMinutes: 0,
+  };
+
+  it('says nothing when the shifts behind a payslip cover it', () => {
+    expect(paidWithoutPresence([line], { toleranceMinutes: 60 }, NOW)).toEqual([]);
+  });
+
+  it('names a payslip paying for a month nobody worked', () => {
+    const found = paidWithoutPresence(
+      [{ ...line, presentMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('ghost');
+    expect(found[0]?.evidence).toEqual({
+      period: '2026-08',
+      runId: 'run-1',
+      lineId: 'line-1',
+      paidMinutes: 9600,
+      presentMinutes: 0,
+      beyondToleranceMinutes: 9540,
+      manualMinutes: 0,
+      fallbackMinutes: 0,
+    });
+    // The window is the period, not the sweep: an investigator opens August.
+    expect(found[0]?.windowFrom).toEqual(line.periodStartsOn);
+    expect(found[0]?.windowTo).toEqual(line.periodEndsOn);
+    // One per line, ever. A submitted line never changes again.
+    expect(found[0]?.dedupeKey).toBe('R3:line-1');
+  });
+
+  it('forgives a shift rounded to the minute, and moves with its threshold', () => {
+    const overByAnHour = [{ ...line, paidMinutes: 9660 }];
+
+    expect(paidWithoutPresence(overByAnHour, { toleranceMinutes: 60 }, NOW)).toEqual([]);
+    expect(paidWithoutPresence(overByAnHour, { toleranceMinutes: 30 }, NOW)).toHaveLength(1);
+  });
+
+  it('carries the split, so a checker sees what the hours rest on', () => {
+    const found = paidWithoutPresence(
+      // Nine hundred minutes present, and every one of them typed in by hand.
+      [{ ...line, presentMinutes: 900, manualMinutes: 900, fallbackMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(found[0]?.evidence.manualMinutes).toBe(900);
+    expect(found[0]?.evidence.presentMinutes).toBe(900);
+  });
+
+  it('says nothing about money, only about minutes', () => {
+    const found = paidWithoutPresence(
+      [{ ...line, presentMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(JSON.stringify(found)).not.toMatch(/pesewa|net|gross|bank/i);
+  });
+});
+
+describe('R6 · terminated but active', () => {
+  const leaver = {
+    employeeId: 'kojo',
+    siteId: 'site-a',
+    leftOn: new Date('2026-06-15T00:00:00.000Z'),
+    punchesAfter: 0,
+    paidPeriods: [] as { period: string; startsOn: Date }[],
+  };
+  const month = (year: number, month: number) => ({
+    period: `${year}-${String(month).padStart(2, '0')}`,
+    startsOn: new Date(Date.UTC(year, month - 1, 1)),
+  });
+
+  it('leaves alone somebody who left and stopped', () => {
+    expect(terminatedButActive([leaver], {}, NOW)).toEqual([]);
+  });
+
+  it('names a leaver who is still clocking in', () => {
+    const found = terminatedButActive(
+      [{ ...leaver, punchesAfter: 14, lastPunchOn: '2026-09-22' }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('kojo');
+    expect(found[0]?.siteId).toBe('site-a');
+    expect(found[0]?.evidence).toEqual({
+      leftOn: '2026-06-15',
+      punchesAfter: 14,
+      lastPunchOn: '2026-09-22',
+      paidPeriodsAfter: [],
+    });
+  });
+
+  it('names a leaver who is still being paid, with no punches at all', () => {
+    const found = terminatedButActive(
+      [{ ...leaver, paidPeriods: [month(2026, 8), month(2026, 7)] }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07', '2026-08']);
+    expect(found[0]?.evidence.punchesAfter).toBe(0);
+  });
+
+  it('does not count the month they left in, only the ones that began after', () => {
+    // Left on the 15th of June: June's payslip covers the days they worked,
+    // and May's is history. July's is the question.
+    const found = terminatedButActive(
+      [{ ...leaver, paidPeriods: [month(2026, 5), month(2026, 6), month(2026, 7)] }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07']);
+  });
+
+  it('treats a period beginning on the leaving day itself as theirs', () => {
+    // Left on the first of the month: that month's payslip pays one day.
+    const leftOnTheFirst = { ...leaver, leftOn: new Date('2026-07-01T00:00:00.000Z') };
+
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 7)] }], {}, NOW),
+    ).toEqual([]);
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 8)] }], {}, NOW),
+    ).toHaveLength(1);
+  });
+
+  it('asks again next month, but not again tomorrow', () => {
+    const still = [{ ...leaver, punchesAfter: 1 }];
+    const tomorrow = new Date('2026-09-24T10:00:00.000Z');
+    const nextMonth = new Date('2026-10-01T10:00:00.000Z');
+
+    const today = terminatedButActive(still, {}, NOW)[0]?.dedupeKey;
+
+    expect(terminatedButActive(still, {}, tomorrow)[0]?.dedupeKey).toBe(today);
+    expect(terminatedButActive(still, {}, nextMonth)[0]?.dedupeKey).not.toBe(today);
+  });
+});
+
 describe('the catalogue', () => {
-  it('has all eleven rules, and says which are built', () => {
+  it('has all eleven rules, and every one of them is built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
     // A rule that is not built yet must never read as a clean bill of health.
     expect(RULE_CATALOGUE.filter((rule) => rule.built).map((rule) => rule.code)).toEqual([
       'R1',
       'R2',
+      'R3',
       'R4',
       'R5',
+      'R6',
       'R7',
+      'R8',
+      'R9',
       'R10',
+      'R11',
     ]);
   });
 

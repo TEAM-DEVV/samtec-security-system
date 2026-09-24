@@ -102,7 +102,7 @@ rules read payroll data.
 **Goal: the feature that sets SAMTEC apart.**
 
 - [x] The engine, the alert queue and the sweep, per [Ghost detection engine](08-ghost-detection-engine.md), with rules R4, R5 and R10 built and the other eight in the catalogue, switched off and reported as skipped
-- [ ] The remaining rules: R8, R9 and R11, then R3 and R6 once payroll has landed
+- [x] **All eleven rules are built.** R3 (paid without presence) and R6 (terminated but active) read payroll through its own service; R3's comparison is a shared function in `src/common/paid-beyond-presence.ts`, so payroll can refuse a run at submission without importing detection
 - [ ] **Owner task:** set `CRON_SECRET` on the API's Vercel project and add the daily cron that calls `POST /detection/sweep`. Until then the sweep is a button an ADMIN presses (docs/plan/08 §7)
 - Alert review queue showing evidence; every resolution audited
 - **Exit demo:** the three planted ghosts in the seed data are all caught live; a written false-positive discussion for the report

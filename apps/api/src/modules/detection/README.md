@@ -51,9 +51,43 @@ Every rule, with its reason and its numbers, is in
 
 ## Built so far
 
-R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
-(bilocation), R5 (never seen), R7 (fallback abuse, counted for the worker
-**and** for the supervisor doing the letting in) and R10 (orphan punches).
+R1 (duplicate enrollment), R2 (identity collision, the phone for now), R3
+(paid without presence), R4 (bilocation), R5 (never seen), R6 (terminated but
+active), R7 (fallback abuse, counted for the worker **and** for the supervisor
+doing the letting in), R8 (robot regularity), R9 (device anomaly, against a
+device's own history), R10 (orphan punches) and R11 (a two-person decision
+settled by somebody with a hand in it).
 
-R8, R9 and R11 are in the catalogue, switched off and reported as skipped,
-and land with their own tests. R3 and R6 wait for payroll.
+**All eleven.** Nothing in the catalogue is switched off any more, so a quiet
+queue really is a quiet queue.
+
+R3 and R6 are the two that read payroll, through
+[`PayrollFactsService`](../payroll/payroll-facts.service.ts) — minutes and
+identifiers, never money. R3 does **not** trust the `punchedMinutes` written
+on the line it is judging: it counts the confirmed shifts again from the
+attendance tables, which is the only way it can see a line that was edited or
+a shift that was voided after the money went out. The comparison itself is
+[`paidBeyondPresence`](../../common/paid-beyond-presence.ts), in `common` and
+not here, so payroll can refuse a run at submission with the same arithmetic
+without importing detection.
+
+R11 reads two ways at once, so it is worth being plain about both.
+
+The **direct** links are refused outright when the decision is made: a
+database CHECK stops an ADMIN deciding the review of a face they enrolled
+themselves, and the service stops anybody who wiped a face for either worker
+or recorded their withdrawal. A finding pointing at one of those is about
+**this system** — a migration or a repair script that went round the rules —
+and not about a worker.
+
+The **indirect** link is allowed on purpose and is expected to show up. An
+ADMIN who enrolled the *other* worker's face may still decide the review,
+because refusing that would deadlock a company with two ADMINs
+([docs/plan/13-biometrics-design.md](../../../../../docs/plan/13-biometrics-design.md),
+§2 decision 13). Those decisions are flagged, not blocked, and putting them in
+front of the payroll checker is the whole job of this rule.
+
+Either way the alert is about who signed the form, never about the worker
+named on it. A hand the decision itself made — the losing record wiped in the
+same transaction that settled it — is not counted, or every by-the-book
+resolution would report itself.

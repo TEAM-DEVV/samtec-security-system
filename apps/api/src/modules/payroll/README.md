@@ -56,6 +56,7 @@ about confirmed shifts.
 | `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
 | `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
+| `payroll-facts.service.ts` | The read seam for ghost detection: minutes and identifiers, never money |
 | `pay-calculation.ts` | The money, as a pure function: pro-rating, SSNIT, the graduated PAYE bands, net pay. No database, no `this` |
 | `worked-minutes.ts` | Which shifts belong to the period, which minutes are overtime, and how many days somebody was employed. Also pure |
 | `tax-band-shape.ts` | Whether a set of PAYE bands covers every income, so a bad one is a clear 400 and not a trigger error |
@@ -80,6 +81,42 @@ database-backed test in the repository, permanently, with no way back except
 shows the pattern: a `randomUUID()` company per run, and no cleanup afterwards.
 That leaves a company behind on each local run, which is harmless — run
 `pnpm db:reset` when the local database feels cluttered.
+
+## The read seam, and the one thing submission must do
+
+[`payroll-facts.service.ts`](payroll-facts.service.ts) is how ghost detection
+asks what was paid: minutes and identifiers, never money, and nothing outside
+payroll touches the tables. It sits in
+[`payroll.module.ts`](payroll.module.ts) beside the setup controllers and
+services, exported and otherwise left alone.
+
+**Submitting a run must refuse one that pays for hours nobody worked**
+(rule R3, docs/plan/08 §1). Payroll does that itself, from its own data, with
+the shared function in
+[`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts):
+
+```ts
+const beyond = paidBeyondPresence(
+  line.regularMinutes + line.overtimeMinutes,
+  line.punchedMinutes,
+  DEFAULT_PRESENCE_TOLERANCE_MINUTES,
+);
+if (beyond > 0) {
+  throw new ConflictException(/* ... */);
+}
+```
+
+**The gate uses the fixed default on purpose.** Detection's tolerance for R3
+is a number an ADMIN can tune in the `detection_rules` table, but that table
+is detection's, and payroll may not read it — so the two are allowed to
+differ, and the difference is written down: the submission gate is the
+**floor**, fixed at sixty minutes, and the sweep can be made stricter than it
+but never looser in what it refuses. Widening the sweep's tolerance quietens
+the alert queue; it never lets a run through that the gate would have stopped.
+
+Never import anything from `modules/detection`. Detection reads payroll;
+payroll never learns detection exists, and that is what keeps the two from
+importing each other.
 
 ## Still to build
 
