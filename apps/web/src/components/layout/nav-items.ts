@@ -126,10 +126,11 @@ export const navItems: NavItem[] = [
   {
     label: 'Ghost detection',
     description: 'Rules that catch pay without presence.',
-    to: '/detection',
+    to: routes.detection,
     icon: ShieldAlert,
     phase: 5,
-    available: false,
+    available: true,
+    roles: pageRoles.detection,
   },
   {
     label: 'Reports',
