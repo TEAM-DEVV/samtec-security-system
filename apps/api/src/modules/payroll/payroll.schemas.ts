@@ -42,6 +42,28 @@ const calendarDate = z
  */
 const moneyPesewas = z.number().int().min(0).max(100_000_000);
 
+/**
+ * Whether a value holds anything invisible: a tab, a line break, or any
+ * other control character.
+ *
+ * A tab or a line break in a bank file forges an extra row. A NUL byte does
+ * something worse and quieter — PostgreSQL cannot store one in a text column
+ * at all, so it would come back as a 500 from deep in the driver rather than
+ * as an answer naming the field.
+ */
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Nothing a spreadsheet would run as a formula when it opens the bank file. */
+const SAFE_FIRST_CHARACTER = /^[^=+@\s"-]/;
+
 /** Hundredths of a percent, so 550 is 5.5%. */
 const basisPoints = z.number().int().min(0).max(10_000);
 
@@ -120,7 +142,12 @@ export const createTaxTableSchema = z
     ssnitTier1BasisPoints: basisPoints,
     ssnitTier2BasisPoints: basisPoints,
     bands: z.array(taxBandSchema).min(1).max(20),
-    sourceName: z.string().trim().min(2).max(200),
+    sourceName: z
+      .string()
+      .trim()
+      .min(2)
+      .max(200)
+      .refine((value) => !hasControlCharacter(value), 'This may not contain a control character.'),
     sourceUrl: z.url().max(500),
     sourceCheckedOn: notInTheFuture('The day the rates were checked'),
   })
@@ -191,20 +218,25 @@ export type SetPayTermsBody = z.infer<typeof setPayTermsSchema>;
 /**
  * A value that is written into the bank file.
  *
- * It may not hold a tab or a line break, either of which would forge an extra
- * row, and it may not begin with anything a spreadsheet reads as a formula —
- * including a leading space, because the spreadsheet trims that away on import
- * and then runs whatever was hiding behind it. The same rule is a `CHECK` in
- * the database (decision 23).
+ * **There is deliberately no `.trim()` here.** Zod runs its checks in the
+ * order they are written, so trimming first would quietly strip the very
+ * leading space the pattern below exists to refuse — and the contract, the
+ * dashboard mock and the database `CHECK` all test the raw value, so the API
+ * would have been the one place that accepted what everything else refused.
+ * A leading space matters because a spreadsheet trims it away on import and
+ * then runs whatever was hiding behind it (decision 23).
  */
 const bankText = z
   .string()
-  .trim()
   .min(2)
   .max(100)
+  .refine(
+    (value) => !hasControlCharacter(value),
+    'This may not contain a tab, a line break or any other invisible control character.',
+  )
   .regex(
-    /^[^=+@\s"-][^\t\r\n]*$/,
-    'This may not start with a space, a quote, or any of = + - @, and may not contain a tab or a line break.',
+    SAFE_FIRST_CHARACTER,
+    'This may not start with a space, a quote, or any of = + - @, because a spreadsheet would read it as a formula.',
   );
 
 /** Contract: `SetEmployeePaymentDetailsRequest`. Send `null` for anything absent. */

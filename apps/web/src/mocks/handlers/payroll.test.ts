@@ -857,7 +857,8 @@ describe('mock payroll API: adding a version of the statutory rates', () => {
     };
     const refused = await fetchClient.POST('/payroll/tax-tables', { body: closedTop });
     expect(refused.response.status).toBe(400);
-    expect(refused.error?.errors?.[0]?.path).toBe('bands[1].widthPesewas');
+    // The API joins a validation path with dots, so the mock does too.
+    expect(refused.error?.errors?.[0]?.path).toBe('bands.1.widthPesewas');
   });
 
   it('refuses a second version starting on the same day', async () => {

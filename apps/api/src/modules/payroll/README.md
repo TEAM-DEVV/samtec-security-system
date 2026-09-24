@@ -66,6 +66,23 @@ The rules the **database** enforces live in the migration
 `20260924004536_phase_4_payroll`, and are proved against a real PostgreSQL by
 [`test/payroll-rules.e2e-spec.ts`](../../../test/payroll-rules.e2e-spec.ts).
 
+## A trap for the payment details screen
+
+**There is no `GET` for payment details, and that is deliberate** — the fewer
+places a bank account number can be read, the fewer places it can leak. But it
+has a consequence the screen must handle, because the API cannot.
+
+`PUT /employees/{id}/payment-details` requires all four fields and replaces all
+four. A screen cannot pre-fill the form, because nothing will tell it what is
+there now. So a form that sends only the mobile money number, leaving the bank
+fields as empty strings or `null`, **silently wipes the bank account** — and
+nothing will report an error, because clearing a field is a legitimate thing to
+ask for.
+
+The screen therefore has to say plainly that saving replaces every payment
+detail, and ask for all of them together. Do not solve this by adding a `GET`;
+solve it in the form.
+
 ## Writing tests that touch these tables
 
 **A payroll test makes its own company.** It cannot use `TEST_COMPANY_ID` from

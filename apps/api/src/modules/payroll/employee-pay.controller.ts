@@ -46,14 +46,18 @@ export class EmployeePayController {
 
   @Put(':employeeId/pay-terms')
   @HttpCode(201) // A PUT answers 200 by default, but this adds a row and changes none.
-  setPayTerms(
+  async setPayTerms(
     @Caller() caller: SignedInUser,
     @Param('employeeId', { schema: idSchema }) employeeId: string,
     @Body({ schema: setPayTermsSchema }) body: SetPayTermsBody,
     @Res({ passthrough: true }) response: Response,
   ): Promise<EmployeePayTerms> {
+    // The header goes on after the write succeeds. Setting it first would put
+    // a Location on the 404 and 409 answers too, pointing at something this
+    // request did not create.
+    const terms = await this.pay.setPayTerms(caller, employeeId, body);
     response.setHeader('Location', `/api/v1/employees/${employeeId}/pay-terms`);
-    return this.pay.setPayTerms(caller, employeeId, body);
+    return terms;
   }
 
   @Put(':employeeId/payment-details')

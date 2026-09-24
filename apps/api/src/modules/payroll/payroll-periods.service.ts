@@ -14,6 +14,7 @@ import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { PayrollPeriod, Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
+import { orConflict } from './already-exists.js';
 import type { CreatePeriodBody, ListPeriodsQuery } from './payroll.schemas.js';
 import { pageBefore } from './payroll-cursor.js';
 import { toApiPeriod } from './payroll-mapping.js';
@@ -70,16 +71,23 @@ export class PayrollPeriodsService {
       if (clash) {
         throw new ConflictException('This month already has a payroll period.');
       }
-      const period = await tx.payrollPeriod.create({
-        data: {
-          companyId: viewer.companyId,
-          year: body.year,
-          month: body.month,
-          startsOn,
-          endsOn,
-          status: 'OPEN',
-        },
-      });
+      // The read above catches the ordinary case with a clear message. This
+      // catches the race: two callers pass the read at the same moment, and the
+      // unique index refuses the second write. Without it that is a 500.
+      const period = await orConflict(
+        () =>
+          tx.payrollPeriod.create({
+            data: {
+              companyId: viewer.companyId,
+              year: body.year,
+              month: body.month,
+              startsOn,
+              endsOn,
+              status: 'OPEN',
+            },
+          }),
+        'This month already has a payroll period.',
+      );
       await this.audit.record(
         {
           companyId: viewer.companyId,

@@ -63,6 +63,33 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
     return 2030 + yearsUsed;
   };
 
+  /**
+   * A worker nobody else in this file touches.
+   *
+   * Pay terms and payment details are keyed by employee, so two tests sharing
+   * one worker make the second depend on the first having run — and then an
+   * `.only`, or a reordering, makes it pass or fail for the wrong reason.
+   */
+  let workersMade = 0;
+  const freshWorker = async (): Promise<string> => {
+    workersMade += 1;
+    const n = String(workersMade).padStart(3, '0');
+    const worker = await prisma.employee.create({
+      data: {
+        companyId: company.companyId,
+        staffNumber: `SMT-81${n}`,
+        firstName: 'Payroll',
+        lastName: `Worker ${workersMade}`,
+        phone: `+2332081${n}0`,
+        ghanaCardNumber: `GHA-81${n}00000-${workersMade % 10}`,
+        position: 'Security Guard',
+        status: 'ACTIVE',
+        hireDate: new Date('2024-01-01T00:00:00Z'),
+      },
+    });
+    return worker.id;
+  };
+
   /** A month nothing else in this file has used. */
   let monthsUsed = 0;
   const freshMonth = () => {
@@ -130,6 +157,30 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
 
     it('refuses anybody who is not signed in', async () => {
       await api().get('/api/v1/payroll/periods').expect(401);
+    });
+
+    it('lets an administrator do everything a payroll officer can', async () => {
+      // Every other test in this file signs in as HR_PAYROLL, so without this
+      // an ADMIN could have been locked out of payroll and nothing would say.
+      await api()
+        .get('/api/v1/payroll/periods')
+        .set(...bearer(token.admin))
+        .expect(200);
+      const month = freshMonth();
+      const created = await api()
+        .post('/api/v1/payroll/periods')
+        .set(...bearer(token.admin))
+        .send(month)
+        .expect(201);
+      await api()
+        .post(`/api/v1/payroll/periods/${created.body.id}/close`)
+        .set(...bearer(token.admin))
+        .expect(200);
+      const worker = await freshWorker();
+      await api()
+        .get(`/api/v1/employees/${worker}/pay-terms`)
+        .set(...bearer(token.admin))
+        .expect(200);
     });
   });
 
@@ -381,6 +432,23 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .expect(409);
     });
 
+    it('tells the loser of a race 409, not 500, when two people open the same month', async () => {
+      // The duplicate check is a read followed by a write, so two callers can
+      // both pass the read. The unique index then refuses the second write,
+      // and without turning that into a 409 it escapes as a 500.
+      const month = freshMonth();
+      const answers = await Promise.all(
+        [0, 1].map(() =>
+          api()
+            .post('/api/v1/payroll/periods')
+            .set(...bearer(token.hr))
+            .send(month),
+        ),
+      );
+      const statuses = answers.map((answer) => answer.status).sort();
+      expect(statuses).toEqual([201, 409]);
+    });
+
     it('closes a month once, records who closed it, and refuses a second closing', async () => {
       const month = freshMonth();
       const created = await api()
@@ -430,14 +498,71 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
     });
 
     it('filters by status and by year', async () => {
-      const listed = await api()
-        .get('/api/v1/payroll/periods?status=CLOSED&year=2044')
+      // Two months of one year, one of them closed, so both filters have
+      // something to find and something to leave out.
+      const year = 2046;
+      const open = await api()
+        .post('/api/v1/payroll/periods')
+        .set(...bearer(token.hr))
+        .send({ year, month: 3 })
+        .expect(201);
+      const toClose = await api()
+        .post('/api/v1/payroll/periods')
+        .set(...bearer(token.hr))
+        .send({ year, month: 4 })
+        .expect(201);
+      await api()
+        .post(`/api/v1/payroll/periods/${toClose.body.id}/close`)
         .set(...bearer(token.hr))
         .expect(200);
-      for (const item of listed.body.items) {
-        expect(item.status).toBe('CLOSED');
-        expect(item.year).toBe(2044);
+
+      const closed = await api()
+        .get(`/api/v1/payroll/periods?status=CLOSED&year=${year}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(closed.body.items).toHaveLength(1);
+      expect(closed.body.items[0].id).toBe(toClose.body.id);
+
+      const stillOpen = await api()
+        .get(`/api/v1/payroll/periods?status=OPEN&year=${year}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(stillOpen.body.items.map((item: { id: string }) => item.id)).toEqual([open.body.id]);
+    });
+
+    it('pages through every month exactly once when the cursor is followed', async () => {
+      // Nothing anywhere followed a nextCursor, so a cursor that skipped or
+      // repeated a page would never have been noticed.
+      const year = 2047;
+      const made: string[] = [];
+      for (let month = 1; month <= 5; month += 1) {
+        const period = await api()
+          .post('/api/v1/payroll/periods')
+          .set(...bearer(token.hr))
+          .send({ year, month })
+          .expect(201);
+        made.push(period.body.id);
       }
+
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const page_: string = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+        const url: string = `/api/v1/payroll/periods?year=${year}&limit=2${page_}`;
+        const answer = await api()
+          .get(url)
+          .set(...bearer(token.hr))
+          .expect(200);
+        const body = answer.body as { items: { id: string }[]; nextCursor: string | null };
+        seen.push(...body.items.map((item) => item.id));
+        cursor = body.nextCursor;
+        if (cursor === null) break;
+      }
+
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5);
+      // Newest month first, so the list is the months in reverse.
+      expect(seen).toEqual([...made].reverse());
     });
 
     it('refuses a made-up cursor rather than answering a strange page', async () => {
@@ -508,25 +633,50 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
     });
 
     it('answers which row applied on one day, which is what a run asks', async () => {
+      const worker = await freshWorker();
+      for (const [effectiveFrom, basicMonthlyPesewas] of [
+        ['2026-01-01', 150_000],
+        ['2026-07-01', 180_000],
+      ] as const) {
+        await api()
+          .put(`/api/v1/employees/${worker}/pay-terms`)
+          .set(...bearer(token.hr))
+          .send(terms({ effectiveFrom, basicMonthlyPesewas }))
+          .expect(201);
+      }
+
       const inMarch = await api()
-        .get(`/api/v1/employees/${company.active.id}/pay-terms?effectiveOn=2026-03-15`)
+        .get(`/api/v1/employees/${worker}/pay-terms?effectiveOn=2026-03-15`)
         .set(...bearer(token.hr))
         .expect(200);
       expect(inMarch.body.items).toHaveLength(1);
       expect(inMarch.body.items[0].basicMonthlyPesewas).toBe(150_000);
 
       const inSeptember = await api()
-        .get(`/api/v1/employees/${company.active.id}/pay-terms?effectiveOn=2026-09-15`)
+        .get(`/api/v1/employees/${worker}/pay-terms?effectiveOn=2026-09-15`)
         .set(...bearer(token.hr))
         .expect(200);
       expect(inSeptember.body.items[0].basicMonthlyPesewas).toBe(180_000);
+
+      // A day before any row starts has no answer, rather than the oldest one.
+      const tooEarly = await api()
+        .get(`/api/v1/employees/${worker}/pay-terms?effectiveOn=2025-12-31`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(tooEarly.body.items).toEqual([]);
     });
 
     it('refuses two rows starting on the same day', async () => {
+      const worker = await freshWorker();
       await api()
-        .put(`/api/v1/employees/${company.active.id}/pay-terms`)
+        .put(`/api/v1/employees/${worker}/pay-terms`)
         .set(...bearer(token.hr))
         .send(terms({ effectiveFrom: '2026-01-01' }))
+        .expect(201);
+      await api()
+        .put(`/api/v1/employees/${worker}/pay-terms`)
+        .set(...bearer(token.hr))
+        .send(terms({ effectiveFrom: '2026-01-01', basicMonthlyPesewas: 999_999 }))
         .expect(409);
     });
 
@@ -592,8 +742,15 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
     });
 
     it('replaces the destination in place, because only the latest one matters', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details())
+        .expect(200);
+
       const changed = await api()
-        .put(`/api/v1/employees/${company.active.id}/payment-details`)
+        .put(`/api/v1/employees/${worker}/payment-details`)
         .set(...bearer(token.hr))
         .send(
           details({
@@ -604,6 +761,9 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
           }),
         )
         .expect(200);
+      // Every field is replaced, not merged: sending null really does clear it.
+      expect(changed.body.bankName).toBeNull();
+      expect(changed.body.accountName).toBeNull();
       expect(changed.body.accountNumber).toBeNull();
       expect(changed.body.momoNumber).toBe('+233241234567');
     });
@@ -625,6 +785,31 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .put(`/api/v1/employees/${company.active.id}/payment-details`)
         .set(...bearer(token.hr))
         .send(details({ accountName: ' =1+1+cmd|calc' }))
+        .expect(400);
+    });
+
+    it('refuses any leading space at all, and does not quietly trim it away', async () => {
+      // This is the case the previous test misses: after a trim, ' =1+1' still
+      // starts with '=' and is refused for that reason instead. A plain name
+      // behind a space proves the space itself is what is refused — which it
+      // must be, because the contract, the dashboard mock and the database
+      // CHECK all refuse it, and the API cannot be the one place that does not.
+      for (const value of [' Akwaaba Bank', '\tAkwaaba Bank']) {
+        await api()
+          .put(`/api/v1/employees/${company.active.id}/payment-details`)
+          .set(...bearer(token.hr))
+          .send(details({ bankName: value }))
+          .expect(400);
+      }
+    });
+
+    it('refuses an invisible control character, which the database cannot store', async () => {
+      // PostgreSQL cannot hold a NUL byte in a text column at all, so without
+      // this the answer would be a 500 from deep in the driver.
+      await api()
+        .put(`/api/v1/employees/${company.active.id}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountName: 'Kwame\u0000 Mensah' }))
         .expect(400);
     });
 

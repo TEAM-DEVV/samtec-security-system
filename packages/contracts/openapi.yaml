@@ -8325,6 +8325,14 @@ components:
         its width; the server rejects a gap or a wrong order in `ordinal`, a
         band other than the last with `widthPesewas: null`, and a
         `sourceCheckedOn` in the future.
+
+        It also rejects a version whose four SSNIT percentages do not add up:
+        `ssnitTier1BasisPoints + ssnitTier2BasisPoints` must equal
+        `ssnitEmployeeBasisPoints + ssnitEmployerBasisPoints`, because the two
+        tiers are a split of the same contribution rather than two separate
+        charges. The engine works Tier 2 out from the other three so that the
+        statutory summary always reconciles, and a version where they disagree
+        would make it report two totals that do not tie.
       required:
         [
           taxYear,

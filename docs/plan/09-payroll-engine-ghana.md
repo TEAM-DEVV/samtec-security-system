@@ -325,11 +325,16 @@ period.
 it.** Decision 22 said the change should be recorded with a SHA-256 of the
 account number, so a later reader could prove which number had been replaced
 without the log holding the number itself. Building it showed that reasoning
-does not hold. A Ghanaian account number is at most twenty digits, and a
-mobile money number is nine digits behind a fixed `+233`, so the whole space
-can be hashed on an ordinary computer in minutes. A hash of one is therefore
-the number, and storing it in an append-only log would put a bank account
-number somewhere it can never be removed from — against hard rule 8 and
+does not hold. A Ghanaian bank account number is ten to thirteen digits in
+practice, and a mobile money number is nine digits behind a fixed `+233` — so
+the space to search is between a billion and ten trillion values, which a
+graphics card hashes in minutes to hours. (The column allows up to twenty
+digits, and twenty truly random digits would be out of reach; real account
+numbers are not random, they are a bank prefix and a branch code followed by a
+short serial, which is why the practical figure is the one that matters.) A
+hash of one is therefore the number in any sense that counts, and storing it
+in an append-only log would put a bank account number somewhere it can never
+be removed from — against hard rule 8 and
 against Act 843's data minimisation.
 
 So the log records only which fields moved (`bankAccountChanged`,

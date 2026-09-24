@@ -160,6 +160,19 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 const BANK_TEXT = /^[^=+@\s"-][^\t\r\n]{1,99}$/;
 
+/** `sourceUrl` is `format: uri` in the contract, so anything else is a 400. */
+function urlProblem(value: unknown, path: string) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 500) {
+    return validationProblem(path, 'Must be a web address of up to 500 characters.');
+  }
+  try {
+    new URL(value);
+  } catch {
+    return validationProblem(path, 'Must be a web address, such as https://gra.gov.gh/.');
+  }
+  return undefined;
+}
+
 function dateProblem(value: unknown, path: string) {
   return typeof value === 'string' && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value))
     ? undefined
@@ -796,12 +809,25 @@ export const payrollHandlers = [
         wholeNumberProblem(body.ssnitTier2BasisPoints, 'ssnitTier2BasisPoints', 0, 10_000) ??
         dateProblem(body.sourceCheckedOn, 'sourceCheckedOn') ??
         textProblem(body.sourceName, 'sourceName', 2, 200) ??
-        textProblem(body.sourceUrl, 'sourceUrl', 1, 500) ??
+        urlProblem(body.sourceUrl, 'sourceUrl') ??
         (body.effectiveTo === undefined || body.effectiveTo === null
           ? undefined
           : dateProblem(body.effectiveTo, 'effectiveTo')) ??
         bandsProblem(body.bands);
       if (bad) return bad;
+      // Decision 26: Tier 1 and Tier 2 are a split of the same contribution,
+      // so together they must equal the employee and employer shares together.
+      // The engine derives Tier 2 from the other three, so a table where they
+      // disagree would make the statutory summary fail to reconcile.
+      if (
+        Number(body.ssnitTier1BasisPoints) + Number(body.ssnitTier2BasisPoints) !==
+        Number(body.ssnitEmployeeBasisPoints) + Number(body.ssnitEmployerBasisPoints)
+      ) {
+        return validationProblem(
+          'ssnitTier2BasisPoints',
+          'Tier 1 and Tier 2 together must equal the employee and employer shares together, because the tiers are a split of the same contribution.',
+        );
+      }
       if (typeof body.effectiveTo === 'string' && body.effectiveTo < String(body.effectiveFrom)) {
         return validationProblem('effectiveTo', 'The last day cannot be before the first day.');
       }
@@ -844,9 +870,9 @@ export const payrollHandlers = [
       if (refused) return refused;
       const bad = idProblem(params.employeeId, 'employeeId');
       if (bad) return bad;
-      if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
-        return notFound('No employee exists with this ID.');
-      }
+      // The contract decides a bad request before a missing record (400 then
+      // 404, docs/plan/05-api-contract.md), and the API validates its query
+      // before it looks anything up. The order is checked, so it is kept.
       const query = new URL(request.url).searchParams;
       const limit = readLimit(query);
       if (limit === undefined) {
@@ -856,6 +882,9 @@ export const payrollHandlers = [
       if (effectiveOn !== null) {
         const badDate = dateProblem(effectiveOn, 'effectiveOn');
         if (badDate) return badDate;
+      }
+      if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
+        return notFound('No employee exists with this ID.');
       }
       let matches = state.payTerms
         .filter((row) => row.employeeId === params.employeeId)
@@ -889,7 +918,7 @@ export const payrollHandlers = [
         unknownFieldProblem(body, ['effectiveFrom', ...money]) ??
         dateProblem(body.effectiveFrom, 'effectiveFrom') ??
         money
-          .map((name) => wholeNumberProblem(body[name], name, 0, 2_000_000_000))
+          .map((name) => wholeNumberProblem(body[name], name, 0, 100_000_000))
           .find((problem) => problem !== undefined);
       if (bad) return bad;
       if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
@@ -1027,7 +1056,9 @@ function bandsProblem(value: unknown) {
     return validationProblem('bands', 'Send at most 20 bands.');
   }
   for (const [index, band] of value.entries()) {
-    const at = `bands[${index}]`;
+    // The API's shared formatter joins a validation path with dots, so a
+    // dashboard matching on `bands.0.widthPesewas` finds the same thing here.
+    const at = `bands.${index}`;
     if (typeof band !== 'object' || band === null) {
       return validationProblem(at, 'Each band needs an ordinal, a width and a rate.');
     }
@@ -1053,7 +1084,7 @@ function bandsProblem(value: unknown) {
       );
     }
     if (row.widthPesewas !== null) {
-      const badWidth = wholeNumberProblem(row.widthPesewas, `${at}.widthPesewas`, 1, 2_000_000_000);
+      const badWidth = wholeNumberProblem(row.widthPesewas, `${at}.widthPesewas`, 1, 100_000_000);
       if (badWidth) return badWidth;
     }
     const badRate = wholeNumberProblem(row.rateBasisPoints, `${at}.rateBasisPoints`, 0, 10_000);

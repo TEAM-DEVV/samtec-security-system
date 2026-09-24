@@ -28,6 +28,7 @@ import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
+import { orConflict } from './already-exists.js';
 import type {
   ListPayTermsQuery,
   SetPaymentDetailsBody,
@@ -109,19 +110,26 @@ export class EmployeePayService {
         );
       }
 
-      const terms = await tx.employeePayTerms.create({
-        data: {
-          companyId: viewer.companyId,
-          employeeId,
-          effectiveFrom,
-          basicMonthlyPesewas: body.basicMonthlyPesewas,
-          overtimeHourlyPesewas: body.overtimeHourlyPesewas,
-          taxableAllowancePesewas: body.taxableAllowancePesewas,
-          nonTaxableAllowancePesewas: body.nonTaxableAllowancePesewas,
-          otherDeductionPesewas: body.otherDeductionPesewas,
-          createdByUserId: viewer.userId,
-        },
-      });
+      // The read above catches the ordinary case with a clear message. This
+      // catches the race: two callers pass the read at the same moment, and the
+      // unique index refuses the second write. Without it that is a 500.
+      const terms = await orConflict(
+        () =>
+          tx.employeePayTerms.create({
+            data: {
+              companyId: viewer.companyId,
+              employeeId,
+              effectiveFrom,
+              basicMonthlyPesewas: body.basicMonthlyPesewas,
+              overtimeHourlyPesewas: body.overtimeHourlyPesewas,
+              taxableAllowancePesewas: body.taxableAllowancePesewas,
+              nonTaxableAllowancePesewas: body.nonTaxableAllowancePesewas,
+              otherDeductionPesewas: body.otherDeductionPesewas,
+              createdByUserId: viewer.userId,
+            },
+          }),
+        'This worker already has pay terms starting on that day. Pick another day, because two rows cannot start together.',
+      );
 
       // The amounts are in the audit detail on purpose: what somebody is paid
       // is the decision being recorded, and the log is append-only evidence of
@@ -155,10 +163,11 @@ export class EmployeePayService {
    * Sets where a worker's salary is sent, replacing whatever was there.
    *
    * The audit entry records **that** the details changed and who changed them,
-   * never the values — not even a hash of the account number. A Ghanaian
-   * account number is at most twenty digits, so a hash of one can be worked
-   * backwards on an ordinary computer in minutes; storing it would be storing
-   * the number. The bank export instead compares this row's `updatedAt` with
+   * never the values — not even a hash of the account number. A Ghanaian bank
+   * account number is ten to thirteen digits in practice and a mobile money
+   * number is nine, and none of them are random, so the whole space can be
+   * hashed and compared on a graphics card in minutes to hours. Storing the
+   * hash would be storing the number (decision 25). The bank export instead compares this row's `updatedAt` with
    * the run's approval time, which answers the same question — "did the
    * destination change after somebody approved the money?" — while keeping
    * the number itself in exactly one place.

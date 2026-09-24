@@ -17,6 +17,7 @@ import { fromIsoDate, toIsoDate } from '../../common/dates.js';
 import { toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../identity/audit.service.js';
+import { orConflict } from './already-exists.js';
 import type { CreateTaxTableBody, ListTaxTablesQuery } from './payroll.schemas.js';
 import { pageBefore } from './payroll-cursor.js';
 import { toApiTaxTable } from './payroll-mapping.js';
@@ -86,34 +87,41 @@ export class TaxTablesService {
         throw new ConflictException('Another version of the rates already starts on that day.');
       }
 
-      const table = await tx.taxTable.create({
-        data: {
-          companyId: viewer.companyId,
-          taxYear: body.taxYear,
-          effectiveFrom,
-          effectiveTo:
-            body.effectiveTo === null || body.effectiveTo === undefined
-              ? null
-              : fromIsoDate(body.effectiveTo),
-          ssnitEmployeeBasisPoints: body.ssnitEmployeeBasisPoints,
-          ssnitEmployerBasisPoints: body.ssnitEmployerBasisPoints,
-          ssnitTier1BasisPoints: body.ssnitTier1BasisPoints,
-          ssnitTier2BasisPoints: body.ssnitTier2BasisPoints,
-          sourceName: body.sourceName,
-          sourceUrl: body.sourceUrl,
-          sourceCheckedOn: fromIsoDate(body.sourceCheckedOn),
-          createdByUserId: viewer.userId,
-          bands: {
-            create: body.bands.map((band) => ({
+      // The read above catches the ordinary case with a clear message. This
+      // catches the race: two callers pass the read at the same moment, and the
+      // unique index refuses the second write. Without it that is a 500.
+      const table = await orConflict(
+        () =>
+          tx.taxTable.create({
+            data: {
               companyId: viewer.companyId,
-              ordinal: band.ordinal,
-              widthPesewas: band.widthPesewas,
-              rateBasisPoints: band.rateBasisPoints,
-            })),
-          },
-        },
-        include: WITH_BANDS,
-      });
+              taxYear: body.taxYear,
+              effectiveFrom,
+              effectiveTo:
+                body.effectiveTo === null || body.effectiveTo === undefined
+                  ? null
+                  : fromIsoDate(body.effectiveTo),
+              ssnitEmployeeBasisPoints: body.ssnitEmployeeBasisPoints,
+              ssnitEmployerBasisPoints: body.ssnitEmployerBasisPoints,
+              ssnitTier1BasisPoints: body.ssnitTier1BasisPoints,
+              ssnitTier2BasisPoints: body.ssnitTier2BasisPoints,
+              sourceName: body.sourceName,
+              sourceUrl: body.sourceUrl,
+              sourceCheckedOn: fromIsoDate(body.sourceCheckedOn),
+              createdByUserId: viewer.userId,
+              bands: {
+                create: body.bands.map((band) => ({
+                  companyId: viewer.companyId,
+                  ordinal: band.ordinal,
+                  widthPesewas: band.widthPesewas,
+                  rateBasisPoints: band.rateBasisPoints,
+                })),
+              },
+            },
+            include: WITH_BANDS,
+          }),
+        'Another version of the rates already starts on that day.',
+      );
 
       await this.audit.record(
         {
