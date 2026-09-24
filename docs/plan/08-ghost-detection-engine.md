@@ -21,7 +21,7 @@ review queue. Rules never punish anyone automatically; they surface and score.
 | # | Rule | Signal | Severity |
 |---|---|---|---|
 | R1 | **Duplicate enrollment** | A new biometric template matches an existing employee above the threshold at enrollment (1:N comparison); while the review is open, both records are shown to the payroll checker | CRITICAL: blocks activation |
-| R2 | **Identity collision** | A shared phone number, bank account or mobile money number across employees (the Ghana Card number is already a hard database constraint) | HIGH |
+| R2 | **Identity collision** | A shared phone number, bank account or mobile money number across employees (the Ghana Card number is already a hard database constraint). Version 1 checks the phone; the other two join it when payroll stores them | HIGH |
 | R3 | **Paid without presence** | A payroll line pays more hours than the recorded shifts support, beyond a tolerance | CRITICAL: blocks run submission until resolved |
 | R4 | **Bilocation** | One employee repeatedly has overlapping work segments at two sites | HIGH |
 | R5 | **Never seen** | ACTIVE for more than N days with no punches at all | HIGH: the classic ghost |
@@ -102,6 +102,21 @@ But the evidence **records the split** — how many of those minutes were
 `MANUAL` (a person typed them) and how many were `PIN_FALLBACK` (a co-sign or
 a staff number) — so a checker looking at a flagged line sees immediately
 whether the hours rest on a face or on somebody's word.
+
+## 3b. Somebody who has left
+
+Two different questions, so two different answers, and they are written down
+here so the rules stay consistent as more are built:
+
+- **A rule about what already happened keeps a leaver.** R1, R4, R5, R7, R8,
+  R9 and R10 look at enrollments, shifts and punches that are already on the
+  record. Somebody leaving does not unmake them, the money has already gone
+  out, and an unresolved duplicate enrollment is exactly how a ghost carries
+  on after the person it was built from has gone.
+- **A rule about who people are now leaves them out.** R2 asks whether two
+  workers share a detail only one person should have. A leaver's old phone
+  number turning up on a current worker's record is a question for HR, not a
+  fraud alert, so R2 looks only at people who have not left.
 
 ## 4. Detection does not repeat the exception queue
 

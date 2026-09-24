@@ -710,6 +710,49 @@ export class EmployeesService {
   }
 
   /**
+   * Phone numbers that more than one worker here has (rule R2).
+   *
+   * It can be innocent — a family, one handset between two brothers — which
+   * is why detection raises a question about it rather than an accusation.
+   * Only the numbers that repeat leave this method; nobody's number is
+   * returned on its own.
+   *
+   * **People who have left are not counted.** This rule asks who people are
+   * now, not what already happened: a leaver's old number turning up on a
+   * current worker is a question for HR, not a fraud alert (docs/plan/08 §3b).
+   */
+  async sharedPhoneNumbers(
+    companyId: string,
+  ): Promise<{ value: string; employeeIds: string[]; staffNumbers: string[] }[]> {
+    const repeated = await this.prisma.employee.groupBy({
+      by: ['phone'],
+      where: { companyId, status: { not: 'TERMINATED' } },
+      _count: { _all: true },
+      having: { phone: { _count: { gt: 1 } } },
+    });
+    if (repeated.length === 0) {
+      return [];
+    }
+    const people = await this.prisma.employee.findMany({
+      where: {
+        companyId,
+        status: { not: 'TERMINATED' },
+        phone: { in: repeated.map((row) => row.phone) },
+      },
+      select: { id: true, staffNumber: true, phone: true },
+      orderBy: { staffNumber: 'asc' },
+    });
+    const byPhone = new Map<string, { employeeIds: string[]; staffNumbers: string[] }>();
+    for (const person of people) {
+      const running = byPhone.get(person.phone) ?? { employeeIds: [], staffNumbers: [] };
+      running.employeeIds.push(person.id);
+      running.staffNumbers.push(person.staffNumber);
+      byPhone.set(person.phone, running);
+    }
+    return [...byPhone.entries()].map(([value, group]) => ({ value, ...group }));
+  }
+
+  /**
    * Everyone at work right now, with the day they were hired and where they
    * are posted. Ghost detection asks for this to find the workers who have
    * been on the payroll for a fortnight and never once clocked in.

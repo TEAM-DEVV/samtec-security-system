@@ -1,6 +1,10 @@
+import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
+  duplicateEnrollment,
+  fallbackAbuse,
+  identityCollision,
   neverSeen,
   orphanPunches,
   RULE_CATALOGUE,
@@ -107,13 +111,114 @@ describe('R10 · orphan punches', () => {
   });
 });
 
+describe('R1 · duplicate enrollment', () => {
+  it('puts a waiting duplicate review where an investigator sees it', () => {
+    const found = duplicateEnrollment(
+      [
+        {
+          credentialId: 'face-1',
+          employeeId: 'abena',
+          lookedLikeStaffNumber: 'SMT-00042',
+          similarity: 0.71,
+          enrolledAt: daysAgo(4),
+          siteId: 'site-a',
+        },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence).toEqual({
+      lookedLikeStaffNumber: 'SMT-00042',
+      similarity: 0.71,
+      credentialId: 'face-1',
+    });
+    // Never a template and never an image — only what the duplicate queue
+    // already shows an ADMIN.
+    expect(JSON.stringify(found)).not.toMatch(/template|embedding/i);
+  });
+});
+
+describe('R2 · identity collision', () => {
+  it('asks about a shared phone once per person, naming the others', () => {
+    const found = identityCollision(
+      [
+        {
+          kind: 'phone',
+          value: '+233200000111',
+          employeeIds: ['kofi', 'ama'],
+          staffNumbers: ['SMT-00010', 'SMT-00011'],
+        },
+        {
+          kind: 'phone',
+          value: '+233200000222',
+          employeeIds: ['alone'],
+          staffNumbers: ['SMT-00012'],
+        },
+      ],
+      { sharedBy: 2 },
+      NOW,
+      Buffer.from('a-test-key-for-the-fingerprint'),
+    );
+
+    // One finding each, so it shows on both people's files.
+    expect(found.map((row) => row.employeeId)).toEqual(['kofi', 'ama']);
+    expect(found[0]?.evidence.withStaffNumbers).toEqual(['SMT-00010', 'SMT-00011']);
+    // The number itself is not in the evidence: the question is that it is
+    // shared, not what it is.
+    expect(JSON.stringify(found)).not.toContain('+233200000111');
+  });
+});
+
+describe('R7 · fallback abuse', () => {
+  it('counts the share, not the count, and ignores somebody with barely any', () => {
+    const found = fallbackAbuse(
+      [
+        // Half of them went round the camera: a question.
+        { employeeId: 'avoider', clockIns: 20, flagged: 10, siteId: 'site-a' },
+        // A bad week, not a pattern.
+        { employeeId: 'normal', clockIns: 20, flagged: 4 },
+        // Two out of three, but only three: too few to mean anything.
+        { employeeId: 'new', clockIns: 3, flagged: 2 },
+      ],
+      [],
+      { sharePercent: 40, days: 30, minimumClockIns: 5, supervisorCoSigns: 20 },
+      NOW,
+    );
+
+    expect(found.map((row) => row.employeeId)).toEqual(['avoider']);
+    expect(found[0]?.evidence).toEqual({ clockIns: 20, flagged: 10, sharePercent: 50 });
+  });
+
+  it('counts the supervisor doing the letting in, not only the worker', () => {
+    const found = fallbackAbuse(
+      [],
+      [
+        { employeeId: 'busy-supervisor', coSigns: 25 },
+        { employeeId: 'ordinary-supervisor', coSigns: 4 },
+      ],
+      { sharePercent: 40, days: 30, minimumClockIns: 5, supervisorCoSigns: 20 },
+      NOW,
+    );
+
+    // The supervisor is the likelier of the two to be selling it.
+    expect(found.map((row) => row.employeeId)).toEqual(['busy-supervisor']);
+    expect(found[0]?.evidence).toEqual({ coSigned: 25, as: 'supervisor' });
+    expect(found[0]?.dedupeKey).toContain('supervisor');
+  });
+});
+
 describe('the catalogue', () => {
   it('has all eleven rules, and says which are built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
     // A rule that is not built yet must never read as a clean bill of health.
     expect(RULE_CATALOGUE.filter((rule) => rule.built).map((rule) => rule.code)).toEqual([
+      'R1',
+      'R2',
       'R4',
       'R5',
+      'R7',
       'R10',
     ]);
   });
