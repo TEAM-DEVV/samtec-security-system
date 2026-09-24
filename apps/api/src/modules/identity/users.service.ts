@@ -230,9 +230,13 @@ export class UsersService {
         throw new ConflictException('This account is already switched on.');
       }
       // An old ADMIN account coming back is an administrator appearing: it
-      // waits for a second one like a new account does.
+      // waits for a second one like a new account does. An account **already**
+      // waiting keeps the name of whoever put it there, or switching it off
+      // and on again would quietly hand the confirmation to somebody new.
       const hold =
-        target.role === 'ADMIN' ? await this.adminHold(tx, viewer, target.id, true) : undefined;
+        target.role === 'ADMIN' && !awaitsAdminConfirmation(target)
+          ? await this.adminHold(tx, viewer, target.id, true)
+          : undefined;
       const updated = await tx.user.update({
         where: { id: target.id },
         data: { isActive: true, ...hold?.columns },
@@ -265,10 +269,16 @@ export class UsersService {
       if (!target.isActive) {
         throw new ConflictException('This account is switched off. Reactivate it first.');
       }
-      // Whoever holds the new link holds the account, so a reset ADMIN
-      // waits for a second administrator too.
+      // Whoever holds the new link holds the account, so a reset ADMIN waits
+      // for a second administrator too. An account already waiting keeps the
+      // name of whoever put it there: otherwise the administrator who created
+      // it could ask a colleague for an innocent "please resend the link", and
+      // that resend would make **them** the requester and free the creator to
+      // confirm their own account.
       const hold =
-        target.role === 'ADMIN' ? await this.adminHold(tx, viewer, target.id, true) : undefined;
+        target.role === 'ADMIN' && !awaitsAdminConfirmation(target)
+          ? await this.adminHold(tx, viewer, target.id, true)
+          : undefined;
       const updated = await tx.user.update({
         where: { id: target.id },
         data: {
@@ -344,9 +354,14 @@ export class UsersService {
    * immediate confirmation naming nobody (docs/plan/06, rule 4).
    *
    * **That shortcut is only for a company gaining an administrator** — a new
-   * account or a promotion — while the requester is the only usable
-   * administrator there is. Without it a one-administrator company could
-   * never get its second one except through the rescue script.
+   * account or a promotion — while no other administrator account exists at
+   * all. Without it a one-administrator company could never get its second one
+   * except through the rescue script.
+   *
+   * It asks whether another ADMIN **row** exists, not whether one could sign
+   * in today. A brand-new administrator has no password yet; counting only
+   * those who can sign in would let one person create a second pre-confirmed
+   * account, then a third, without anybody else ever appearing.
    *
    * **It never applies to an account that is already an administrator.**
    * Resetting one, or switching one back on, is exactly the move this rule
@@ -382,19 +397,17 @@ export class UsersService {
         isActive: true,
         ...(targetId ? { id: { not: targetId } } : {}),
       },
-      select: {
-        id: true,
-        isActive: true,
-        passwordHash: true,
-        role: true,
-        twoFactorEnabledAt: true,
-        adminRequestedAt: true,
-        adminConfirmedAt: true,
-      },
+      select: { id: true },
     });
-    const usable = administrators.filter((account) => mayUseAccount(account));
+    // **Does another administrator exist**, not "can another one sign in right
+    // now". Asking about sign-in readiness let the shortcut fire twice over: a
+    // brand-new administrator has no password yet, so they would not count,
+    // and the same person could mint a second pre-confirmed account, and a
+    // third, without anybody else ever appearing.
     const soleAdministrator =
-      !alreadyAnAdministrator && usable.length === 1 && usable[0]?.id === viewer.userId;
+      !alreadyAnAdministrator &&
+      administrators.length === 1 &&
+      administrators[0]?.id === viewer.userId;
     return {
       columns: {
         adminRequestedByUserId: viewer.userId,
@@ -443,7 +456,7 @@ export class UsersService {
   ): Promise<User> {
     // Every administrator's row as well as the two involved: an ADMIN change
     // counts the company's administrators (`adminHold`), and that count must
-    // not move underneath it.
+    // not move underneath it while the change is being made.
     await tx.$queryRaw`SELECT id FROM users WHERE company_id = ${viewer.companyId}::uuid AND (id IN (${viewer.userId}::uuid, ${targetId}::uuid) OR role = 'ADMIN') ORDER BY id FOR UPDATE`;
     const actor = await tx.user.findUnique({ where: { id: viewer.userId } });
     if (!actor || !mayUseAccount(actor) || actor.role !== 'ADMIN') {

@@ -151,6 +151,15 @@ function AccountRecord({ account }: { account: UserAccount }) {
   // where the answer is already known (your own account, or your own change).
   const waiting = account.status === 'AWAITING_CONFIRMATION';
   const yourOwnChange = account.adminConfirmation?.requestedByUserId === session?.user.id;
+  // Who asked, by name. Somebody about to confirm should see whose change
+  // they are vouching for; any administrator may read any account here.
+  const requesterId = account.adminConfirmation?.requestedByUserId ?? undefined;
+  const requester = $api.useQuery(
+    'get',
+    '/users/{userId}',
+    { params: { path: { userId: requesterId ?? '' } } },
+    { enabled: waiting && requesterId !== undefined && !yourOwnChange },
+  );
 
   return (
     <>
@@ -252,6 +261,12 @@ function AccountRecord({ account }: { account: UserAccount }) {
                   ) : (
                     <>
                       <p>
+                        {requester.data
+                          ? `${requester.data.fullName} asked for this`
+                          : 'Another administrator asked for this'}
+                        {account.adminConfirmation?.requestedAt
+                          ? ` on ${formatDateTime(account.adminConfirmation.requestedAt)}.`
+                          : '.'}{' '}
                         Check in person that this account belongs to the person it names. That check
                         is the whole point: it is what stops one person quietly holding two
                         administrator accounts.

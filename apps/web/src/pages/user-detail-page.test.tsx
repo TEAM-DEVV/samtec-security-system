@@ -154,6 +154,8 @@ describe('UserDetailPage', () => {
     const user = userEvent.setup();
     renderAccountPage(SUPERVISOR_ID);
 
+    // The confirmer is told whose change they are vouching for.
+    expect(await screen.findByText(/Efua Mensah asked for this/)).toBeInTheDocument();
     const confirm = await screen.findByRole('button', { name: 'Confirm this administrator' });
     await user.click(confirm);
 

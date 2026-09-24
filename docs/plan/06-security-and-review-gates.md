@@ -100,10 +100,16 @@ switching one off, or editing a name happen at once, as before — otherwise a
 company could be stuck with an administrator it wants rid of.
 
 **4. The one shortcut: a company gaining its first second administrator.**
-While the requester is the only usable ADMIN there is, *creating* or
-*promoting* an administrator is confirmed on the spot and audited as
+While **no other administrator account exists**, *creating* or *promoting* an
+administrator is confirmed on the spot and audited as
 `adminConfirmation: SOLE_ADMINISTRATOR`. Without it a one-administrator
 company could never get its second one except through the rescue script.
+
+It asks whether another administrator **account** exists, not whether one
+could sign in today. That distinction is the rule: a brand-new administrator
+has no password yet, so counting only those who can sign in would have let
+one person create a second pre-confirmed account, then a third, and so on,
+with nobody else ever appearing.
 
 It **never** applies to an account that is already an administrator.
 Resetting one, or switching one back on, is exactly the move this rule
@@ -121,10 +127,22 @@ script) has no request recorded and does not wait — database access is a
 stronger check than a second login. Administrators that existed before this
 rule were recorded as confirmed when they were created, naming nobody.
 
-**What it still does not stop:** a sole administrator making a second account
-for themselves before anybody else exists. That is visible in the audit log
-(`SOLE_ADMINISTRATOR`), and rule R11 flags two-person decisions made by
-accounts with a hand in each other.
+**What it still does not stop, stated plainly.** A company with genuinely one
+administrator has nobody to ask, so that person can give themselves a second
+account. No rule can change that while only one person exists. What is
+bounded is the rest: the shortcut fires only while no other administrator
+account exists, so it cannot be used twice in a row, and every use is audited
+as `SOLE_ADMINISTRATOR`. A determined sole administrator could still
+switch off the account they just made and repeat, and each of those steps is
+in the audit log under their name.
+
+**Rule R11 does not cover this yet.** Ghost detection flags a two-person
+*biometric* decision made by somebody with a hand in it, and knows nothing
+about who created or confirmed an administrator account
+([Ghost detection engine](08-ghost-detection-engine.md), "What version 1
+leaves out", still accurate). Feeding these four columns to R11 is the next
+Phase 7 change; until then this risk is watched by reading the audit log, not
+by a rule.
 
 ## Law: Ghana Data Protection Act, 2012 (Act 843)
 
@@ -148,7 +166,7 @@ This section belongs in Samuel's report and in the client presentation.
 | Holding a photo up to the face kiosk | Guard | Anti-spoofing and liveness scores, checked on the kiosk and again on the server, plus a random head-turn challenge; documented as a version 1 limitation, because a replayed video or a mask can still pass (Phase 3) |
 | A stolen kiosk, or a copied kiosk key | Outsider or insider | The key works only on `/kiosk` routes, never for raw punches; enrollment also needs an ADMIN's token with two-factor, and a kiosk sign-in gets no refresh cookie and a kiosk-only token; attempts record their network address for Phase 5; the ADMIN rotates the secret. **Accepted for version 1:** the kiosk measures its own face scores, so a copied key can clock in a worker who has no fingerprint key on that kiosk, and make flagged co-signed punches for anyone posted to that site (Phase 3) |
 | One insider activating a ghost without a face | Insider (ADMIN) | Every exemption takes two ADMIN accounts (a withdrawal, recorded by an ADMIN, only files one), and every collision decision needs a second ADMIN who did not act on the worker; hours of a worker waiting for that decision are paid only after it; one open question at a time; a revoke cannot wipe away an open review; withdrawing never activates anyone; a record blocked as a duplicate can only be terminated; rule R11 flags decisions with indirect links (Phases 3 and 5) |
-| One person using two ADMIN accounts | Insider (ADMIN) | Creating, promoting, resetting or switching on an ADMIN account leaves it unusable until a **second** administrator confirms it, refused to the requester and the account itself by the service and by a database CHECK ("Two administrators", built, Phase 7); audited user changes; rule R11 flags decisions by an account a handler created or reset. What remains: a sole administrator making their own second account, audited as `SOLE_ADMINISTRATOR` |
+| One person using two ADMIN accounts | Insider (ADMIN) | Creating, promoting, resetting or switching on an ADMIN account leaves it unusable until a **second** administrator confirms it, refused to the requester and the account itself by the service and by a database CHECK; a waiting account keeps the name of whoever put it there, so an innocent "please resend their link" cannot hand the confirmation to somebody new ("Two administrators", built, Phase 7); audited user changes. What remains: a company with genuinely one administrator, audited as `SOLE_ADMINISTRATOR`. Teaching rule R11 to read these columns is the next Phase 7 change |
 | Probing the face matcher to learn who is enrolled | Insider | Answers never contain a score; every attempt is recorded; per-device rate limit (Phase 3) |
 | A malicious package version | Supply chain | 1-day release age rule, install-script approval, lockfile, `pnpm audit`, code owner review of dependency changes |
 | Stealing a refresh token | Outsider | `HttpOnly` cookie, rotation with reuse detection, `SameSite=Strict`, `Origin` check |
