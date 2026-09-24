@@ -710,6 +710,67 @@ export class EmployeesService {
   }
 
   /**
+   * Everyone at work right now, with the day they were hired and where they
+   * are posted. Ghost detection asks for this to find the workers who have
+   * been on the payroll for a fortnight and never once clocked in.
+   *
+   * **ACTIVE only, on purpose.** Somebody still waiting for enrollment
+   * cannot clock in at all — `mayClockIn` refuses them — so "never seen" is
+   * not a finding about that person, it is this system's own rule. Including
+   * them would accuse every new starter whose enrollment took a fortnight.
+   */
+  async onTheBooks(companyId: string) {
+    const employees = await this.prisma.employee.findMany({
+      where: { companyId, status: 'ACTIVE' },
+      select: {
+        id: true,
+        staffNumber: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+        assignments: {
+          where: currentAssignmentFilter(),
+          select: { siteId: true },
+          take: 1,
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+    return employees.map((employee) => ({
+      id: employee.id,
+      staffNumber: employee.staffNumber,
+      fullName: [employee.firstName, employee.lastName].join(' '),
+      hireDate: employee.hireDate,
+      siteId: employee.assignments[0]?.siteId,
+    }));
+  }
+
+  /**
+   * Everyone posted to this site today who is at work or waiting to be
+   * enrolled. A ZKTeco terminal's roster is built from this, so it carries
+   * only what a terminal screen shows: a staff number and a name.
+   */
+  async atSite(companyId: string, siteId: string) {
+    const assignments = await this.prisma.siteAssignment.findMany({
+      where: {
+        companyId,
+        siteId,
+        ...currentAssignmentFilter(),
+        employee: { status: { in: ['ACTIVE', 'PENDING_ENROLLMENT'] } },
+      },
+      select: {
+        employee: {
+          select: { id: true, staffNumber: true, firstName: true, lastName: true, status: true },
+        },
+      },
+      orderBy: { employeeId: 'asc' },
+    });
+    // One person can hold two assignments at one site (two posts), so the
+    // roster is made unique before it leaves.
+    return [...new Map(assignments.map((row) => [row.employee.id, row.employee])).values()];
+  }
+
+  /**
    * Is this worker posted to this site today? Every person in a kiosk
    * clock-in — the worker and the supervisor alike — must be, because a
    * kiosk stands at one gate and records the hours worked there.

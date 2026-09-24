@@ -70,7 +70,8 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [ ] **Samuel:** the kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens. Every route it needs is merged — see [14 · Who builds what next](14-work-split.md)
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
-- [ ] Roster sync, finger-enrollment windows, the pull fallback, the demo guide and the threshold report
+- [x] Roster sync and finger-enrollment windows: `POST /ingest/roster`, `POST /ingest/enrollments` and `POST /devices/{id}/finger-enrollment-windows`, with a terminal that can never enroll anybody by itself
+- [ ] The pull fallback, the demo guide and the threshold report
 - [x] **Samuel:** dashboard — live clock-ins board (`/attendance/live`), the employee Biometrics panel, the duplicate-enrollment queue (`/biometrics/duplicates`), and kiosk attempts per device (`/devices/attempts`). Built against the mock API. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
@@ -97,7 +98,9 @@ rules read payroll data.
 
 **Goal: the feature that sets SAMTEC apart.**
 
-- Rules engine and nightly sweep, per [Ghost detection engine](08-ghost-detection-engine.md)
+- [x] The engine, the alert queue and the sweep, per [Ghost detection engine](08-ghost-detection-engine.md), with rules R4, R5 and R10 built and the other eight in the catalogue, switched off and reported as skipped
+- [ ] The remaining rules: R1, R2, R7, R8, R9 and R11, then R3 and R6 once payroll has landed
+- [ ] **Owner task:** set `CRON_SECRET` on the API's Vercel project and add the daily cron that calls `POST /detection/sweep`. Until then the sweep is a button an ADMIN presses (docs/plan/08 §7)
 - Alert review queue showing evidence; every resolution audited
 - **Exit demo:** the three planted ghosts in the seed data are all caught live; a written false-positive discussion for the report
 

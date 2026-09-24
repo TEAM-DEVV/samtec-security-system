@@ -77,7 +77,10 @@ tags:
       Pay terms, payment details, payroll months, runs, payslips and the Ghana
       statutory tables (PAYE and SSNIT). Money is always an integer number of
       pesewas. Built in Phase 4.
-  # --- Detection (Phase 5) --- Francis adds detection tags here.
+  - name: Detection
+    description: >-
+      Ghost detection: the rules that find workers who are paid but never
+      there, and the queue a person reviews them in. Built in Phase 5.
 
 security:
   - bearerAuth: []
@@ -1502,6 +1505,56 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /devices/{deviceId}/finger-enrollment-windows:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Devices]
+      operationId: openFingerEnrollmentWindow
+      summary: Let one worker enroll a finger on this terminal
+      description: >-
+        **Roles:** ADMIN. Opens a 30-minute window for one worker on one
+        `ZKTECO` terminal. A finger the terminal reports inside that window
+        becomes that worker's, with the duplicate check recorded as
+        `NOT_CHECKED` — this server never sees a terminal's fingerprint
+        template, so it cannot compare one. A finger reported outside any
+        window is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`, because
+        a terminal must never be able to enroll somebody by itself
+        (docs/plan/13 section 5).
+
+        Opening a second window for the same worker on the same terminal
+        replaces the first, so an ADMIN who taps twice does not get two.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenFingerEnrollmentWindowRequest"
+      responses:
+        "201":
+          description: The window is open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FingerEnrollmentWindow"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            The device is not a ZKTeco terminal, or the worker may not be
+            enrolled: they are not posted to this device's site, they have
+            given no consent, or their record is blocked as a duplicate.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
   /ingest/punches:
     post:
       tags: [Ingest]
@@ -1609,6 +1662,97 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HeartbeatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /ingest/roster:
+    post:
+      tags: [Ingest]
+      operationId: getTerminalRoster
+      summary: Who should be on this terminal
+      description: >-
+        **Signed by a `ZKTECO` device** (route name `ingest/roster`). The
+        gateway asks every 5 minutes and compares the answer with the
+        terminal's own user list, adding and removing users to match. It is
+        safe to repeat and changes nothing on the server, so no command table
+        is needed (docs/plan/13 section 5).
+
+        The answer holds everyone posted to this terminal's site who is
+        `ACTIVE` or `PENDING_ENROLLMENT`, and **leaves out anyone whose
+        biometric record is blocked as a duplicate**, so their fingers come
+        off the terminals too. It carries a staff number and a display name
+        and nothing else: never a Ghana Card number, never a template.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalRosterRequest"
+      responses:
+        "200":
+          description: Everyone this terminal should know about.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalRosterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DeviceNotTrusted"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /ingest/enrollments:
+    post:
+      tags: [Ingest]
+      operationId: reportTerminalEnrollments
+      summary: A terminal reports a finger it enrolled
+      description: >-
+        **Signed by a `ZKTECO` device** (route name `ingest/enrollments`).
+        The gateway sends only *that* user enrolled a finger on *this*
+        terminal at *that* time. **The fingerprint template itself is
+        discarded by the gateway and never reaches this API**
+        (docs/plan/13 section 5).
+
+        A finger reported inside a window an ADMIN opened for that worker
+        (`POST /devices/{deviceId}/finger-enrollment-windows`) becomes an
+        `ACTIVE` fingerprint credential whose duplicate check is
+        `NOT_CHECKED`, because this server cannot compare a terminal's
+        templates. **Anything else is refused and raises
+        `UNEXPECTED_DEVICE_ENROLLMENT`** — a terminal never activates
+        anybody by itself.
+
+        Repeating a report changes nothing: the same terminal, user and
+        moment answers `DUPLICATE`.
+      security:
+        - deviceSignature: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalEnrollmentsRequest"
+      responses:
+        "200":
+          description: Each report, with what became of it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalEnrollmentsResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3812,7 +3956,241 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  # --- Detection (Phase 5) --- Francis adds /detection paths here.
+  /detection/alerts:
+    get:
+      tags: [Detection]
+      operationId: listDetectionAlerts
+      summary: The ghost-detection queue
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A supervisor never sees this queue: a
+        supervisor is themselves a subject of rule R7, so it would show them
+        their own file (docs/plan/08 §6).
+
+        Newest first. An alert is a **pattern about a person or a device**,
+        not a single event — single events live in the attendance exception
+        queue, and detection counts them rather than repeating them.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DetectionAlertStatus"
+        - name: ruleCode
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DetectionRuleCode"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DetectionSeverity"
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: A page of alerts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionAlertList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /detection/alerts/{alertId}:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Detection]
+      operationId: getDetectionAlert
+      summary: One alert, with everything the rule cited
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. The evidence names the actual rows the
+        rule looked at, so a person can check the finding rather than trust
+        it.
+      responses:
+        "200":
+          description: The alert.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionAlert"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /detection/alerts/{alertId}/resolve:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Detection]
+      operationId: resolveDetectionAlert
+      summary: Close an alert, with a reason
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A rule never punishes anybody: a person
+        decides what an alert meant. The note is required and the decision is
+        audited. `CONFIRMED_FRAUD` is not an action against the worker — it
+        is this company's record of what it found.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveDetectionAlertRequest"
+      responses:
+        "200":
+          description: The alert, resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: This alert was already resolved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /detection/sweep:
+    post:
+      tags: [Detection]
+      operationId: runDetectionSweep
+      summary: Run every rule now
+      description: >-
+        **Roles:** ADMIN. The same sweep a heartbeat runs once a day, on
+        demand — which is what the exit demo uses. Repeating it changes
+        nothing: each alert carries a key built from its rule, its subject
+        and its window, so a finding already raised is not raised twice and
+        one a person resolved is never reopened.
+
+        A rule that fails is logged by its code and skipped; one broken rule
+        never stops the other ten.
+      responses:
+        "200":
+          description: What the sweep found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionSweepResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /detection/rules:
+    get:
+      tags: [Detection]
+      operationId: listDetectionRules
+      summary: The rules and their thresholds
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Thresholds live in rows, not in the
+        code, so they can be tuned without a deploy — and so the report's
+        tuning table can be built by moving them.
+      responses:
+        "200":
+          description: Every rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionRuleList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /detection/rules/{ruleCode}:
+    parameters:
+      - name: ruleCode
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/DetectionRuleCode"
+    patch:
+      tags: [Detection]
+      operationId: updateDetectionRule
+      summary: Switch a rule off, or move a threshold
+      description: >-
+        **Roles:** ADMIN. Audited, with the old and the new value. A rule
+        switched off stops raising new alerts; the ones it already raised
+        stay, because they are a record of what was found.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDetectionRuleRequest"
+      responses:
+        "200":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /detection/risk-scores:
+    get:
+      tags: [Detection]
+      operationId: listRiskScores
+      summary: Who the open alerts point at
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Severity times recurrence, added up per
+        employee over their open alerts, highest first. It is worked out when
+        you ask, never stored, so it can never be stale.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: The riskiest employees.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskScoreList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 
 components:
   securitySchemes:
@@ -5520,7 +5898,146 @@ components:
           waiting for enrollment, suspended, or after their termination date
           (grouped per person and day).
         - `OVERLAP` — one person on two shifts at the same time (often at two sites).
-      enum: [MISSING_CLOCK_OUT, MISSING_CLOCK_IN, UNKNOWN_EMPLOYEE, INACTIVE_EMPLOYEE, OVERLAP]
+        - `UNEXPECTED_DEVICE_ENROLLMENT` — a ZKTeco terminal reported a finger
+          nobody asked for: outside any window an ADMIN opened, or for a user
+          number that matches nobody (grouped per device, number and day).
+      enum:
+        [
+          MISSING_CLOCK_OUT,
+          MISSING_CLOCK_IN,
+          UNKNOWN_EMPLOYEE,
+          INACTIVE_EMPLOYEE,
+          OVERLAP,
+          UNEXPECTED_DEVICE_ENROLLMENT,
+        ]
+
+    OpenFingerEnrollmentWindowRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId]
+      properties:
+        employeeId:
+          type: string
+          format: uuid
+
+    FingerEnrollmentWindow:
+      type: object
+      required: [id, deviceId, employeeId, staffNumber, opensAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        employeeId:
+          type: string
+          format: uuid
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        opensAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: 30 minutes after it opened.
+
+    TerminalRosterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceClockAt:
+          type: string
+          format: date-time
+          description: The terminal's own clock, when the gateway knows it.
+
+    TerminalRosterResponse:
+      type: object
+      required: [users, serverTime]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalRosterUser"
+        serverTime:
+          type: string
+          format: date-time
+
+    TerminalRosterUser:
+      type: object
+      required: [deviceUserRef, staffNumber, displayName]
+      properties:
+        deviceUserRef:
+          type: string
+          description: What the terminal calls this person — the staff number.
+        staffNumber:
+          $ref: "#/components/schemas/StaffNumber"
+        displayName:
+          type: string
+          description: >-
+            A first name and the surname's initial, as a terminal screen shows
+            it. Never a full name, never a Ghana Card number.
+
+    TerminalEnrollmentsRequest:
+      type: object
+      additionalProperties: false
+      required: [enrollments]
+      properties:
+        enrollments:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TerminalEnrollment"
+
+    TerminalEnrollment:
+      type: object
+      additionalProperties: false
+      required: [deviceUserRef, enrolledAt]
+      properties:
+        deviceUserRef:
+          type: string
+          maxLength: 32
+          description: The terminal's user number or staff number.
+        fingerIndex:
+          type: integer
+          minimum: 0
+          maximum: 9
+          description: Which finger the terminal used. Kept for the report only.
+        enrolledAt:
+          type: string
+          format: date-time
+          description: The terminal's own time, read as UTC.
+
+    TerminalEnrollmentsResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalEnrollmentResult"
+
+    TerminalEnrollmentResult:
+      type: object
+      required: [deviceUserRef, enrolledAt, status]
+      properties:
+        deviceUserRef:
+          type: string
+        enrolledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          description: |
+            - `ACCEPTED` — inside a window an ADMIN opened; the finger is now
+              in use, with its duplicate check recorded as `NOT_CHECKED`.
+            - `DUPLICATE` — this same report was already recorded.
+            - `REFUSED` — no open window, or the user number matches nobody.
+              An `UNEXPECTED_DEVICE_ENROLLMENT` exception is raised, and the
+              gateway is told no more than that.
+          enum: [ACCEPTED, DUPLICATE, REFUSED]
 
     AttendanceExceptionStatus:
       type: string
@@ -5666,11 +6183,7 @@ components:
       type: string
       minLength: 3
       maxLength: 500
-      description: >-
-        Why, in a person's own words. Shown with the record it belongs to. The
-        action and who did it are audited; this text never is, because a person
-        may type a staff number or an account number into it and the audit log
-        can never be edited.
+      description: Why. Shown to other reviewers; never copied into the audit log.
 
     DismissResolution:
       type: object
@@ -6537,6 +7050,7 @@ components:
     # approvePayrollRun, and so on. The two families hanging off an employee
     # keep that resource's name on purpose — EmployeePayTerms and
     # EmployeePaymentDetails, like the existing EmployeeBiometrics.
+
 
     PayrollPeriodStatus:
       type: string
@@ -8119,6 +8633,226 @@ components:
             - type: "null"
 
 
-    # --- Detection (Phase 5) --- Francis adds detection schemas here.
-    # DetectionRule, DetectionAlert; operationIds listDetectionAlerts,
-    # resolveDetectionAlert.
+
+    DetectionRuleCode:
+      type: string
+      description: |
+        The rule that fired (docs/plan/08-ghost-detection-engine.md).
+        - `R1` duplicate enrollment · `R2` identity collision
+        - `R3` paid without presence · `R4` bilocation
+        - `R5` never seen · `R6` terminated but active
+        - `R7` fallback abuse · `R8` robot regularity
+        - `R9` device anomaly · `R10` orphan punches
+        - `R11` conflicted decision
+      enum: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11]
+
+    DetectionSeverity:
+      type: string
+      enum: [CRITICAL, HIGH, MEDIUM]
+
+    DetectionAlertStatus:
+      type: string
+      description: |
+        - `OPEN` — raised, nobody has looked yet.
+        - `UNDER_REVIEW` — somebody is checking it.
+        - `RESOLVED` — a person decided it was explained.
+        - `CONFIRMED_FRAUD` — a person decided it was real. A record of what
+          was found, never an action taken against anybody by the system.
+      enum: [OPEN, UNDER_REVIEW, RESOLVED, CONFIRMED_FRAUD]
+
+    DetectionAlert:
+      type: object
+      required:
+        [id, ruleCode, severity, status, subject, windowFrom, windowTo, evidence, openedAt, resolution]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ruleCode:
+          $ref: "#/components/schemas/DetectionRuleCode"
+        severity:
+          $ref: "#/components/schemas/DetectionSeverity"
+        status:
+          $ref: "#/components/schemas/DetectionAlertStatus"
+        subject:
+          $ref: "#/components/schemas/DetectionSubject"
+        windowFrom:
+          type: string
+          format: date
+          description: The first day the rule looked at.
+        windowTo:
+          type: string
+          format: date
+        evidence:
+          type: object
+          additionalProperties: true
+          description: >-
+            The rows and numbers this rule cited — punch IDs, segment IDs,
+            payroll line IDs, counts, match scores. Its shape depends on the
+            rule, and each rule's shape is pinned by a test. It never carries
+            a template, an image or a Ghana Card number.
+        openedAt:
+          type: string
+          format: date-time
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/DetectionResolution"
+            - type: "null"
+
+    DetectionSubject:
+      type: object
+      description: Who or what the alert is about. At least one field is set.
+      required: [employee, device, siteId]
+      properties:
+        employee:
+          oneOf:
+            - $ref: "#/components/schemas/EmployeeRef"
+            - type: "null"
+          description: >-
+            For a rule about a supervisor (R7), this is the supervisor.
+        device:
+          oneOf:
+            - $ref: "#/components/schemas/DetectionDeviceRef"
+            - type: "null"
+        siteId:
+          type: [string, "null"]
+          format: uuid
+
+    DetectionDeviceRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    DetectionResolution:
+      type: object
+      required: [decidedByUserId, decidedAt, note]
+      properties:
+        decidedByUserId:
+          type: string
+          format: uuid
+        decidedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+
+    DetectionAlertList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionAlert"
+        nextCursor:
+          type: [string, "null"]
+          description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    ResolveDetectionAlertRequest:
+      type: object
+      additionalProperties: false
+      required: [status, note]
+      properties:
+        status:
+          type: string
+          description: Only these two close an alert.
+          enum: [RESOLVED, CONFIRMED_FRAUD]
+        note:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Why. Required, and audited.
+
+    DetectionRule:
+      type: object
+      required: [code, name, description, severity, enabled, thresholds, updatedAt]
+      properties:
+        code:
+          $ref: "#/components/schemas/DetectionRuleCode"
+        name:
+          type: string
+        description:
+          type: string
+          description: One sentence a non-technical reader understands.
+        severity:
+          $ref: "#/components/schemas/DetectionSeverity"
+        enabled:
+          type: boolean
+        thresholds:
+          type: object
+          additionalProperties: true
+          description: >-
+            The numbers this rule uses, named. Empty for a rule that has none
+            (R1, R6 and R11 are facts, not gradients).
+        updatedAt:
+          type: string
+          format: date-time
+
+    DetectionRuleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionRule"
+
+    UpdateDetectionRuleRequest:
+      type: object
+      additionalProperties: false
+      description: Send at least one field.
+      properties:
+        enabled:
+          type: boolean
+        thresholds:
+          type: object
+          additionalProperties: true
+          description: Replaces the whole set. The server refuses a name the rule does not use.
+
+    DetectionSweepResult:
+      type: object
+      required: [ranAt, raised, rulesRun, rulesSkipped]
+      properties:
+        ranAt:
+          type: string
+          format: date-time
+        raised:
+          type: integer
+          description: New alerts. A finding already raised is not raised twice.
+        rulesRun:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionRuleCode"
+        rulesSkipped:
+          type: array
+          description: Rules switched off, or that failed and were skipped.
+          items:
+            $ref: "#/components/schemas/DetectionRuleCode"
+
+    RiskScore:
+      type: object
+      required: [employee, score, openAlerts, topRule]
+      properties:
+        employee:
+          $ref: "#/components/schemas/EmployeeRef"
+        score:
+          type: integer
+          description: Severity times recurrence, added up over the open alerts.
+        openAlerts:
+          type: integer
+        topRule:
+          $ref: "#/components/schemas/DetectionRuleCode"
+
+    RiskScoreList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskScore"

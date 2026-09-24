@@ -5,6 +5,7 @@ import { clearSession } from '@/lib/session';
 import { resetMockAttendance } from '@/mocks/handlers/attendance';
 import { resetMockSession } from '@/mocks/handlers/auth';
 import { resetMockBiometrics } from '@/mocks/handlers/biometrics';
+import { resetMockDetection } from '@/mocks/handlers/detection';
 import { resetMockDevices } from '@/mocks/handlers/devices';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
 import { resetMockPayroll } from '@/mocks/handlers/payroll';
@@ -28,6 +29,7 @@ afterEach(() => {
   resetMockDevices();
   resetMockBiometrics();
   resetMockPayroll();
+  resetMockDetection();
   clearSession();
   cleanup();
 });

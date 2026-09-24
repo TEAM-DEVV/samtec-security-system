@@ -705,6 +705,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devices/{deviceId}/finger-enrollment-windows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let one worker enroll a finger on this terminal
+         * @description **Roles:** ADMIN. Opens a 30-minute window for one worker on one `ZKTECO` terminal. A finger the terminal reports inside that window becomes that worker's, with the duplicate check recorded as `NOT_CHECKED` — this server never sees a terminal's fingerprint template, so it cannot compare one. A finger reported outside any window is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`, because a terminal must never be able to enroll somebody by itself (docs/plan/13 section 5).
+         *     Opening a second window for the same worker on the same terminal replaces the first, so an ADMIN who taps twice does not get two.
+         */
+        post: operations["openFingerEnrollmentWindow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ingest/punches": {
         parameters: {
             query?: never;
@@ -757,6 +781,49 @@ export interface paths {
          *     The heartbeat also carries the **biometric retention sweep**: once a day, the first heartbeat switches off the fingerprint keys of anyone past their termination date, and wipes the face templates of anyone who left 90 days ago (and of a face that has waited 90 days for a duplicate review). The review itself stays open, a record blocked as a duplicate stays blocked, and no row is ever deleted. The work is done 50 people at a time, so a heartbeat is never slow, and the answer is the same either way.
          */
         post: operations["sendHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Who should be on this terminal
+         * @description **Signed by a `ZKTECO` device** (route name `ingest/roster`). The gateway asks every 5 minutes and compares the answer with the terminal's own user list, adding and removing users to match. It is safe to repeat and changes nothing on the server, so no command table is needed (docs/plan/13 section 5).
+         *     The answer holds everyone posted to this terminal's site who is `ACTIVE` or `PENDING_ENROLLMENT`, and **leaves out anyone whose biometric record is blocked as a duplicate**, so their fingers come off the terminals too. It carries a staff number and a display name and nothing else: never a Ghana Card number, never a template.
+         */
+        post: operations["getTerminalRoster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A terminal reports a finger it enrolled
+         * @description **Signed by a `ZKTECO` device** (route name `ingest/enrollments`). The gateway sends only *that* user enrolled a finger on *this* terminal at *that* time. **The fingerprint template itself is discarded by the gateway and never reaches this API** (docs/plan/13 section 5).
+         *     A finger reported inside a window an ADMIN opened for that worker (`POST /devices/{deviceId}/finger-enrollment-windows`) becomes an `ACTIVE` fingerprint credential whose duplicate check is `NOT_CHECKED`, because this server cannot compare a terminal's templates. **Anything else is refused and raises `UNEXPECTED_DEVICE_ENROLLMENT`** — a terminal never activates anybody by itself.
+         *     Repeating a report changes nothing: the same terminal, user and moment answers `DUPLICATE`.
+         */
+        post: operations["reportTerminalEnrollments"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1780,6 +1847,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/detection/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The ghost-detection queue
+         * @description **Roles:** ADMIN, HR_PAYROLL. A supervisor never sees this queue: a supervisor is themselves a subject of rule R7, so it would show them their own file (docs/plan/08 §6).
+         *     Newest first. An alert is a **pattern about a person or a device**, not a single event — single events live in the attendance exception queue, and detection counts them rather than repeating them.
+         */
+        get: operations["listDetectionAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/alerts/{alertId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * One alert, with everything the rule cited
+         * @description **Roles:** ADMIN, HR_PAYROLL. The evidence names the actual rows the rule looked at, so a person can check the finding rather than trust it.
+         */
+        get: operations["getDetectionAlert"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/alerts/{alertId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close an alert, with a reason
+         * @description **Roles:** ADMIN, HR_PAYROLL. A rule never punishes anybody: a person decides what an alert meant. The note is required and the decision is audited. `CONFIRMED_FRAUD` is not an action against the worker — it is this company's record of what it found.
+         */
+        post: operations["resolveDetectionAlert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run every rule now
+         * @description **Roles:** ADMIN. The same sweep a heartbeat runs once a day, on demand — which is what the exit demo uses. Repeating it changes nothing: each alert carries a key built from its rule, its subject and its window, so a finding already raised is not raised twice and one a person resolved is never reopened.
+         *     A rule that fails is logged by its code and skipped; one broken rule never stops the other ten.
+         */
+        post: operations["runDetectionSweep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The rules and their thresholds
+         * @description **Roles:** ADMIN, HR_PAYROLL. Thresholds live in rows, not in the code, so they can be tuned without a deploy — and so the report's tuning table can be built by moving them.
+         */
+        get: operations["listDetectionRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/rules/{ruleCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleCode: components["schemas"]["DetectionRuleCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Switch a rule off, or move a threshold
+         * @description **Roles:** ADMIN. Audited, with the old and the new value. A rule switched off stops raising new alerts; the ones it already raised stay, because they are a record of what was found.
+         */
+        patch: operations["updateDetectionRule"];
+        trace?: never;
+    };
+    "/detection/risk-scores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who the open alerts point at
+         * @description **Roles:** ADMIN, HR_PAYROLL. Severity times recurrence, added up per employee over their open alerts, highest first. It is worked out when you ask, never stored, so it can never be stale.
+         */
+        get: operations["listRiskScores"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2540,9 +2755,83 @@ export interface components {
          *       waiting for enrollment, suspended, or after their termination date
          *       (grouped per person and day).
          *     - `OVERLAP` — one person on two shifts at the same time (often at two sites).
+         *     - `UNEXPECTED_DEVICE_ENROLLMENT` — a ZKTeco terminal reported a finger
+         *       nobody asked for: outside any window an ADMIN opened, or for a user
+         *       number that matches nobody (grouped per device, number and day).
          * @enum {string}
          */
-        AttendanceExceptionType: "MISSING_CLOCK_OUT" | "MISSING_CLOCK_IN" | "UNKNOWN_EMPLOYEE" | "INACTIVE_EMPLOYEE" | "OVERLAP";
+        AttendanceExceptionType: "MISSING_CLOCK_OUT" | "MISSING_CLOCK_IN" | "UNKNOWN_EMPLOYEE" | "INACTIVE_EMPLOYEE" | "OVERLAP" | "UNEXPECTED_DEVICE_ENROLLMENT";
+        OpenFingerEnrollmentWindowRequest: {
+            /** Format: uuid */
+            employeeId: string;
+        };
+        FingerEnrollmentWindow: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deviceId: string;
+            /** Format: uuid */
+            employeeId: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            /** Format: date-time */
+            opensAt: string;
+            /**
+             * Format: date-time
+             * @description 30 minutes after it opened.
+             */
+            expiresAt: string;
+        };
+        TerminalRosterRequest: {
+            /**
+             * Format: date-time
+             * @description The terminal's own clock, when the gateway knows it.
+             */
+            deviceClockAt?: string;
+        };
+        TerminalRosterResponse: {
+            users: components["schemas"]["TerminalRosterUser"][];
+            /** Format: date-time */
+            serverTime: string;
+        };
+        TerminalRosterUser: {
+            /** @description What the terminal calls this person — the staff number. */
+            deviceUserRef: string;
+            staffNumber: components["schemas"]["StaffNumber"];
+            /** @description A first name and the surname's initial, as a terminal screen shows it. Never a full name, never a Ghana Card number. */
+            displayName: string;
+        };
+        TerminalEnrollmentsRequest: {
+            enrollments: components["schemas"]["TerminalEnrollment"][];
+        };
+        TerminalEnrollment: {
+            /** @description The terminal's user number or staff number. */
+            deviceUserRef: string;
+            /** @description Which finger the terminal used. Kept for the report only. */
+            fingerIndex?: number;
+            /**
+             * Format: date-time
+             * @description The terminal's own time, read as UTC.
+             */
+            enrolledAt: string;
+        };
+        TerminalEnrollmentsResponse: {
+            results: components["schemas"]["TerminalEnrollmentResult"][];
+        };
+        TerminalEnrollmentResult: {
+            deviceUserRef: string;
+            /** Format: date-time */
+            enrolledAt: string;
+            /**
+             * @description - `ACCEPTED` — inside a window an ADMIN opened; the finger is now
+             *       in use, with its duplicate check recorded as `NOT_CHECKED`.
+             *     - `DUPLICATE` — this same report was already recorded.
+             *     - `REFUSED` — no open window, or the user number matches nobody.
+             *       An `UNEXPECTED_DEVICE_ENROLLMENT` exception is raised, and the
+             *       gateway is told no more than that.
+             * @enum {string}
+             */
+            status: "ACCEPTED" | "DUPLICATE" | "REFUSED";
+        };
         /**
          * @description - `OPEN` — waiting for a person.
          *     - `RESOLVED` — a person dealt with it (see `resolution`).
@@ -2618,7 +2907,7 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
-        /** @description Why, in a person's own words. Shown with the record it belongs to. The action and who did it are audited; this text never is, because a person may type a staff number or an account number into it and the audit log can never be edited. */
+        /** @description Why. Shown to other reviewers; never copied into the audit log. */
         ResolutionNote: string;
         DismissResolution: {
             /**
@@ -3864,6 +4153,128 @@ export interface components {
             /** @description The mobile money number in `+233` form, or `null`. */
             momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
         };
+        /**
+         * @description The rule that fired (docs/plan/08-ghost-detection-engine.md).
+         *     - `R1` duplicate enrollment · `R2` identity collision
+         *     - `R3` paid without presence · `R4` bilocation
+         *     - `R5` never seen · `R6` terminated but active
+         *     - `R7` fallback abuse · `R8` robot regularity
+         *     - `R9` device anomaly · `R10` orphan punches
+         *     - `R11` conflicted decision
+         * @enum {string}
+         */
+        DetectionRuleCode: "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11";
+        /** @enum {string} */
+        DetectionSeverity: "CRITICAL" | "HIGH" | "MEDIUM";
+        /**
+         * @description - `OPEN` — raised, nobody has looked yet.
+         *     - `UNDER_REVIEW` — somebody is checking it.
+         *     - `RESOLVED` — a person decided it was explained.
+         *     - `CONFIRMED_FRAUD` — a person decided it was real. A record of what
+         *       was found, never an action taken against anybody by the system.
+         * @enum {string}
+         */
+        DetectionAlertStatus: "OPEN" | "UNDER_REVIEW" | "RESOLVED" | "CONFIRMED_FRAUD";
+        DetectionAlert: {
+            /** Format: uuid */
+            id: string;
+            ruleCode: components["schemas"]["DetectionRuleCode"];
+            severity: components["schemas"]["DetectionSeverity"];
+            status: components["schemas"]["DetectionAlertStatus"];
+            subject: components["schemas"]["DetectionSubject"];
+            /**
+             * Format: date
+             * @description The first day the rule looked at.
+             */
+            windowFrom: string;
+            /** Format: date */
+            windowTo: string;
+            /** @description The rows and numbers this rule cited — punch IDs, segment IDs, payroll line IDs, counts, match scores. Its shape depends on the rule, and each rule's shape is pinned by a test. It never carries a template, an image or a Ghana Card number. */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            openedAt: string;
+            resolution: components["schemas"]["DetectionResolution"] | null;
+        };
+        /** @description Who or what the alert is about. At least one field is set. */
+        DetectionSubject: {
+            /** @description For a rule about a supervisor (R7), this is the supervisor. */
+            employee: components["schemas"]["EmployeeRef"] | null;
+            device: components["schemas"]["DetectionDeviceRef"] | null;
+            /** Format: uuid */
+            siteId: string | null;
+        };
+        DetectionDeviceRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        DetectionResolution: {
+            /** Format: uuid */
+            decidedByUserId: string;
+            /** Format: date-time */
+            decidedAt: string;
+            note: string;
+        };
+        DetectionAlertList: {
+            items: components["schemas"]["DetectionAlert"][];
+            /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
+            nextCursor: string | null;
+        };
+        ResolveDetectionAlertRequest: {
+            /**
+             * @description Only these two close an alert.
+             * @enum {string}
+             */
+            status: "RESOLVED" | "CONFIRMED_FRAUD";
+            /** @description Why. Required, and audited. */
+            note: string;
+        };
+        DetectionRule: {
+            code: components["schemas"]["DetectionRuleCode"];
+            name: string;
+            /** @description One sentence a non-technical reader understands. */
+            description: string;
+            severity: components["schemas"]["DetectionSeverity"];
+            enabled: boolean;
+            /** @description The numbers this rule uses, named. Empty for a rule that has none (R1, R6 and R11 are facts, not gradients). */
+            thresholds: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DetectionRuleList: {
+            items: components["schemas"]["DetectionRule"][];
+        };
+        /** @description Send at least one field. */
+        UpdateDetectionRuleRequest: {
+            enabled?: boolean;
+            /** @description Replaces the whole set. The server refuses a name the rule does not use. */
+            thresholds?: {
+                [key: string]: unknown;
+            };
+        };
+        DetectionSweepResult: {
+            /** Format: date-time */
+            ranAt: string;
+            /** @description New alerts. A finding already raised is not raised twice. */
+            raised: number;
+            rulesRun: components["schemas"]["DetectionRuleCode"][];
+            /** @description Rules switched off, or that failed and were skipped. */
+            rulesSkipped: components["schemas"]["DetectionRuleCode"][];
+        };
+        RiskScore: {
+            employee: components["schemas"]["EmployeeRef"];
+            /** @description Severity times recurrence, added up over the open alerts. */
+            score: number;
+            openAlerts: number;
+            topRule: components["schemas"]["DetectionRuleCode"];
+        };
+        RiskScoreList: {
+            items: components["schemas"]["RiskScore"][];
+        };
     };
     responses: {
         /** @description The signature is wrong, the device is unknown or switched off, the route does not accept this kind of device, or the timestamp is more than 5 minutes from the server clock. Always the same answer, so nobody can learn which device IDs exist. */
@@ -4083,6 +4494,15 @@ export type SegmentStatus = components['schemas']['SegmentStatus'];
 export type WorkSegment = components['schemas']['WorkSegment'];
 export type WorkSegmentList = components['schemas']['WorkSegmentList'];
 export type AttendanceExceptionType = components['schemas']['AttendanceExceptionType'];
+export type OpenFingerEnrollmentWindowRequest = components['schemas']['OpenFingerEnrollmentWindowRequest'];
+export type FingerEnrollmentWindow = components['schemas']['FingerEnrollmentWindow'];
+export type TerminalRosterRequest = components['schemas']['TerminalRosterRequest'];
+export type TerminalRosterResponse = components['schemas']['TerminalRosterResponse'];
+export type TerminalRosterUser = components['schemas']['TerminalRosterUser'];
+export type TerminalEnrollmentsRequest = components['schemas']['TerminalEnrollmentsRequest'];
+export type TerminalEnrollment = components['schemas']['TerminalEnrollment'];
+export type TerminalEnrollmentsResponse = components['schemas']['TerminalEnrollmentsResponse'];
+export type TerminalEnrollmentResult = components['schemas']['TerminalEnrollmentResult'];
 export type AttendanceExceptionStatus = components['schemas']['AttendanceExceptionStatus'];
 export type ExceptionResolutionAction = components['schemas']['ExceptionResolutionAction'];
 export type PunchSummary = components['schemas']['PunchSummary'];
@@ -4177,6 +4597,21 @@ export type EmployeePayTermsList = components['schemas']['EmployeePayTermsList']
 export type SetEmployeePayTermsRequest = components['schemas']['SetEmployeePayTermsRequest'];
 export type EmployeePaymentDetails = components['schemas']['EmployeePaymentDetails'];
 export type SetEmployeePaymentDetailsRequest = components['schemas']['SetEmployeePaymentDetailsRequest'];
+export type DetectionRuleCode = components['schemas']['DetectionRuleCode'];
+export type DetectionSeverity = components['schemas']['DetectionSeverity'];
+export type DetectionAlertStatus = components['schemas']['DetectionAlertStatus'];
+export type DetectionAlert = components['schemas']['DetectionAlert'];
+export type DetectionSubject = components['schemas']['DetectionSubject'];
+export type DetectionDeviceRef = components['schemas']['DetectionDeviceRef'];
+export type DetectionResolution = components['schemas']['DetectionResolution'];
+export type DetectionAlertList = components['schemas']['DetectionAlertList'];
+export type ResolveDetectionAlertRequest = components['schemas']['ResolveDetectionAlertRequest'];
+export type DetectionRule = components['schemas']['DetectionRule'];
+export type DetectionRuleList = components['schemas']['DetectionRuleList'];
+export type UpdateDetectionRuleRequest = components['schemas']['UpdateDetectionRuleRequest'];
+export type DetectionSweepResult = components['schemas']['DetectionSweepResult'];
+export type RiskScore = components['schemas']['RiskScore'];
+export type RiskScoreList = components['schemas']['RiskScoreList'];
 export type ResponseDeviceNotTrusted = components['responses']['DeviceNotTrusted'];
 export type ResponsePayloadTooLarge = components['responses']['PayloadTooLarge'];
 export type ResponseBusy = components['responses']['Busy'];
@@ -5278,6 +5713,46 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    openFingerEnrollmentWindow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's ID. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenFingerEnrollmentWindowRequest"];
+            };
+        };
+        responses: {
+            /** @description The window is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FingerEnrollmentWindow"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The device is not a ZKTeco terminal, or the worker may not be enrolled: they are not posted to this device's site, they have given no consent, or their record is blocked as a duplicate. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     ingestPunches: {
         parameters: {
             query?: never;
@@ -5337,6 +5812,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeartbeatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    getTerminalRoster: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TerminalRosterRequest"];
+            };
+        };
+        responses: {
+            /** @description Everyone this terminal should know about. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalRosterResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceNotTrusted"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    reportTerminalEnrollments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The signing device's ID (see the `deviceSignature` security scheme). */
+                "X-Samtec-Device": components["parameters"]["DeviceHeader"];
+                /** @description The signing time in Unix seconds, within 5 minutes of the server clock. */
+                "X-Samtec-Timestamp": components["parameters"]["TimestampHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TerminalEnrollmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Each report, with what became of it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalEnrollmentsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6890,6 +7430,202 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listDetectionAlerts: {
+        parameters: {
+            query?: {
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description The `nextCursor` value from the previous page. Leave it out to get the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                status?: components["schemas"]["DetectionAlertStatus"];
+                ruleCode?: components["schemas"]["DetectionRuleCode"];
+                severity?: components["schemas"]["DetectionSeverity"];
+                employeeId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionAlertList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getDetectionAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The alert. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionAlert"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resolveDetectionAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveDetectionAlertRequest"];
+            };
+        };
+        responses: {
+            /** @description The alert, resolved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionAlert"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description This alert was already resolved. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runDetectionSweep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the sweep found. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionSweepResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Busy"];
+        };
+    };
+    listDetectionRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionRuleList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateDetectionRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleCode: components["schemas"]["DetectionRuleCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDetectionRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectionRule"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRiskScores: {
+        parameters: {
+            query?: {
+                /** @description How many items to return in one page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The riskiest employees. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskScoreList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

@@ -1,6 +1,7 @@
 import { attendanceHandlers } from './attendance';
 import { authHandlers } from './auth';
 import { biometricHandlers } from './biometrics';
+import { detectionHandlers } from './detection';
 import { deviceHandlers } from './devices';
 import { employeeHandlers } from './employees';
 import { payrollHandlers } from './payroll';
@@ -32,4 +33,5 @@ export const handlers = [
   ...attendanceHandlers,
   ...biometricHandlers,
   ...payrollHandlers,
+  ...detectionHandlers,
 ];
