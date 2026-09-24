@@ -189,11 +189,42 @@ demo uses, and pressing it twice is safe.
 It does **not** ride the heartbeat, although the retention sweep does. The
 heartbeat lives in the attendance module, so calling detection from it would
 make attendance import detection while detection imports attendance — the
-circle section 1 exists to avoid. The daily run therefore comes from outside
-the application: a Vercel Cron job calling the same endpoint. That needs an
-environment secret the owner sets, so it is an owner task in the roadmap
-rather than something hidden in the code. Until it is set the sweep is a
-button, and `detection_checks` records when it last ran.
+circle section 1 exists to avoid.
+
+**Every day at 02:00**, from outside the application: a Vercel Cron entry in
+`apps/api/vercel.json` calls `GET /detection/daily-sweep`. It sweeps every
+company whose last sweep (`detection_checks.swept_at`) is more than twenty
+hours old, oldest first, claiming each one before sweeping it so two calls at
+once never sweep a company twice. The audit log records these sweeps with no
+actor: the system did it.
+
+**It is public and needs no secret, deliberately.** The usual way to guard a
+cron endpoint is a shared secret, which would be one more thing an owner has
+to set and keep. It would protect nothing here: anybody who calls the route
+causes at most the one daily sweep per company that was going to happen
+anyway, a sweep only raises questions for a person to answer, and the answer
+is a bare count that names no company, worker or rule. The twenty-hour gap is
+the guard, and it holds whoever is calling.
+
+**Asking often costs almost nothing**, which is the other half of leaving it
+open. When nothing is due the route answers from memory for a minute, so a
+flood of calls costs one indexed query a minute per running instance rather
+than one query each — the same trick, for the same reason, as the health
+check's reuse window. The sweeping itself cannot be made to happen more often
+than once a company a day however hard somebody asks. What is left is
+ordinary request volume against a hosted function, which is the platform's
+business and no different from the public health check.
+
+**A company with no bookmark yet gets one dated now**, so its first sweep is
+the next daily run rather than the moment it is created. There is nothing to
+find in a company that has no attendance yet, and it keeps a burst of new
+companies from turning into a burst of sweeps.
+
+**One company's failure never becomes a silent skip.** A company is claimed
+before it is swept, so a failure mid-sweep would leave it looking swept: the
+bookmark is put back, the failure is logged by company and message, and the
+rest of the queue carries on. It is the same rule as "one broken rule never
+stops the other ten", one level up.
 
 A sweep never fails a heartbeat, and a rule that throws is logged by code and
 skipped — one broken rule must not stop the other ten.
