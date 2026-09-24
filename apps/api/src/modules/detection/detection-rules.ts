@@ -101,7 +101,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'Clock-in times too alike to be a person walking to work.',
     severity: 'MEDIUM',
     thresholds: { standardDeviationMinutes: 3, workingDays: 10 },
-    built: false,
+    built: true,
   },
   {
     code: 'R9',
@@ -109,7 +109,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A terminal sending far more punches than it ever has, or with a wandering clock.',
     severity: 'MEDIUM',
     thresholds: { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
-    built: false,
+    built: true,
   },
   {
     code: 'R10',
@@ -432,6 +432,193 @@ export function fallbackAbuse(
  */
 function fingerprintOf(value: string, key: Buffer): string {
   return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
+}
+
+// --- R8 · Robot regularity ---------------------------------------------------
+
+export interface ClockInTimes {
+  employeeId: string;
+  siteId?: string;
+  /** Minutes past midnight, one per working day, Accra time. */
+  minutesOfDay: number[];
+}
+
+/**
+ * Clock-in times too alike to be a person walking to work.
+ *
+ * A real guard arrives at 05:52, then 06:04, then 05:58 — traffic, a
+ * tro-tro, a child to drop off. A row of punches all within a minute of each
+ * other is the signature of somebody generating them, or of one person
+ * clocking in for a whole shift at once.
+ *
+ * It needs enough days to mean anything: a fortnight of identical arrivals
+ * is a pattern, three is a coincidence.
+ */
+export function robotRegularity(
+  people: readonly ClockInTimes[],
+  thresholds: { standardDeviationMinutes: number; workingDays: number },
+  now: Date,
+  windowFrom: Date,
+): Finding[] {
+  return people
+    .filter((person) => person.minutesOfDay.length >= thresholds.workingDays)
+    .map((person) => ({ person, clock: aroundTheClock(person.minutesOfDay) }))
+    .filter(({ clock }) => clock.spread < thresholds.standardDeviationMinutes)
+    .map(({ person, clock }) => ({
+      ruleCode: 'R8' as const,
+      dedupeKey: `R8:${person.employeeId}:${isoMonth(now)}`,
+      employeeId: person.employeeId,
+      siteId: person.siteId,
+      windowFrom,
+      windowTo: now,
+      evidence: {
+        days: person.minutesOfDay.length,
+        spreadMinutes: Math.round(clock.spread * 10) / 10,
+        // The clock face, so a reader sees the pattern rather than the
+        // statistic: "always 05:59" explains itself.
+        usualTime: clockFace(clock.middle),
+      },
+    }));
+}
+
+// --- R9 · Device anomaly -----------------------------------------------------
+
+export interface DeviceActivity {
+  deviceId: string;
+  deviceName: string;
+  siteId?: string;
+  /** Punches per day over the window, most recent last. */
+  dailyCounts: number[];
+  /** How far the device's own clock is off, in seconds. */
+  clockDriftSeconds: number | null;
+}
+
+/**
+ * A terminal behaving unlike itself.
+ *
+ * Two different smells. A **volume spike** — a device that has quietly sent
+ * forty punches a day suddenly sending two hundred — is what a replayed or
+ * manufactured batch looks like. A **drifting clock** matters because every
+ * punch carries the device's own time: a terminal running ten minutes fast
+ * can make a late arrival look punctual, every single day, with nobody
+ * touching a record.
+ *
+ * The comparison is against the device's **own** history, not against other
+ * devices: a busy gate is not an anomaly, and a quiet one is not innocent.
+ */
+export function deviceAnomaly(
+  devices: readonly DeviceActivity[],
+  thresholds: { volumeMultiple: number; medianDays: number; clockDriftMinutes: number },
+  now: Date,
+  windowFrom: Date,
+): Finding[] {
+  const findings: Finding[] = [];
+  // A device needs a history to be unlike itself. A quarter of the window
+  // asked for, so tuning the window tunes this too, and never fewer than a
+  // week: a site that opened on Monday is not an anomaly on Friday.
+  const enoughHistory = Math.max(7, Math.floor(thresholds.medianDays / 4));
+  for (const device of devices) {
+    const today = device.dailyCounts.at(-1) ?? 0;
+    const earlier = device.dailyCounts.slice(0, -1);
+    const usual = median(earlier);
+    if (earlier.length >= enoughHistory && usual > 0 && today > usual * thresholds.volumeMultiple) {
+      findings.push({
+        ruleCode: 'R9',
+        dedupeKey: `R9:volume:${device.deviceId}:${isoDate(now)}`,
+        deviceId: device.deviceId,
+        siteId: device.siteId,
+        windowFrom,
+        windowTo: now,
+        evidence: {
+          punchesThatDay: today,
+          medianPunches: usual,
+          multiple: Math.round((today / usual) * 10) / 10,
+          device: device.deviceName,
+        },
+      });
+    }
+    const driftMinutes = Math.abs(device.clockDriftSeconds ?? 0) / 60;
+    if (driftMinutes > thresholds.clockDriftMinutes) {
+      findings.push({
+        ruleCode: 'R9',
+        // A drifting clock is one standing fact about a device, not
+        // something that happens afresh each day. Keyed per month, it is
+        // raised once and raised again if it is still wrong next month —
+        // rather than every time somebody presses the sweep button.
+        dedupeKey: `R9:clock:${device.deviceId}:${isoMonth(now)}`,
+        deviceId: device.deviceId,
+        siteId: device.siteId,
+        windowFrom: now,
+        windowTo: now,
+        evidence: {
+          clockDriftMinutes: Math.round(driftMinutes * 10) / 10,
+          fast: (device.clockDriftSeconds ?? 0) > 0,
+          device: device.deviceName,
+        },
+      });
+    }
+  }
+  return findings;
+}
+
+/**
+ * How tightly a set of clock times sit together, and where their middle is.
+ *
+ * **A clock is a circle.** 23:58 and 00:02 are four minutes apart, not
+ * twenty-three hours and fifty-six — and a guard on nights is exactly the
+ * person this rule is about, so treating the times as points on a line would
+ * miss the manufactured logs it exists to catch and would never have looked
+ * wrong.
+ *
+ * Each time becomes an angle round the twenty-four hours; the middle is the
+ * direction they point on average, and the spread is how far they wander
+ * from it. The spread is the population one (divided by how many there are,
+ * not one fewer), which is the stricter reading of the threshold and the one
+ * the report's tuning table is built on.
+ */
+function aroundTheClock(minutes: readonly number[]): { middle: number; spread: number } {
+  if (minutes.length < 2) {
+    return { middle: minutes[0] ?? 0, spread: Number.POSITIVE_INFINITY };
+  }
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const toAngle = (minute: number) => (minute / MINUTES_IN_A_DAY) * 2 * Math.PI;
+  const eastward = average(minutes.map((minute) => Math.cos(toAngle(minute))));
+  const northward = average(minutes.map((minute) => Math.sin(toAngle(minute))));
+  const middleAngle = Math.atan2(northward, eastward);
+  const middle =
+    ((middleAngle / (2 * Math.PI)) * MINUTES_IN_A_DAY + MINUTES_IN_A_DAY) % MINUTES_IN_A_DAY;
+  const spread = Math.sqrt(average(minutes.map((minute) => shortestWayRound(minute, middle) ** 2)));
+  return { middle, spread };
+}
+
+/** The smaller of the two ways round the clock between two times, in minutes. */
+function shortestWayRound(one: number, other: number): number {
+  const MINUTES_IN_A_DAY = 24 * 60;
+  const apart = Math.abs(one - other) % MINUTES_IN_A_DAY;
+  return Math.min(apart, MINUTES_IN_A_DAY - apart);
+}
+
+function average(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+/** The middle value, which one wild day cannot drag about the way an average can. */
+function median(values: readonly number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+    : (sorted[middle] ?? 0);
+}
+
+/** Minutes past midnight as a clock face: 359 becomes "05:59". */
+function clockFace(minutes: number): string {
+  const whole = Math.round(minutes);
+  const hour = Math.floor(whole / 60) % 24;
+  return `${String(hour).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -201,7 +201,20 @@ recurrence = times that rule fired for that worker in 90 days
   R11 gains the clause then. Version 1 covers the part the data supports:
   decided by somebody who created either record or enrolled the other face.
 - **R9 has no offline-window clause**: nothing declares a device's offline
-  windows yet.
+  windows yet. It can also ask about a device's first genuinely busy day: a
+  site that opens quietly while people are enrolled, then runs at full
+  strength, reads as a spike against its own short history. It needs a week
+  of history before it says anything, and it is MEDIUM and never acts by
+  itself, so the cost is a question somebody answers once.
+- **R8 measures the device's own clock, not the server's.** It has to: a
+  gateway sends punches in batches, so the moment the server received one
+  says more about the batch than about when somebody arrived — and a whole
+  batch would look identical, which is the very pattern the rule hunts.
+  Punches from a device whose clock the server already doubted
+  (`clock_suspect`) are left out, so a faulty terminal cannot make a worker
+  look manufactured. Somebody who controls a terminal **and** varies the
+  times they invent will not be caught by this rule; that is what the other
+  ten are for.
 - **No automatic action, ever.** A rule surfaces and scores. A person decides.
 
 ## 10. Seed data owed

@@ -1,5 +1,33 @@
 import { Injectable } from '@nestjs/common';
+import { toAccraDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
+
+/** Minutes past midnight in Accra, asked of the time zone database. */
+function accraMinuteOfDay(instant: Date): number {
+  const [hour, minute] = ACCRA_CLOCK.format(instant).split(':');
+  return Number(hour) * 60 + Number(minute);
+}
+
+/** Every calendar day from one moment to another, inclusive, in Accra. */
+function daysBetween(from: Date, to: Date): string[] {
+  const days: string[] = [];
+  const oneDay = 24 * 60 * 60 * 1000;
+  for (let at = from.getTime(); at <= to.getTime(); at += oneDay) {
+    days.push(toAccraDate(new Date(at)));
+  }
+  const last = toAccraDate(to);
+  if (days.at(-1) !== last) {
+    days.push(last);
+  }
+  return [...new Set(days)];
+}
+
+const ACCRA_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Accra',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 /**
  * What the attendance module will tell another module about its own tables.
@@ -217,6 +245,117 @@ export class AttendanceFactsService {
     return rows
       .filter((row) => row.employeeId !== null)
       .map((row) => ({ employeeId: row.employeeId as string, coSigns: row._count._all }));
+  }
+
+  /**
+   * What time each worker clocked in, day by day, since `from` (rule R8).
+   *
+   * One time per calendar day — the first clock-in of that day — because a
+   * worker with two shifts would otherwise look erratic when they are not.
+   * Ghana keeps GMT all year, so a moment's UTC minutes past midnight are
+   * also Accra's.
+   */
+  async clockInTimesPerEmployee(
+    companyId: string,
+    from: Date,
+  ): Promise<{ employeeId: string; siteId: string; minutesOfDay: number[] }[]> {
+    const rows = await this.prisma.punchEvent.findMany({
+      where: {
+        companyId,
+        employeeId: { not: null },
+        direction: 'IN',
+        pairable: true,
+        // A device whose own clock the server already doubted cannot be used
+        // to judge how regular somebody's arrivals are: the fault would be
+        // the terminal's and the alert would be the worker's.
+        clockSuspect: false,
+        serverTime: { gte: from },
+      },
+      select: { employeeId: true, siteId: true, deviceTime: true },
+      orderBy: { deviceTime: 'asc' },
+    });
+    const byEmployee = new Map<
+      string,
+      { employeeId: string; siteId: string; perDay: Map<string, number> }
+    >();
+    for (const row of rows) {
+      if (row.employeeId === null) {
+        continue;
+      }
+      const running = byEmployee.get(row.employeeId) ?? {
+        employeeId: row.employeeId,
+        siteId: row.siteId,
+        perDay: new Map<string, number>(),
+      };
+      const day = toAccraDate(row.deviceTime);
+      if (!running.perDay.has(day)) {
+        running.perDay.set(day, accraMinuteOfDay(row.deviceTime));
+      }
+      byEmployee.set(row.employeeId, running);
+    }
+    return [...byEmployee.values()].map((row) => ({
+      employeeId: row.employeeId,
+      siteId: row.siteId,
+      minutesOfDay: [...row.perDay.values()],
+    }));
+  }
+
+  /**
+   * How busy each device has been, day by day, and how far its own clock is
+   * off (rule R9).
+   *
+   * Every punch carries the device's own time, so a terminal running fast
+   * can make a late arrival look punctual every day with nobody touching a
+   * record — which is why the drift is reported beside the volume.
+   */
+  async deviceActivity(
+    companyId: string,
+    from: Date,
+    to: Date = new Date(),
+  ): Promise<
+    {
+      deviceId: string;
+      deviceName: string;
+      siteId: string;
+      dailyCounts: number[];
+      clockDriftSeconds: number | null;
+    }[]
+  > {
+    const devices = await this.prisma.device.findMany({
+      where: { companyId },
+      select: { id: true, name: true, siteId: true, lastClockDriftSeconds: true },
+    });
+    if (devices.length === 0) {
+      return [];
+    }
+    const punches = await this.prisma.punchEvent.findMany({
+      where: { companyId, serverTime: { gte: from } },
+      select: { deviceId: true, serverTime: true },
+    });
+    const perDevice = new Map<string, Map<string, number>>();
+    for (const punch of punches) {
+      const days = perDevice.get(punch.deviceId) ?? new Map<string, number>();
+      const day = toAccraDate(punch.serverTime);
+      days.set(day, (days.get(day) ?? 0) + 1);
+      perDevice.set(punch.deviceId, days);
+    }
+    // Every calendar day in the window, in order, with a **zero** for a day
+    // the device said nothing. A silent day that was simply missing would
+    // shuffle the array along, so "the last entry" would be the last day the
+    // device spoke rather than today — and a spike from last week would keep
+    // being judged as though it had just happened.
+    const calendar = daysBetween(from, to);
+    return devices.map((device) => {
+      const days = perDevice.get(device.id) ?? new Map<string, number>();
+      const dailyCounts = calendar.map((day) => days.get(day) ?? 0);
+      return {
+        deviceId: device.id,
+        deviceName: device.name,
+        siteId: device.siteId,
+        dailyCounts,
+        clockDriftSeconds: device.lastClockDriftSeconds,
+      };
+    });
   }
 
   /**
