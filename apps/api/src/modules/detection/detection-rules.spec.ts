@@ -537,10 +537,14 @@ describe('R6 · terminated but active', () => {
   const leaver = {
     employeeId: 'kojo',
     siteId: 'site-a',
-    leftOn: new Date('2026-06-30T00:00:00.000Z'),
+    leftOn: new Date('2026-06-15T00:00:00.000Z'),
     punchesAfter: 0,
-    paidPeriodsAfter: [] as string[],
+    paidPeriods: [] as { period: string; startsOn: Date }[],
   };
+  const month = (year: number, month: number) => ({
+    period: `${year}-${String(month).padStart(2, '0')}`,
+    startsOn: new Date(Date.UTC(year, month - 1, 1)),
+  });
 
   it('leaves alone somebody who left and stopped', () => {
     expect(terminatedButActive([leaver], {}, NOW)).toEqual([]);
@@ -557,7 +561,7 @@ describe('R6 · terminated but active', () => {
     expect(found[0]?.employeeId).toBe('kojo');
     expect(found[0]?.siteId).toBe('site-a');
     expect(found[0]?.evidence).toEqual({
-      leftOn: '2026-06-30',
+      leftOn: '2026-06-15',
       punchesAfter: 14,
       lastPunchOn: '2026-09-22',
       paidPeriodsAfter: [],
@@ -566,7 +570,7 @@ describe('R6 · terminated but active', () => {
 
   it('names a leaver who is still being paid, with no punches at all', () => {
     const found = terminatedButActive(
-      [{ ...leaver, paidPeriodsAfter: ['2026-07', '2026-08'] }],
+      [{ ...leaver, paidPeriods: [month(2026, 8), month(2026, 7)] }],
       {},
       NOW,
     );
@@ -574,6 +578,31 @@ describe('R6 · terminated but active', () => {
     expect(found).toHaveLength(1);
     expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07', '2026-08']);
     expect(found[0]?.evidence.punchesAfter).toBe(0);
+  });
+
+  it('does not count the month they left in, only the ones that began after', () => {
+    // Left on the 15th of June: June's payslip covers the days they worked,
+    // and May's is history. July's is the question.
+    const found = terminatedButActive(
+      [{ ...leaver, paidPeriods: [month(2026, 5), month(2026, 6), month(2026, 7)] }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07']);
+  });
+
+  it('treats a period beginning on the leaving day itself as theirs', () => {
+    // Left on the first of the month: that month's payslip pays one day.
+    const leftOnTheFirst = { ...leaver, leftOn: new Date('2026-07-01T00:00:00.000Z') };
+
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 7)] }], {}, NOW),
+    ).toEqual([]);
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 8)] }], {}, NOW),
+    ).toHaveLength(1);
   });
 
   it('asks again next month, but not again tomorrow', () => {

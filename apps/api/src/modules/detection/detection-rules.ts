@@ -749,8 +749,8 @@ export interface AfterLeaving {
   punchesAfter: number;
   /** The last of them, as `YYYY-MM-DD`. */
   lastPunchOn?: string;
-  /** Periods that **begin** after they left and still paid them, as `YYYY-MM`. */
-  paidPeriodsAfter: readonly string[];
+  /** Every settled payslip they have, whenever its period was. The rule decides which count. */
+  paidPeriods: readonly { period: string; startsOn: Date }[];
 }
 
 /**
@@ -772,8 +772,22 @@ export function terminatedButActive(
   now: Date,
 ): Finding[] {
   return people
-    .filter((person) => person.punchesAfter > 0 || person.paidPeriodsAfter.length > 0)
     .map((person) => ({
+      person,
+      // Only a period that **begins** after the leaving day. The month
+      // somebody left in pays them for the days they worked in it, and that
+      // payslip is right — so `>`, and against the period's first day, not
+      // its last.
+      paidAfter: [
+        ...new Set(
+          person.paidPeriods
+            .filter((paid) => paid.startsOn.getTime() > person.leftOn.getTime())
+            .map((paid) => paid.period),
+        ),
+      ].sort(),
+    }))
+    .filter(({ person, paidAfter }) => person.punchesAfter > 0 || paidAfter.length > 0)
+    .map(({ person, paidAfter }) => ({
       ruleCode: 'R6' as const,
       // Keyed by the month it is noticed. The first alert is the question; if
       // it is still happening next month that is a second question, not the
@@ -787,7 +801,7 @@ export function terminatedButActive(
         leftOn: isoDate(person.leftOn),
         punchesAfter: person.punchesAfter,
         ...(person.lastPunchOn === undefined ? {} : { lastPunchOn: person.lastPunchOn }),
-        paidPeriodsAfter: [...person.paidPeriodsAfter],
+        paidPeriodsAfter: paidAfter,
       },
     }));
 }

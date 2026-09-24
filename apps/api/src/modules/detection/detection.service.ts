@@ -24,7 +24,7 @@ import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prism
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { deriveKey } from '../identity/secret-box.js';
-import { PayrollFactsService } from '../payroll/payroll-facts.service.js';
+import { type PaidLine, PayrollFactsService } from '../payroll/payroll-facts.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   ListAlertsQuery,
@@ -56,6 +56,23 @@ const SCORE_WINDOW_DAYS = 90;
 
 /** The most open alerts one score is worked out from, so a read is bounded. */
 const SCORE_ALERTS_READ = 2_000;
+
+/**
+ * How far back rule R6 looks for somebody who has left. Two years, the same
+ * distance the payroll side of the rule reads (`PERIODS_READ` is twenty-four
+ * months), so the two halves of one rule never disagree about who is in
+ * scope — and so a company that has been running for a decade does not
+ * re-read every leaver it ever had on every sweep.
+ */
+const LEAVER_WINDOW_DAYS = 2 * 365;
+
+/**
+ * What one sweep has already read, so two rules needing the same rows ask
+ * for them once. R3 and R6 both read every settled payslip line.
+ */
+interface SweepReads {
+  paidLines?: Promise<PaidLine[]>;
+}
 
 /**
  * Ghost detection (docs/plan/08-ghost-detection-engine.md).
@@ -101,6 +118,7 @@ export class DetectionService {
     const rules = await this.liveRules(viewer.companyId);
     const ran: DetectionRuleCode[] = [];
     const skipped: DetectionRuleCode[] = [];
+    const reads: SweepReads = {};
     let raised = 0;
 
     for (const rule of RULE_CATALOGUE) {
@@ -115,6 +133,7 @@ export class DetectionService {
           rule.code,
           thresholdsOf(row) ?? rule.thresholds,
           now,
+          reads,
         );
         raised += await this.record(viewer.companyId, found, rule.code, now);
         ran.push(rule.code);
@@ -386,7 +405,9 @@ export class DetectionService {
     code: DetectionRuleCode,
     thresholds: Record<string, number>,
     now: Date,
+    reads: SweepReads = {},
   ): Promise<Finding[]> {
+    const paidLines = () => (reads.paidLines ??= this.payroll.paidLines(companyId));
     if (code === 'R5') {
       const workers = await this.employees.onTheBooks(companyId);
       const punched = await this.attendance.everPunched(
@@ -445,7 +466,7 @@ export class DetectionService {
       );
     }
     if (code === 'R3') {
-      const lines = await this.payroll.paidLines(companyId);
+      const lines = await paidLines();
       if (lines.length === 0) {
         return [];
       }
@@ -480,32 +501,32 @@ export class DetectionService {
       );
     }
     if (code === 'R6') {
-      const leavers = await this.employees.whoHasLeft(companyId);
+      const leavers = await this.employees.whoHasLeft(
+        companyId,
+        new Date(now.getTime() - LEAVER_WINDOW_DAYS * DAY_MS),
+      );
       if (leavers.length === 0) {
         return [];
       }
       const [punches, lines] = await Promise.all([
         this.attendance.punchesAfterLeaving(companyId, leavers),
-        this.payroll.paidLines(companyId),
+        paidLines(),
       ]);
-      const left = new Map(leavers.map((leaver) => [leaver.employeeId, leaver.leftOn]));
-      const paidAfter = new Map<string, string[]>();
+      // Every payslip a leaver has, whenever its period was. Which of them
+      // count is the rule's decision, not this plumbing's.
+      const paidPeriods = new Map<string, { period: string; startsOn: Date }[]>();
       for (const line of lines) {
-        const leftOn = left.get(line.employeeId);
-        // Only a period that **begins** after the leaving day. The month
-        // somebody left in pays them for the days they worked in it, and that
-        // payslip is right.
-        if (!leftOn || line.periodStartsOn <= leftOn) {
-          continue;
-        }
-        paidAfter.set(line.employeeId, [...(paidAfter.get(line.employeeId) ?? []), line.period]);
+        paidPeriods.set(line.employeeId, [
+          ...(paidPeriods.get(line.employeeId) ?? []),
+          { period: line.period, startsOn: line.periodStartsOn },
+        ]);
       }
       return terminatedButActive(
         leavers.map((leaver) => ({
           ...leaver,
           punchesAfter: punches.get(leaver.employeeId)?.punches ?? 0,
           lastPunchOn: punches.get(leaver.employeeId)?.lastPunchOn,
-          paidPeriodsAfter: [...new Set(paidAfter.get(leaver.employeeId) ?? [])].sort(),
+          paidPeriods: paidPeriods.get(leaver.employeeId) ?? [],
         })),
         thresholds,
         now,

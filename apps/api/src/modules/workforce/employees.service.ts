@@ -32,6 +32,9 @@ export interface StaffLookup {
   terminationDate: string | null;
 }
 
+/** The most leavers one sweep reads, newest first (rule R6). */
+const LEAVERS_READ = 2_000;
+
 /** An assignment that covers today: it has started and has not ended. */
 export function currentAssignmentFilter(today: Date = new Date()) {
   return {
@@ -866,7 +869,14 @@ export class EmployeesService {
   }
 
   /**
-   * Everyone who has left, and the last day they were employed (rule R6).
+   * Everyone who has left since `since`, and the last day they were employed
+   * (rule R6).
+   *
+   * **Bounded twice.** Nobody is ever deleted here, so the list of leavers
+   * only grows for the life of a company; the caller says how far back to
+   * look, and the read is capped at `LEAVERS_READ` newest-first besides, so
+   * a sweep that runs every day never gets slower with every year that
+   * passes.
    *
    * The site is their **last** posting, ended or not, because a leaver has no
    * current one — without it the alert could not tell an investigator which
@@ -874,15 +884,17 @@ export class EmployeesService {
    */
   async whoHasLeft(
     companyId: string,
+    since: Date,
   ): Promise<{ employeeId: string; leftOn: Date; siteId?: string }[]> {
     const leavers = await this.prisma.employee.findMany({
-      where: { companyId, status: 'TERMINATED', terminationDate: { not: null } },
+      where: { companyId, status: 'TERMINATED', terminationDate: { gte: since } },
       select: {
         id: true,
         terminationDate: true,
         assignments: { orderBy: { startsOn: 'desc' }, select: { siteId: true }, take: 1 },
       },
-      orderBy: { id: 'asc' },
+      orderBy: { terminationDate: 'desc' },
+      take: LEAVERS_READ,
     });
     return leavers
       .filter(

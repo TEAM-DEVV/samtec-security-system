@@ -63,6 +63,12 @@ export class PayrollFactsService {
       where: {
         companyId,
         run: { status: { in: [...SETTLED] }, periodId: { in: periods.map((row) => row.id) } },
+        // An adjustment line corrects an earlier period's money (docs/plan/09
+        // decision 20). Its minutes are not a claim about the period it sits
+        // in, so judging it against that period's shifts would accuse an
+        // honest correction. What to compare it with is decided when Phase 4
+        // builds adjustments (docs/plan/08 §3).
+        adjustsLineId: null,
       },
       select: {
         id: true,

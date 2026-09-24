@@ -93,6 +93,14 @@ if (beyond > 0) {
 }
 ```
 
+**The gate uses the fixed default on purpose.** Detection's tolerance for R3
+is a number an ADMIN can tune in the `detection_rules` table, but that table
+is detection's, and payroll may not read it — so the two are allowed to
+differ, and the difference is written down: the submission gate is the
+**floor**, fixed at sixty minutes, and the sweep can be made stricter than it
+but never looser in what it refuses. Widening the sweep's tolerance quietens
+the alert queue; it never lets a run through that the gate would have stopped.
+
 Never import anything from `modules/detection`. Detection reads payroll;
 payroll never learns detection exists, and that is what keeps the two from
 importing each other.

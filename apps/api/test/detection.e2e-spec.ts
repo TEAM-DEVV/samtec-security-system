@@ -458,24 +458,25 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
      * database enforces still applies — a run is born a DRAFT and is moved on
      * by an update, exactly as the payroll service will have to.
      */
-    /** One set of rates for the company, made the first time a test needs it. */
-    let taxTableId = '';
-    const rates = async (maker: string) => {
-      if (taxTableId) {
-        return taxTableId;
+    /** One set of rates per year for the company, made the first time a test needs it. */
+    const taxTables = new Map<number, string>();
+    const rates = async (maker: string, year: number) => {
+      const existing = taxTables.get(year);
+      if (existing) {
+        return existing;
       }
       const taxTable = await prisma.taxTable.create({
         data: {
           companyId: company.companyId,
-          taxYear: 2029,
-          effectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          taxYear: year,
+          effectiveFrom: new Date(Date.UTC(year, 0, 1)),
           ssnitEmployeeBasisPoints: 550,
           ssnitEmployerBasisPoints: 1300,
           ssnitTier1BasisPoints: 1350,
           ssnitTier2BasisPoints: 500,
-          sourceName: 'GRA PAYE rates 2029',
+          sourceName: `GRA PAYE rates ${year}`,
           sourceUrl: 'https://gra.gov.gh/domestic-tax/tax-types/paye/',
-          sourceCheckedOn: new Date('2029-01-05T00:00:00Z'),
+          sourceCheckedOn: new Date(Date.UTC(year, 0, 5)),
           createdByUserId: maker,
           bands: {
             create: [
@@ -495,33 +496,51 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
           },
         },
       });
-      taxTableId = taxTable.id;
-      return taxTableId;
+      taxTables.set(year, taxTable.id);
+      return taxTable.id;
     };
 
-    const payslipFor = async (employeeId: string, staffNumber: string, month: number) => {
-      const maker = randomUUID();
-      const rateId = await rates(maker);
-      const period = await prisma.payrollPeriod.create({
-        data: {
-          companyId: company.companyId,
-          year: 2029,
-          month,
-          startsOn: new Date(Date.UTC(2029, month - 1, 1)),
-          endsOn: new Date(Date.UTC(2029, month, 0)),
-          status: 'OPEN',
-        },
-      });
+    /** One set of pay terms per worker, however many payslips they get. */
+    const payTermsIds = new Map<string, string>();
+    const payTermsFor = async (employeeId: string, maker: string) => {
+      const existing = payTermsIds.get(employeeId);
+      if (existing) {
+        return existing;
+      }
       const payTerms = await prisma.employeePayTerms.create({
         data: {
           companyId: company.companyId,
           employeeId,
-          effectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          effectiveFrom: new Date('2020-01-01T00:00:00Z'),
           basicMonthlyPesewas: 200_000,
           overtimeHourlyPesewas: 900,
           createdByUserId: maker,
         },
       });
+      payTermsIds.set(employeeId, payTerms.id);
+      return payTerms.id;
+    };
+
+    const payslipFor = async (
+      employeeId: string,
+      staffNumber: string,
+      month: number,
+      options: { year?: number; submit?: boolean; status?: 'ACTIVE' | 'TERMINATED' } = {},
+    ) => {
+      const { year = 2029, submit = true, status = 'ACTIVE' } = options;
+      const maker = randomUUID();
+      const rateId = await rates(maker, year);
+      const period = await prisma.payrollPeriod.create({
+        data: {
+          companyId: company.companyId,
+          year,
+          month,
+          startsOn: new Date(Date.UTC(year, month - 1, 1)),
+          endsOn: new Date(Date.UTC(year, month, 0)),
+          status: 'OPEN',
+        },
+      });
+      const payTermsId = await payTermsFor(employeeId, maker);
       const run = await prisma.payrollRun.create({
         data: {
           companyId: company.companyId,
@@ -532,7 +551,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
           excludedEmployees: [],
         },
       });
-      const daysInPeriod = new Date(Date.UTC(2029, month, 0)).getUTCDate();
+      const daysInPeriod = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const line = await prisma.payrollLine.create({
         data: {
           companyId: company.companyId,
@@ -540,9 +559,9 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
           employeeId,
           staffNumber,
           fullName: 'Test Person',
-          employeeStatus: 'ACTIVE',
-          payTermsId: payTerms.id,
-          payTermsEffectiveFrom: new Date('2029-01-01T00:00:00Z'),
+          employeeStatus: status,
+          payTermsId,
+          payTermsEffectiveFrom: new Date('2020-01-01T00:00:00Z'),
           basicMonthlyPesewas: 200_000,
           overtimeHourlyPesewas: 900,
           daysInPeriod,
@@ -568,24 +587,55 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
           otherDeductionsPesewas: 0,
           netPayPesewas: 169_500,
           taxTableId: rateId,
-          taxYear: 2029,
+          taxYear: year,
         },
       });
       // A run only means something once somebody has put their name to it.
-      await prisma.payrollRun.update({
-        where: { id: run.id },
+      if (submit) {
+        await prisma.payrollRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'PENDING_APPROVAL',
+            submittedByUserId: maker,
+            submittedAt: new Date(),
+            submissionNote: 'Ready for checking.',
+          },
+        });
+      }
+      return { runId: run.id, lineId: line.id };
+    };
+
+    /** Somebody who left on a given day, with the record a leaver has. */
+    const leaverWhoLeft = async (lastDay: string) => {
+      const worker = await ghost(400);
+      return prisma.employee.update({
+        where: { id: worker.id },
         data: {
-          status: 'PENDING_APPROVAL',
-          submittedByUserId: maker,
-          submittedAt: new Date(),
-          submissionNote: 'Ready for checking.',
+          status: 'TERMINATED',
+          terminationDate: new Date(`${lastDay}T00:00:00.000Z`),
+          terminationReason: 'RESIGNED',
         },
       });
-      return { runId: run.id, lineId: line.id };
     };
 
     it('asks about a payslip paying for a month with no shifts behind it (R3)', async () => {
       const worker = await ghost(400);
+      // One shift in the month, and it was voided: a voided shift did not
+      // happen, so it is not presence, and the month is still empty.
+      await prisma.workSegment.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: worker.id,
+          siteId: company.siteA,
+          workDate: new Date(Date.UTC(2029, 3, 10)),
+          startedAt: new Date(Date.UTC(2029, 3, 10, 6)),
+          endedAt: new Date(Date.UTC(2029, 3, 10, 18)),
+          workedMinutes: 720,
+          basis: 'MANUAL',
+          status: 'VOIDED',
+          voidedAt: new Date(),
+        },
+      });
       const { runId, lineId } = await payslipFor(worker.id, worker.staffNumber, 4);
 
       const ran = await sweep().expect(200);
@@ -640,6 +690,42 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         .set(...bearer(adminToken))
         .expect(200);
       expect(alerts.body.items).toHaveLength(0);
+    });
+
+    it("leaves a clerk's unfinished draft alone (R3)", async () => {
+      const worker = await ghost(400);
+      await payslipFor(worker.id, worker.staffNumber, 6, { submit: false });
+
+      await sweep().expect(200);
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R3', employeeId: worker.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      // A draft is still being worked on. Nobody has put their name to it,
+      // so it is not yet a claim about anything.
+      expect(alerts.body.items).toHaveLength(0);
+    });
+
+    it('asks about somebody still being paid after they left, but not for the month they left in (R6)', async () => {
+      const leaver = await leaverWhoLeft('2026-05-15');
+      // May contains the leaving day and pays the fifteen days they worked;
+      // June began after they had gone.
+      await payslipFor(leaver.id, leaver.staffNumber, 5, { year: 2026, status: 'TERMINATED' });
+      await payslipFor(leaver.id, leaver.staffNumber, 6, { year: 2026, status: 'TERMINATED' });
+
+      await sweep().expect(200);
+
+      const alerts = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R6', employeeId: leaver.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      const found = alerts.body.items[0];
+      expect(found.evidence.leftOn).toBe('2026-05-15');
+      expect(found.evidence.paidPeriodsAfter).toEqual(['2026-06']);
+      expect(found.evidence.punchesAfter).toBe(0);
     });
 
     it('asks about somebody still clocking in after they left (R6)', async () => {
