@@ -5,6 +5,7 @@ import { PayrollModule } from '../payroll/payroll.module.js';
 import { WorkforceModule } from '../workforce/workforce.module.js';
 import { DetectionController } from './detection.controller.js';
 import { DetectionService } from './detection.service.js';
+import { DetectionScheduleController } from './detection-schedule.controller.js';
 
 /**
  * Ghost detection (docs/plan/08-ghost-detection-engine.md). It owns
@@ -18,7 +19,7 @@ import { DetectionService } from './detection.service.js';
  */
 @Module({
   imports: [IdentityModule, WorkforceModule, AttendanceModule, PayrollModule],
-  controllers: [DetectionController],
+  controllers: [DetectionController, DetectionScheduleController],
   providers: [DetectionService],
 })
 export class DetectionModule {}
