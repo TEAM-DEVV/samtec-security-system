@@ -9,9 +9,11 @@ import {
   identityCollision,
   neverSeen,
   orphanPunches,
+  paidWithoutPresence,
   RULE_CATALOGUE,
   robotRegularity,
   SEVERITY_WEIGHT,
+  terminatedButActive,
 } from './detection-rules.js';
 
 const NOW = new Date('2026-09-23T10:00:00.000Z');
@@ -457,15 +459,175 @@ describe('R11 · conflicted decision', () => {
   });
 });
 
+describe('R3 · paid without presence', () => {
+  const line = {
+    lineId: 'line-1',
+    runId: 'run-1',
+    employeeId: 'ghost',
+    period: '2026-08',
+    periodStartsOn: new Date('2026-08-01T00:00:00.000Z'),
+    periodEndsOn: new Date('2026-08-31T00:00:00.000Z'),
+    paidMinutes: 9600,
+    presentMinutes: 9600,
+    manualMinutes: 0,
+    fallbackMinutes: 0,
+  };
+
+  it('says nothing when the shifts behind a payslip cover it', () => {
+    expect(paidWithoutPresence([line], { toleranceMinutes: 60 }, NOW)).toEqual([]);
+  });
+
+  it('names a payslip paying for a month nobody worked', () => {
+    const found = paidWithoutPresence(
+      [{ ...line, presentMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('ghost');
+    expect(found[0]?.evidence).toEqual({
+      period: '2026-08',
+      runId: 'run-1',
+      lineId: 'line-1',
+      paidMinutes: 9600,
+      presentMinutes: 0,
+      beyondToleranceMinutes: 9540,
+      manualMinutes: 0,
+      fallbackMinutes: 0,
+    });
+    // The window is the period, not the sweep: an investigator opens August.
+    expect(found[0]?.windowFrom).toEqual(line.periodStartsOn);
+    expect(found[0]?.windowTo).toEqual(line.periodEndsOn);
+    // One per line, ever. A submitted line never changes again.
+    expect(found[0]?.dedupeKey).toBe('R3:line-1');
+  });
+
+  it('forgives a shift rounded to the minute, and moves with its threshold', () => {
+    const overByAnHour = [{ ...line, paidMinutes: 9660 }];
+
+    expect(paidWithoutPresence(overByAnHour, { toleranceMinutes: 60 }, NOW)).toEqual([]);
+    expect(paidWithoutPresence(overByAnHour, { toleranceMinutes: 30 }, NOW)).toHaveLength(1);
+  });
+
+  it('carries the split, so a checker sees what the hours rest on', () => {
+    const found = paidWithoutPresence(
+      // Nine hundred minutes present, and every one of them typed in by hand.
+      [{ ...line, presentMinutes: 900, manualMinutes: 900, fallbackMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(found[0]?.evidence.manualMinutes).toBe(900);
+    expect(found[0]?.evidence.presentMinutes).toBe(900);
+  });
+
+  it('says nothing about money, only about minutes', () => {
+    const found = paidWithoutPresence(
+      [{ ...line, presentMinutes: 0 }],
+      { toleranceMinutes: 60 },
+      NOW,
+    );
+
+    expect(JSON.stringify(found)).not.toMatch(/pesewa|net|gross|bank/i);
+  });
+});
+
+describe('R6 · terminated but active', () => {
+  const leaver = {
+    employeeId: 'kojo',
+    siteId: 'site-a',
+    leftOn: new Date('2026-06-15T00:00:00.000Z'),
+    punchesAfter: 0,
+    paidPeriods: [] as { period: string; startsOn: Date }[],
+  };
+  const month = (year: number, month: number) => ({
+    period: `${year}-${String(month).padStart(2, '0')}`,
+    startsOn: new Date(Date.UTC(year, month - 1, 1)),
+  });
+
+  it('leaves alone somebody who left and stopped', () => {
+    expect(terminatedButActive([leaver], {}, NOW)).toEqual([]);
+  });
+
+  it('names a leaver who is still clocking in', () => {
+    const found = terminatedButActive(
+      [{ ...leaver, punchesAfter: 14, lastPunchOn: '2026-09-22' }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('kojo');
+    expect(found[0]?.siteId).toBe('site-a');
+    expect(found[0]?.evidence).toEqual({
+      leftOn: '2026-06-15',
+      punchesAfter: 14,
+      lastPunchOn: '2026-09-22',
+      paidPeriodsAfter: [],
+    });
+  });
+
+  it('names a leaver who is still being paid, with no punches at all', () => {
+    const found = terminatedButActive(
+      [{ ...leaver, paidPeriods: [month(2026, 8), month(2026, 7)] }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07', '2026-08']);
+    expect(found[0]?.evidence.punchesAfter).toBe(0);
+  });
+
+  it('does not count the month they left in, only the ones that began after', () => {
+    // Left on the 15th of June: June's payslip covers the days they worked,
+    // and May's is history. July's is the question.
+    const found = terminatedButActive(
+      [{ ...leaver, paidPeriods: [month(2026, 5), month(2026, 6), month(2026, 7)] }],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.paidPeriodsAfter).toEqual(['2026-07']);
+  });
+
+  it('treats a period beginning on the leaving day itself as theirs', () => {
+    // Left on the first of the month: that month's payslip pays one day.
+    const leftOnTheFirst = { ...leaver, leftOn: new Date('2026-07-01T00:00:00.000Z') };
+
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 7)] }], {}, NOW),
+    ).toEqual([]);
+    expect(
+      terminatedButActive([{ ...leftOnTheFirst, paidPeriods: [month(2026, 8)] }], {}, NOW),
+    ).toHaveLength(1);
+  });
+
+  it('asks again next month, but not again tomorrow', () => {
+    const still = [{ ...leaver, punchesAfter: 1 }];
+    const tomorrow = new Date('2026-09-24T10:00:00.000Z');
+    const nextMonth = new Date('2026-10-01T10:00:00.000Z');
+
+    const today = terminatedButActive(still, {}, NOW)[0]?.dedupeKey;
+
+    expect(terminatedButActive(still, {}, tomorrow)[0]?.dedupeKey).toBe(today);
+    expect(terminatedButActive(still, {}, nextMonth)[0]?.dedupeKey).not.toBe(today);
+  });
+});
+
 describe('the catalogue', () => {
-  it('has all eleven rules, and says which are built', () => {
+  it('has all eleven rules, and every one of them is built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
     // A rule that is not built yet must never read as a clean bill of health.
     expect(RULE_CATALOGUE.filter((rule) => rule.built).map((rule) => rule.code)).toEqual([
       'R1',
       'R2',
+      'R3',
       'R4',
       'R5',
+      'R6',
       'R7',
       'R8',
       'R9',

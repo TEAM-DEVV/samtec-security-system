@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { toAccraDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Minutes past midnight in Accra, asked of the time zone database. */
 function accraMinuteOfDay(instant: Date): number {
   const [hour, minute] = ACCRA_CLOCK.format(instant).split(':');
@@ -11,8 +13,7 @@ function accraMinuteOfDay(instant: Date): number {
 /** Every calendar day from one moment to another, inclusive, in Accra. */
 function daysBetween(from: Date, to: Date): string[] {
   const days: string[] = [];
-  const oneDay = 24 * 60 * 60 * 1000;
-  for (let at = from.getTime(); at <= to.getTime(); at += oneDay) {
+  for (let at = from.getTime(); at <= to.getTime(); at += DAY_MS) {
     days.push(toAccraDate(new Date(at)));
   }
   const last = toAccraDate(to);
@@ -551,5 +552,96 @@ export class AttendanceFactsService {
       punches: row.punches,
       numbersTried: [...row.numbersTried].sort(),
     }));
+  }
+
+  /**
+   * How many confirmed minutes each worker was actually on shift inside each
+   * payroll period (rule R3), and how many of those minutes rest on something
+   * other than a face.
+   *
+   * The key of the map is `<periodId>:<employeeId>`. Periods are months, so
+   * there are never many of them, and one query per period keeps each one a
+   * plain indexed range over `work_date`.
+   *
+   * Only `CONFIRMED` counts: a disputed shift is still being argued about and
+   * a voided one did not happen — the same rule payroll itself pays by.
+   */
+  async presentMinutesPerPeriod(
+    companyId: string,
+    periods: readonly { periodId: string; startsOn: Date; endsOn: Date }[],
+  ): Promise<Map<string, { minutes: number; manualMinutes: number; fallbackMinutes: number }>> {
+    const present = new Map<
+      string,
+      { minutes: number; manualMinutes: number; fallbackMinutes: number }
+    >();
+    const perPeriod = await Promise.all(
+      periods.map(async (period) => ({
+        periodId: period.periodId,
+        rows: await this.prisma.workSegment.groupBy({
+          by: ['employeeId', 'basis'],
+          where: {
+            companyId,
+            status: 'CONFIRMED',
+            workDate: { gte: period.startsOn, lte: period.endsOn },
+          },
+          _sum: { workedMinutes: true },
+        }),
+      })),
+    );
+    for (const { periodId, rows } of perPeriod) {
+      for (const row of rows) {
+        const key = `${periodId}:${row.employeeId}`;
+        const running = present.get(key) ?? { minutes: 0, manualMinutes: 0, fallbackMinutes: 0 };
+        const minutes = row._sum.workedMinutes ?? 0;
+        running.minutes += minutes;
+        if (row.basis === 'MANUAL') {
+          running.manualMinutes += minutes;
+        }
+        if (row.basis === 'PIN_FALLBACK') {
+          running.fallbackMinutes += minutes;
+        }
+        present.set(key, running);
+      }
+    }
+    return present;
+  }
+
+  /**
+   * Punches that arrived for somebody after the day they left (rule R6).
+   *
+   * It asks by **server time**, not device time. The server's clock is the
+   * one nobody holding a terminal can move, and a punch dated last month by a
+   * device that arrived today is exactly the shape this rule is looking for.
+   */
+  async punchesAfterLeaving(
+    companyId: string,
+    leavers: readonly { employeeId: string; leftOn: Date }[],
+  ): Promise<Map<string, { punches: number; lastPunchOn: string }>> {
+    if (leavers.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.punchEvent.groupBy({
+      by: ['employeeId'],
+      where: {
+        companyId,
+        OR: leavers.map((leaver) => ({
+          employeeId: leaver.employeeId,
+          // The day they left is theirs: the clock-out of a last shift is not
+          // a ghost. Anything from the day after is.
+          serverTime: { gte: new Date(leaver.leftOn.getTime() + DAY_MS) },
+        })),
+      },
+      _count: { _all: true },
+      _max: { serverTime: true },
+    });
+    const after = new Map<string, { punches: number; lastPunchOn: string }>();
+    for (const row of rows) {
+      const last = row._max.serverTime;
+      if (row.employeeId === null || last === null) {
+        continue;
+      }
+      after.set(row.employeeId, { punches: row._count._all, lastPunchOn: toAccraDate(last) });
+    }
+    return after;
   }
 }
