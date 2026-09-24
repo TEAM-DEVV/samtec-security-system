@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
+import { fetchClient } from '@/lib/api';
 import { mockDevices } from '@/mocks/data/devices';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
@@ -68,6 +69,35 @@ describe('DeviceDetailPage', () => {
 
     unmount();
     await waitFor(() => expect(queryClient.getMutationCache().getAll()).toEqual([]));
+  });
+
+  it('refuses to let the administrator who issued a key switch the device on', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    // Registering issues the key, so this administrator is its issuer.
+    const made = await fetchClient.POST('/devices', {
+      body: {
+        name: 'Two-person gate',
+        siteId: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01',
+        kind: 'MOCK',
+      },
+    });
+    const deviceId = made.data?.device.id ?? '';
+    renderDevicePage(deviceId);
+    await screen.findByRole('heading', { name: 'Two-person gate' });
+
+    // It arrives switched off, and says why in plain words.
+    expect(
+      screen.getByText(/whoever issued that key cannot be the one to switch it on/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Switch on' }));
+
+    // Said twice on purpose: beside the button, and in the error panel.
+    expect(
+      await screen.findAllByText(/another administrator must switch the device on/),
+    ).not.toHaveLength(0);
+    // Still switched off, so the button is still there for somebody else.
+    expect(screen.getByRole('button', { name: 'Switch on' })).toBeInTheDocument();
   });
 
   it('offers the fingerprint switch only on a kiosk', async () => {

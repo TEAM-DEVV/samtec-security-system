@@ -6,6 +6,7 @@ import { CONSENT_TEXT_SHA256 } from '../src/modules/attendance/consent-text.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
+  activateDevice,
   createAttendanceCompany,
   signedPost,
   type TestDevice,
@@ -43,6 +44,7 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name, siteId, kind: 'ZKTECO' })
       .expect(201);
+    await activateDevice(app, company, registered.body.device.id);
     return { id: registered.body.device.id, secret: registered.body.secret } as TestDevice;
   };
 
@@ -116,6 +118,7 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name: 'Consent kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, kiosk.body.device.id);
     consentKiosk = kiosk.body.device.id;
   }, 120_000);
 
@@ -174,6 +177,7 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
         .set(...bearer(adminToken))
         .send({ name: 'Roster kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      await activateDevice(app, company, kiosk.body.device.id);
 
       await signedPost(
         app,
@@ -215,6 +219,7 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
         .set(...bearer(adminToken))
         .send({ name: 'Window kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      await activateDevice(app, company, kiosk.body.device.id);
       const posted = await newWorker();
       const elsewhere = await newWorker({ siteId: company.siteB });
       const noConsent = await newWorker({ consent: false });

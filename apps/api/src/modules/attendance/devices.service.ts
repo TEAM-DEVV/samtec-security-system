@@ -100,10 +100,14 @@ export class DevicesService {
             name: body.name,
             kind: body.kind,
             secretEncrypted: sealSecret(secret, this.secretKey),
-            // A kiosk sets itself up, but its key does nothing until an ADMIN
-            // switches it on from the dashboard, so a kiosk session alone can
-            // never make a working key (docs/plan/13 section 3).
-            ...(viewer.onKiosk ? { status: 'INACTIVE' as const } : {}),
+            // **Every new key is born switched off** (Phase 7): a device key
+            // can post punches, so one person never both issues one and puts
+            // it to work. Somebody else switches it on, having seen the device
+            // is really on the wall (docs/plan/06, "Two administrators"). This
+            // was already true of a kiosk setting itself up (docs/plan/13 §3);
+            // now it is true of every device.
+            status: 'INACTIVE',
+            keyIssuedByUserId: viewer.userId,
           },
         });
         await this.audit.record(
@@ -113,7 +117,7 @@ export class DevicesService {
             action: 'device.registered',
             entityType: 'device',
             entityId: created.id,
-            detail: { siteId: body.siteId, kind: body.kind },
+            detail: { siteId: body.siteId, kind: body.kind, status: 'INACTIVE' },
           },
           tx,
         );
@@ -137,9 +141,20 @@ export class DevicesService {
         'Only a face kiosk can use its own fingerprint sensor.',
       );
     }
+    const switchingOn = body.status === 'ACTIVE' && current.status !== 'ACTIVE';
+    const activation = switchingOn ? await this.whoSwitchesOn(viewer, current) : undefined;
     try {
       const device = await this.prisma.$transaction(async (tx) => {
-        const updated = await tx.device.update({ where: { id: deviceId }, data: body });
+        const updated = await tx.device.update({
+          where: { id: deviceId },
+          data: {
+            ...body,
+            ...activation?.columns,
+            // Switching a device off clears who switched it on: the next time
+            // it goes back on, somebody has to answer for it again.
+            ...(body.status === 'INACTIVE' ? { activatedByUserId: null } : {}),
+          },
+        });
         // Switching fingerprints off revokes every key still live on the
         // device, so the change is always visible: its workers clock in
         // face-only until their fingers are saved again.
@@ -160,6 +175,7 @@ export class DevicesService {
             detail: {
               changedFields: Object.keys(body).join(','),
               ...(revoked ? { revokedPasskeys: revoked.count } : {}),
+              ...activation?.auditDetail,
             },
           },
           tx,
@@ -184,11 +200,13 @@ export class DevicesService {
         where: { id: deviceId },
         data: {
           secretEncrypted: sealSecret(secret, this.secretKey),
-          // A kiosk re-keys itself after losing its storage, but the new key
-          // does nothing until an ADMIN switches the device on again from the
-          // dashboard. So a kiosk session can never make a working key, not
-          // even out of a kiosk that was already running (docs/plan/13 §3).
-          ...(viewer.onKiosk ? { status: 'INACTIVE' as const } : {}),
+          // A new key is a new key: it does nothing until somebody else
+          // switches the device on again (Phase 7, docs/plan/06). Rotating is
+          // how a stolen device is dealt with, so it must not be the way one
+          // person quietly gets a working key of their own.
+          status: 'INACTIVE',
+          keyIssuedByUserId: viewer.userId,
+          activatedByUserId: null,
         },
       });
       await this.audit.record(
@@ -204,6 +222,50 @@ export class DevicesService {
       return updated;
     });
     return { device: toApiDevice(device), secret };
+  }
+
+  /**
+   * Who may switch a device on, and what that writes (Phase 7, docs/plan/06,
+   * "Two administrators").
+   *
+   * **Never the person who issued the key.** A device key can post punches,
+   * so the second administrator is the one who checks that the device is
+   * really on the wall at that site. Switching a device **off** is open to
+   * anybody: it only ever takes power away.
+   *
+   * The one exception is a company with a single administrator, who has
+   * nobody to ask. It is audited as `SOLE_ADMINISTRATOR`, and the
+   * database CHECK stays satisfied because nobody else is recorded.
+   */
+  private async whoSwitchesOn(
+    viewer: SignedInUser,
+    device: Device,
+  ): Promise<{
+    columns: { activatedByUserId: string | null };
+    auditDetail: { activation?: 'SOLE_ADMINISTRATOR' };
+  }> {
+    if (device.keyIssuedByUserId === null || device.keyIssuedByUserId !== viewer.userId) {
+      // Either nobody is recorded (a device older than the rule, or the
+      // seed's), or somebody else issued the key. Both are fine.
+      return { columns: { activatedByUserId: viewer.userId }, auditDetail: {} };
+    }
+    const administrators = await this.prisma.user.count({
+      where: {
+        companyId: viewer.companyId,
+        role: 'ADMIN',
+        isActive: true,
+        id: { not: viewer.userId },
+      },
+    });
+    if (administrators > 0) {
+      throw new ConflictException(
+        'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
+      );
+    }
+    return {
+      columns: { activatedByUserId: null },
+      auditDetail: { activation: 'SOLE_ADMINISTRATOR' },
+    };
   }
 
   /** The plain secret of a device, for checking its signatures. Null if it cannot be opened. */

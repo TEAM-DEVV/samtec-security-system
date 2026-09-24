@@ -43,8 +43,8 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     company = await createAttendanceCompany(prisma);
     app = await createDbTestApp(databaseUrl as string);
     tokens = await tokensFor(app, company);
-    gateA = await registerDevice(app, tokens.admin, company.siteA, 'Queue gate A');
-    gateB = await registerDevice(app, tokens.admin, company.siteB, 'Queue gate B');
+    gateA = await registerDevice(app, company, company.siteA, 'Queue gate A');
+    gateB = await registerDevice(app, company, company.siteB, 'Queue gate B');
 
     const punch = (ref: string, deviceTime: string, direction: 'IN' | 'OUT') => {
       events += 1;

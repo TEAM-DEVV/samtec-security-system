@@ -122,6 +122,8 @@ function DeviceRecord({ device }: { device: Device }) {
             <CardTitle className="font-heading text-lg">Settings</CardTitle>
             <CardDescription>
               A device stays at its site for life; register it again to move it.
+              {switchedOff &&
+                ' Its key does nothing while it is switched off, and whoever issued that key cannot be the one to switch it on — somebody else checks the device is really at the site.'}
             </CardDescription>
           </CardHeader>
           <CardContent>

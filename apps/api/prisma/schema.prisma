@@ -554,6 +554,15 @@ model Device {
   kind                  DeviceKind
   status                DeviceStatus @default(ACTIVE)
   secretEncrypted       String       @map("secret_encrypted")
+  /// Phase 7: a device key can post punches, so one person never issues one
+  /// and switches it on. Whoever registered the device or last rotated its
+  /// secret is recorded here, and somebody else must switch it on (a database
+  /// CHECK, and docs/plan/06, "Two administrators"). Empty on devices made
+  /// before the rule and by the seed, which any administrator may switch on.
+  keyIssuedByUserId     String?      @map("key_issued_by_user_id") @db.Uuid
+  /// Who switched it on. Empty when nobody else was needed: the company had
+  /// one administrator, or the device predates the rule.
+  activatedByUserId     String?      @map("activated_by_user_id") @db.Uuid
   lastSeenAt            DateTime?    @map("last_seen_at") @db.Timestamptz(3)
   /// The device clock minus the server clock at its last report (positive = fast).
   lastClockDriftSeconds Int?         @map("last_clock_drift_seconds")

@@ -6,7 +6,11 @@ import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { AttendanceFactsService } from '../src/modules/attendance/attendance-facts.service.js';
 import { CONSENT_TEXT_SHA256 } from '../src/modules/attendance/consent-text.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
-import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  activateDevice,
+  createAttendanceCompany,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -100,6 +104,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name: 'Detection kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, kiosk.body.device.id);
     consentKiosk = kiosk.body.device.id;
     coSignKiosk = kiosk.body.device.id;
   }, 120_000);

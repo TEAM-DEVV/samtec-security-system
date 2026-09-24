@@ -7,6 +7,7 @@ import { signRequest } from '../src/modules/attendance/device-signature.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
+  activateDevice,
   createAttendanceCompany,
   signedPost,
 } from './attendance-fixture.js';
@@ -134,6 +135,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         .set(...bearer(enroller))
         .send({ name, siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      await activateDevice(app, company, registered.body.device.id);
       kiosk = { id: registered.body.device.id, secret: registered.body.secret };
     }, 60_000);
 
@@ -176,6 +178,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       .set(...bearer(enroller))
       .send({ name: 'People rules kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, registered.body.device.id);
     kiosk = { id: registered.body.device.id, secret: registered.body.secret };
   }, 120_000);
 
@@ -1106,6 +1109,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         .set(...bearer(enroller))
         .send({ name: 'Retention kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      await activateDevice(app, company, registered.body.device.id);
       kiosk = { id: registered.body.device.id, secret: registered.body.secret };
       // Fingerprint keys are only saved on a kiosk that has them switched on.
       await prisma.device.update({ where: { id: kiosk.id }, data: { passkeysEnabled: true } });
