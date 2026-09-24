@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
+  conflictedDecision,
   deviceAnomaly,
   duplicateEnrollment,
   fallbackAbuse,
@@ -351,6 +352,111 @@ describe('R9 · device anomaly', () => {
   });
 });
 
+describe('R11 · conflicted decision', () => {
+  const decision = {
+    kind: 'duplicate review' as const,
+    recordId: 'face-9',
+    employeeIds: ['abena', 'grace'],
+    subjectEmployeeId: 'abena',
+    decidedByUserId: 'admin-one',
+    decidedAt: daysAgo(2),
+  };
+
+  it('finds nothing when the two-person rule held, which is the normal answer', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-three', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    // This rule is a backstop, not a detector: an empty answer is the one
+    // it should almost always give.
+    expect(found).toEqual([]);
+  });
+
+  it('does not report a decision for the wipe that the decision itself made', () => {
+    // Settling a duplicate as one person wipes the losing record, stamped
+    // with the decider's own name in the same breath as the decision. Every
+    // by-the-book resolution would otherwise report itself, and the rule
+    // would be noise inside a week.
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: decision.decidedAt },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toEqual([]);
+  });
+
+  it('names a decision settled by somebody who had already had a hand in it', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        // The same ADMIN enrolled the other record's face, then decided
+        // whether the two were the same person.
+        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.employeeId).toBe('abena');
+    expect(found[0]?.evidence.alsoDid).toEqual(['enrolled']);
+    // The history is with Grace, though the alert lands on Abena's file: a
+    // checker cannot act on an alert that does not say which.
+    expect(found[0]?.evidence.concerningEmployeeIds).toEqual(['grace']);
+    expect(found[0]?.dedupeKey).toBe('R11:review:face-9');
+    // An alert about a decision is not a file on the person who made it.
+    expect(JSON.stringify(found)).not.toMatch(/name|email/i);
+  });
+
+  it('lists every way the same person was already involved, once each', () => {
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'abena', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
+      ],
+      {},
+      NOW,
+    );
+
+    expect(found[0]?.evidence.alsoDid).toEqual(['wiped', 'withdrew']);
+  });
+
+  it('tells an exemption apart from a duplicate review', () => {
+    const found = conflictedDecision(
+      [
+        {
+          kind: 'exemption',
+          recordId: 'exemption-3',
+          employeeIds: ['kwame'],
+          subjectEmployeeId: 'kwame',
+          decidedByUserId: 'admin-one',
+          decidedAt: daysAgo(1),
+        },
+      ],
+      [{ employeeId: 'kwame', userId: 'admin-one', did: 'withdrew', at: daysAgo(30) }],
+      {},
+      NOW,
+    );
+
+    expect(found[0]?.dedupeKey).toBe('R11:exemption:exemption-3');
+    expect(found[0]?.evidence.decision).toBe('exemption');
+  });
+});
+
 describe('the catalogue', () => {
   it('has all eleven rules, and says which are built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
@@ -364,6 +470,7 @@ describe('the catalogue', () => {
       'R8',
       'R9',
       'R10',
+      'R11',
     ]);
   });
 

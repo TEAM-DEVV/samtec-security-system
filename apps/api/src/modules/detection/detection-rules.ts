@@ -125,7 +125,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A two-person decision settled by somebody who should not have settled it.',
     severity: 'HIGH',
     thresholds: {},
-    built: false,
+    built: true,
   },
 ];
 
@@ -432,6 +432,108 @@ export function fallbackAbuse(
  */
 function fingerprintOf(value: string, key: Buffer): string {
   return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
+}
+
+// --- R11 · Conflicted decision ------------------------------------------------
+
+export interface TwoPersonDecision {
+  kind: 'duplicate review' | 'exemption';
+  /** The record or request that was decided. */
+  recordId: string;
+  /** Everybody the decision was about: one worker, or the two in a duplicate review. */
+  employeeIds: string[];
+  /** The worker the alert is filed against. */
+  subjectEmployeeId: string;
+  decidedByUserId: string;
+  decidedAt: Date;
+}
+
+/** Who already had a hand in a worker's biometrics, and how. */
+export interface HandsOn {
+  employeeId: string;
+  userId: string;
+  /** What they did: enrolled a face, wiped one, or recorded a withdrawal. */
+  did: 'enrolled' | 'wiped' | 'withdrew';
+  /** When. A hand the decision itself made is not a hand they had **before** it. */
+  at: Date;
+}
+
+/**
+ * A two-person decision settled by somebody with a hand in it already.
+ *
+ * **This one is expected to fire**, and it is worth being clear why, because
+ * it is easy to read it the wrong way round.
+ *
+ * The direct links are refused outright: a database CHECK stops an ADMIN
+ * deciding the review of a face they enrolled themselves, and the service
+ * stops anybody who wiped a face for either worker, or recorded their
+ * withdrawal. Those are never allowed, so a finding pointing at one means
+ * something is wrong with **this system** — a migration or a repair script
+ * that went round the rules.
+ *
+ * The **indirect** link is a different thing, and it is allowed on purpose.
+ * An ADMIN who enrolled the *other* worker's face may still decide the
+ * review, because refusing that would deadlock a company with two ADMINs in
+ * the ordinary case — two brothers enrolled by different people
+ * (docs/plan/13 §2, decision 13). Those decisions are **flagged, not
+ * blocked**, and showing them to the payroll checker is the whole job of
+ * this rule. A finding there is routine and worth a look; it is not a bug
+ * report.
+ *
+ * What it never is, either way, is a finding about the worker. Nobody is
+ * accused of anything by a rule about who signed a form.
+ */
+export function conflictedDecision(
+  decisions: readonly TwoPersonDecision[],
+  hands: readonly HandsOn[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  const byEmployee = new Map<string, HandsOn[]>();
+  for (const hand of hands) {
+    byEmployee.set(hand.employeeId, [...(byEmployee.get(hand.employeeId) ?? []), hand]);
+  }
+  return decisions.flatMap((decision) => {
+    const clashes = decision.employeeIds
+      .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
+      .filter((hand) => hand.userId === decision.decidedByUserId)
+      // **Only a hand they had before.** Settling a duplicate as one person
+      // wipes the losing record, stamped with the decider's own name in the
+      // same breath as the decision — so without this, every by-the-book
+      // resolution would report itself, and the rule would be noise within
+      // a week.
+      .filter((hand) => hand.at.getTime() < decision.decidedAt.getTime());
+    if (clashes.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ruleCode: 'R11' as const,
+        // One per decision, ever: it is one question about one record, and
+        // the answer cannot change by asking again.
+        dedupeKey: `R11:${decision.kind === 'exemption' ? 'exemption' : 'review'}:${decision.recordId}`,
+        employeeId: decision.subjectEmployeeId,
+        windowFrom: clashes.reduce(
+          (earliest, hand) => (hand.at < earliest ? hand.at : earliest),
+          decision.decidedAt,
+        ),
+        windowTo: now,
+        evidence: {
+          decision: decision.kind,
+          recordId: decision.recordId,
+          // What the same person had already done. Never their name: an
+          // alert about a decision is not a file on the person who made it.
+          alsoDid: [...new Set(clashes.map((hand) => hand.did))].sort(),
+          // **Which worker** the earlier involvement was with. On a duplicate
+          // review the alert lands on one file while the history may be with
+          // the other, and a checker cannot act on an alert that does not say
+          // which.
+          concerningEmployeeIds: [...new Set(clashes.map((hand) => hand.employeeId))].sort(),
+          decidedByUserId: decision.decidedByUserId,
+        },
+      },
+    ];
+  });
 }
 
 // --- R8 · Robot regularity ---------------------------------------------------

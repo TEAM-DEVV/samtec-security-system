@@ -248,6 +248,144 @@ export class AttendanceFactsService {
   }
 
   /**
+   * Every two-person decision already on the record, and everybody who had
+   * a hand in those workers' biometrics before it (rule R11).
+   *
+   * It reads the decisions and the hands separately and lets the rule put
+   * them together, so the comparison itself can be tested without a
+   * database.
+   */
+  async twoPersonDecisions(companyId: string): Promise<{
+    decisions: {
+      kind: 'duplicate review' | 'exemption';
+      recordId: string;
+      employeeIds: string[];
+      subjectEmployeeId: string;
+      decidedByUserId: string;
+      decidedAt: Date;
+    }[];
+    hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[];
+  }> {
+    const [reviews, exemptions] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: {
+          companyId,
+          kind: 'FACE',
+          verdict: { not: null },
+          resolvedByUserId: { not: null },
+          resolvedAt: { not: null },
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          collisionEmployeeId: true,
+          resolvedByUserId: true,
+          resolvedAt: true,
+        },
+      }),
+      this.prisma.biometricExemption.findMany({
+        where: { companyId, reviewedByUserId: { not: null }, reviewedAt: { not: null } },
+        select: { id: true, employeeId: true, reviewedByUserId: true, reviewedAt: true },
+      }),
+    ]);
+
+    // Who decided and when are stored together or not at all — a database
+    // CHECK on each table says so — and both queries above ask for both. The
+    // narrowing below is how TypeScript is told that; it is not a place where
+    // a half-decided row quietly turns into a decision dated 1970, which would
+    // have hidden it from the rule rather than raised it.
+    const decisions = [
+      ...reviews
+        .filter(
+          (row): row is typeof row & { resolvedByUserId: string; resolvedAt: Date } =>
+            row.resolvedByUserId !== null && row.resolvedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'duplicate review' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId, row.collisionEmployeeId].filter(
+            (id): id is string => id !== null,
+          ),
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.resolvedByUserId,
+          decidedAt: row.resolvedAt,
+        })),
+      ...exemptions
+        .filter(
+          (row): row is typeof row & { reviewedByUserId: string; reviewedAt: Date } =>
+            row.reviewedByUserId !== null && row.reviewedAt !== null,
+        )
+        .map((row) => ({
+          kind: 'exemption' as const,
+          recordId: row.id,
+          employeeIds: [row.employeeId],
+          subjectEmployeeId: row.employeeId,
+          decidedByUserId: row.reviewedByUserId,
+          decidedAt: row.reviewedAt,
+        })),
+    ];
+    if (decisions.length === 0) {
+      return { decisions: [], hands: [] };
+    }
+
+    const involved = [...new Set(decisions.flatMap((decision) => decision.employeeIds))];
+    const [credentials, withdrawals] = await Promise.all([
+      this.prisma.biometricCredential.findMany({
+        where: { companyId, employeeId: { in: involved } },
+        select: {
+          employeeId: true,
+          enrolledByUserId: true,
+          enrolledAt: true,
+          wipedByUserId: true,
+          wipedAt: true,
+        },
+      }),
+      this.prisma.biometricConsent.findMany({
+        where: { companyId, employeeId: { in: involved }, status: 'WITHDRAWN' },
+        select: { employeeId: true, recordedByUserId: true, recordedAt: true },
+      }),
+    ]);
+    const hands: {
+      employeeId: string;
+      userId: string;
+      did: 'enrolled' | 'wiped' | 'withdrew';
+      at: Date;
+    }[] = [];
+    for (const credential of credentials) {
+      if (credential.enrolledByUserId) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.enrolledByUserId,
+          did: 'enrolled',
+          at: credential.enrolledAt,
+        });
+      }
+      if (credential.wipedByUserId && credential.wipedAt) {
+        hands.push({
+          employeeId: credential.employeeId,
+          userId: credential.wipedByUserId,
+          did: 'wiped',
+          at: credential.wipedAt,
+        });
+      }
+    }
+    for (const withdrawal of withdrawals) {
+      hands.push({
+        employeeId: withdrawal.employeeId,
+        userId: withdrawal.recordedByUserId,
+        did: 'withdrew',
+        at: withdrawal.recordedAt,
+      });
+    }
+    return { decisions, hands };
+  }
+
+  /**
    * What time each worker clocked in, day by day, since `from` (rule R8).
    *
    * One time per calendar day — the first clock-in of that day — because a

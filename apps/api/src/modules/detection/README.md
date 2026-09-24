@@ -56,5 +56,25 @@ R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
 **and** for the supervisor doing the letting in), R8 (robot regularity), R9
 (device anomaly, against a device's own history) and R10 (orphan punches).
 
-R11 is still in the catalogue, switched off and reported as skipped; R3 and
-R6 wait for payroll.
+**Nine of eleven.** Only R3 and R6 are left.
+
+R11 reads two ways at once, so it is worth being plain about both.
+
+The **direct** links are refused outright when the decision is made: a
+database CHECK stops an ADMIN deciding the review of a face they enrolled
+themselves, and the service stops anybody who wiped a face for either worker
+or recorded their withdrawal. A finding pointing at one of those is about
+**this system** — a migration or a repair script that went round the rules —
+and not about a worker.
+
+The **indirect** link is allowed on purpose and is expected to show up. An
+ADMIN who enrolled the *other* worker's face may still decide the review,
+because refusing that would deadlock a company with two ADMINs
+([docs/plan/13-biometrics-design.md](../../../../../docs/plan/13-biometrics-design.md),
+§2 decision 13). Those decisions are flagged, not blocked, and putting them in
+front of the payroll checker is the whole job of this rule.
+
+Either way the alert is about who signed the form, never about the worker
+named on it. A hand the decision itself made — the losing record wiped in the
+same transaction that settled it — is not counted, or every by-the-book
+resolution would report itself.
