@@ -6,6 +6,9 @@ import { RequireSession } from '@/components/require-session';
 import { pageRoles } from '@/lib/roles';
 import { AttendancePage } from '@/pages/attendance-page';
 import { ChangePasswordPage } from '@/pages/change-password-page';
+import { DetectionAlertPage } from '@/pages/detection-alert-page';
+import { DetectionPage } from '@/pages/detection-page';
+import { DetectionRulesPage } from '@/pages/detection-rules-page';
 import { DeviceDetailPage } from '@/pages/device-detail-page';
 import { DevicesPage } from '@/pages/devices-page';
 import { DuplicateFacesPage } from '@/pages/duplicate-faces-page';
@@ -180,6 +183,30 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.devices}>
             <DeviceDetailPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'detection',
+        element: (
+          <RequireRole roles={pageRoles.detection}>
+            <DetectionPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'detection/rules',
+        element: (
+          <RequireRole roles={pageRoles.detection}>
+            <DetectionRulesPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'detection/alerts/:alertId',
+        element: (
+          <RequireRole roles={pageRoles.detection}>
+            <DetectionAlertPage />
           </RequireRole>
         ),
       },

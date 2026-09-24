@@ -35,6 +35,12 @@ export const routes = {
     deviceId ? `/devices/attempts?deviceId=${encodeURIComponent(deviceId)}` : '/devices/attempts',
   /** The duplicate-enrollment queue: faces that looked like someone already enrolled (ADMIN only). */
   duplicateFaces: '/biometrics/duplicates',
+  /** The ghost-detection queue (Phase 5): ADMIN and HR_PAYROLL. */
+  detection: '/detection',
+  /** One alert, with its evidence and the way to answer it. */
+  detectionAlert: (alertId: string) => `/detection/alerts/${encodeURIComponent(alertId)}`,
+  /** The eleven rules and their numbers. Everyone who sees the queue may read them; ADMIN changes them. */
+  detectionRules: '/detection/rules',
   /** The 6-digit code screen, after a sign-in answered TWO_FACTOR_REQUIRED. */
   twoFactorVerify: '/login/two-factor',
   /** The QR code screen, after a sign-in answered TWO_FACTOR_SETUP_REQUIRED. */

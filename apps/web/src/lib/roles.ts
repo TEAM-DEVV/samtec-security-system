@@ -51,6 +51,10 @@ export const pageRoles = {
   duplicateFaces: ['ADMIN'],
   /** `GET /attendance/clock-in-attempts`: every attempt at the kiosks. */
   kioskAttempts: ['ADMIN'],
+  /** `GET /detection/alerts`, `GET /detection/rules` and resolving an alert. A supervisor is themselves a subject of rule R7, so never sees this queue. */
+  detection: ['ADMIN', 'HR_PAYROLL'],
+  /** `POST /detection/sweep` and `PATCH /detection/rules/{code}`: running the rules and changing them. */
+  detectionChanges: ['ADMIN'],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 /** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */
