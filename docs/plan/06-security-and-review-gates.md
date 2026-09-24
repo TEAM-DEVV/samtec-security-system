@@ -136,13 +136,24 @@ as `SOLE_ADMINISTRATOR`. A determined sole administrator could still
 switch off the account they just made and repeat, and each of those steps is
 in the audit log under their name.
 
-**Rule R11 does not cover this yet.** Ghost detection flags a two-person
-*biometric* decision made by somebody with a hand in it, and knows nothing
-about who created or confirmed an administrator account
-([Ghost detection engine](08-ghost-detection-engine.md), "What version 1
-leaves out", still accurate). Feeding these four columns to R11 is the next
-Phase 7 change; until then this risk is watched by reading the audit log, not
-by a rule.
+**No rule watches this, and that was decided rather than overlooked.**
+Ghost detection's R11 flags a two-person *biometric* decision made by
+somebody with a hand in it. Feeding it these four columns — "the decider's
+own account was made by the person who handled this worker" — was built and
+then **rejected**, because in a company with two administrators it describes
+the required flow rather than a fraud: the second administrator's account is
+necessarily made by the first, and the direct rule already forces that second
+administrator to be the one who decides. Every honest decision would have
+raised a permanent alert, which is how a queue becomes wallpaper. Narrowing
+it to accounts made under the sole-administrator shortcut does not help: in a
+two-administrator company that is exactly how the second account was made.
+
+The available data cannot tell one person with two accounts from two people
+who made each other's accounts. So this risk is watched by **reading the
+audit log** — every use of the shortcut is recorded as
+`SOLE_ADMINISTRATOR` under the name of whoever used it — and a third
+administrator removes it entirely, because then somebody unconnected can
+confirm. A company that can manage three administrators should have three.
 
 ## Law: Ghana Data Protection Act, 2012 (Act 843)
 

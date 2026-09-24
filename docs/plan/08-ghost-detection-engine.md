@@ -244,12 +244,30 @@ recurrence = times that rule fired for that worker in 90 days
 
 - **R2 has no next-of-kin clause**: the field does not exist. Phone, bank
   account and mobile money do (the last two arrive with payroll).
-- **R11 has no ADMIN-provenance clause.** "Decided by somebody whose ADMIN
-  account was created or reset by the person who handled the worker" cannot
-  be reconstructed: the audit log records which fields changed, never who was
-  promoted by whom. Phase 7's two-ADMIN account rules record it properly, and
-  R11 gains the clause then. Version 1 covers the part the data supports:
-  decided by somebody who created either record or enrolled the other face.
+- **R11 has no ADMIN-provenance clause, and will not get one.** "Decided by
+  somebody whose ADMIN account was created by the person who handled the
+  worker" became answerable in Phase 7, which records who asked for an
+  administrator account and who confirmed it. It was built, and then
+  **rejected after review**: in a company with two administrators it
+  describes the required flow, not a fraud. The second administrator's
+  account is necessarily made by the first, and R11's direct clause already
+  forces that second administrator to be the one who decides — so every
+  honest decision would have raised a permanent HIGH alert, and R11 has no
+  threshold to turn down. Narrowing it to accounts made under the
+  sole-administrator shortcut changes nothing, because in a company of two
+  that is how the second account was made.
+
+  The data cannot tell one person with two accounts from two people who made
+  each other's accounts. That risk is watched by reading the audit log
+  instead ([Security and review gates](06-security-and-review-gates.md),
+  "Two administrators"), and a third administrator removes it. Version 1's
+  clauses stand: decided by somebody who created either record or enrolled
+  the other face.
+
+- **An R11 alert never counts towards a worker's risk score.** It names the
+  worker so a checker can find the record, but it asks whether the right
+  person settled a decision. Letting it weigh on the worker would turn a
+  disagreement between two administrators into a guard who looks risky.
 - **R9 has no offline-window clause**: nothing declares a device's offline
   windows yet. It can also ask about a device's first genuinely busy day: a
   site that opens quietly while people are enrolled, then runs at full

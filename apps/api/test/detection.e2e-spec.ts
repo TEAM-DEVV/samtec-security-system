@@ -925,5 +925,47 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(mine.openAlerts).toBe(1);
       expect(mine.topRule).toBe('R5');
     });
+
+    it('never lets a decision about administrators weigh on a worker (R11)', async () => {
+      const worker = await ghost(40);
+      await sweep().expect(200);
+      const before = await api()
+        .get('/api/v1/detection/risk-scores')
+        .query({ limit: 100 })
+        .set(...bearer(adminToken))
+        .expect(200);
+      const scoreOf = (body: { items: { employee: { id: string }; score: number }[] }) =>
+        body.items.find((row) => row.employee.id === worker.id)?.score ?? 0;
+
+      // An R11 alert lands on this worker's file: it names them so a checker
+      // can find the record, but it asks about who settled a decision.
+      await prisma.detectionAlert.create({
+        data: {
+          companyId: company.companyId,
+          ruleCode: 'R11',
+          severity: 'HIGH',
+          employeeId: worker.id,
+          dedupeKey: `R11:review:score-test-${randomUUID()}`,
+          windowFrom: new Date(Date.now() - DAY_MS),
+          windowTo: new Date(),
+          evidence: { decision: 'duplicate review', recordId: 'made-up-for-this-test' },
+        },
+      });
+
+      const after = await api()
+        .get('/api/v1/detection/risk-scores')
+        .query({ limit: 100 })
+        .set(...bearer(adminToken))
+        .expect(200);
+
+      // The queue shows it; the worker's score does not move.
+      expect(scoreOf(after.body)).toBe(scoreOf(before.body));
+      const queue = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R11', employeeId: worker.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(queue.body.items).toHaveLength(1);
+    });
   });
 });
