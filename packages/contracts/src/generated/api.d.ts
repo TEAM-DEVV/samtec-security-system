@@ -1923,10 +1923,32 @@ export interface paths {
         put?: never;
         /**
          * Run every rule now
-         * @description **Roles:** ADMIN. The same sweep a heartbeat runs once a day, on demand — which is what the exit demo uses. Repeating it changes nothing: each alert carries a key built from its rule, its subject and its window, so a finding already raised is not raised twice and one a person resolved is never reopened.
+         * @description **Roles:** ADMIN. The same sweep the daily schedule runs, on demand — which is what the exit demo uses. Repeating it changes nothing: each alert carries a key built from its rule, its subject and its window, so a finding already raised is not raised twice and one a person resolved is never reopened.
          *     A rule that fails is logged by its code and skipped; one broken rule never stops the other ten.
          */
         post: operations["runDetectionSweep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/detection/daily-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The daily run, for the hosting platform's scheduler
+         * @description **Public, and deliberately so.** Called once a day by the Vercel schedule in `apps/api/vercel.json`. It sweeps every company whose last sweep is more than twenty hours old, oldest first, and claims each company before sweeping it, so two calls at once never sweep the same company twice.
+         *
+         *     It needs no secret because it can do nothing a secret would protect: anybody who calls it causes at most the one daily sweep per company that was going to happen anyway, and the sweep only ever raises questions for a person to answer. The answer is a count — no company, worker or rule is named.
+         */
+        get: operations["runDailyDetectionSweep"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4268,6 +4290,10 @@ export interface components {
             /** @description Rules switched off, or that failed and were skipped. */
             rulesSkipped: components["schemas"]["DetectionRuleCode"][];
         };
+        DailySweepResult: {
+            /** @description Zero when every company was already swept in the last twenty hours. */
+            companiesSwept: number;
+        };
         RiskScore: {
             employee: components["schemas"]["EmployeeRef"];
             /** @description Severity times recurrence, added up over the open alerts. */
@@ -4613,6 +4639,7 @@ export type DetectionRule = components['schemas']['DetectionRule'];
 export type DetectionRuleList = components['schemas']['DetectionRuleList'];
 export type UpdateDetectionRuleRequest = components['schemas']['UpdateDetectionRuleRequest'];
 export type DetectionSweepResult = components['schemas']['DetectionSweepResult'];
+export type DailySweepResult = components['schemas']['DailySweepResult'];
 export type RiskScore = components['schemas']['RiskScore'];
 export type RiskScoreList = components['schemas']['RiskScoreList'];
 export type ResponseDeviceNotTrusted = components['responses']['DeviceNotTrusted'];
@@ -7552,6 +7579,26 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             503: components["responses"]["Busy"];
+        };
+    };
+    runDailyDetectionSweep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many companies were swept by this call. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailySweepResult"];
+                };
+            };
         };
     };
     listDetectionRules: {
