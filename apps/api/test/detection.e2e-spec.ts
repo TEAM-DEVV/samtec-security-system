@@ -477,6 +477,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual([
         'R1',
         'R10',
+        'R11',
         'R2',
         'R4',
         'R5',
