@@ -6,6 +6,7 @@ import type {
   UpdateDeviceRequest,
 } from '@samtec/contracts';
 import { HttpResponse, http, type PathParams } from 'msw';
+import { mockAccounts } from '../data/accounts';
 import { mockDevices } from '../data/devices';
 import { mockSites } from '../data/sites';
 import {
@@ -219,7 +220,15 @@ export const deviceHandlers = [
 
       if (name !== undefined) device.name = name;
       if (status === 'ACTIVE' && device.status !== 'ACTIVE') {
-        if (keyIssuedBy.get(device.id) === adminId(request)) {
+        // The issuer may not switch it on — unless there is nobody else to
+        // ask, the same exception the real API makes (docs/plan/06, rule 8).
+        const somebodyElse = mockAccounts.some(
+          (account) =>
+            account.role === 'ADMIN' &&
+            account.id !== adminId(request) &&
+            account.status === 'ACTIVE',
+        );
+        if (keyIssuedBy.get(device.id) === adminId(request) && somebodyElse) {
           return conflict(
             'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
           );

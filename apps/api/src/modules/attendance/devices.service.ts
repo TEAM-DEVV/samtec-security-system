@@ -16,7 +16,8 @@ import { decodeCursor, toPage } from '../../common/pagination.js';
 import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { Device } from '../../generated/prisma/client.js';
+import type { Device, Prisma } from '../../generated/prisma/client.js';
+import { mayUseAccount } from '../identity/account-rules.js';
 import { AuditService } from '../identity/audit.service.js';
 import { openSecret, sealSecret } from '../identity/secret-box.js';
 import { EmployeesService } from '../workforce/employees.service.js';
@@ -40,6 +41,8 @@ export const FINGER_WINDOW_MINUTES = 30;
 
 /** A kiosk session sets up kiosks, never a terminal or a simulator. */
 const KIOSK_DEVICES_ONLY = 'A kiosk session can only set up a face kiosk.';
+
+const NO_SUCH_DEVICE = 'No device exists with this ID.';
 
 /**
  * The device registry (ADMIN only). A device's secret is 32 random bytes,
@@ -141,18 +144,32 @@ export class DevicesService {
         'Only a face kiosk can use its own fingerprint sensor.',
       );
     }
-    const switchingOn = body.status === 'ACTIVE' && current.status !== 'ACTIVE';
-    const activation = switchingOn ? await this.whoSwitchesOn(viewer, current) : undefined;
     try {
       const device = await this.prisma.$transaction(async (tx) => {
+        // **Locked, then read again.** Whether this is a switch-on depends on
+        // the status, and something else may have moved it since — rotating a
+        // secret switches a device off. Deciding from the earlier read let a
+        // rotate racing a switch-on skip the two-person gate entirely and
+        // leave a live key nobody had approved.
+        await tx.$queryRaw`SELECT id FROM devices WHERE id = ${deviceId}::uuid AND company_id = ${viewer.companyId}::uuid FOR UPDATE`;
+        const locked = await tx.device.findFirst({
+          where: { id: deviceId, companyId: viewer.companyId },
+        });
+        if (!locked) {
+          throw new NotFoundException(NO_SUCH_DEVICE);
+        }
+        const activation =
+          body.status === 'ACTIVE' && locked.status !== 'ACTIVE'
+            ? await this.whoSwitchesOn(tx, viewer, locked)
+            : undefined;
         const updated = await tx.device.update({
           where: { id: deviceId },
           data: {
             ...body,
             ...activation?.columns,
-            // Switching a device off clears who switched it on: the next time
-            // it goes back on, somebody has to answer for it again.
-            ...(body.status === 'INACTIVE' ? { activatedByUserId: null } : {}),
+            // Switching a device off clears who switched it on, and when: the
+            // next time it goes back on, somebody has to answer for it again.
+            ...(body.status === 'INACTIVE' ? { activatedByUserId: null, activatedAt: null } : {}),
           },
         });
         // Switching fingerprints off revokes every key still live on the
@@ -207,6 +224,7 @@ export class DevicesService {
           status: 'INACTIVE',
           keyIssuedByUserId: viewer.userId,
           activatedByUserId: null,
+          activatedAt: null,
         },
       });
       await this.audit.record(
@@ -238,32 +256,46 @@ export class DevicesService {
    * database CHECK stays satisfied because nobody else is recorded.
    */
   private async whoSwitchesOn(
+    tx: Prisma.TransactionClient,
     viewer: SignedInUser,
     device: Device,
   ): Promise<{
-    columns: { activatedByUserId: string | null };
+    columns: { activatedByUserId: string | null; activatedAt: Date };
     auditDetail: { activation?: 'SOLE_ADMINISTRATOR' };
   }> {
+    const now = new Date();
     if (device.keyIssuedByUserId === null || device.keyIssuedByUserId !== viewer.userId) {
       // Either nobody is recorded (a device older than the rule, or the
       // seed's), or somebody else issued the key. Both are fine.
-      return { columns: { activatedByUserId: viewer.userId }, auditDetail: {} };
+      return { columns: { activatedByUserId: viewer.userId, activatedAt: now }, auditDetail: {} };
     }
-    const administrators = await this.prisma.user.count({
+    // **Who could actually do it instead.** An administrator waiting for
+    // confirmation of their own account cannot sign in at all, so counting
+    // them would refuse this switch-on and name a person who is unable to
+    // help — leaving the device stuck until a third administrator appears.
+    const others = await tx.user.findMany({
       where: {
         companyId: viewer.companyId,
         role: 'ADMIN',
         isActive: true,
         id: { not: viewer.userId },
       },
+      select: {
+        isActive: true,
+        passwordHash: true,
+        role: true,
+        twoFactorEnabledAt: true,
+        adminRequestedAt: true,
+        adminConfirmedAt: true,
+      },
     });
-    if (administrators > 0) {
+    if (others.some((account) => mayUseAccount(account))) {
       throw new ConflictException(
         'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
       );
     }
     return {
-      columns: { activatedByUserId: null },
+      columns: { activatedByUserId: null, activatedAt: now },
       auditDetail: { activation: 'SOLE_ADMINISTRATOR' },
     };
   }
@@ -382,7 +414,7 @@ export class DevicesService {
       where: { id: deviceId, companyId: viewer.companyId },
     });
     if (!device) {
-      throw new NotFoundException('No device exists with this ID.');
+      throw new NotFoundException(NO_SUCH_DEVICE);
     }
     return device;
   }

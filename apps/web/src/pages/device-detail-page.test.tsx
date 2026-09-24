@@ -88,7 +88,7 @@ describe('DeviceDetailPage', () => {
 
     // It arrives switched off, and says why in plain words.
     expect(
-      screen.getByText(/whoever issued that key cannot be the one to switch it on/),
+      screen.getByText(/the administrator who did that cannot be the one to switch it on/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Switch on' }));
 

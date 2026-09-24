@@ -123,7 +123,7 @@ function DeviceRecord({ device }: { device: Device }) {
             <CardDescription>
               A device stays at its site for life; register it again to move it.
               {switchedOff &&
-                ' Its key does nothing while it is switched off, and whoever issued that key cannot be the one to switch it on — somebody else checks the device is really at the site.'}
+                ' Its key does nothing while it is switched off. If the key was just issued — the device registered, or its secret replaced — the administrator who did that cannot be the one to switch it on: somebody else checks the device is really at the site.'}
             </CardDescription>
           </CardHeader>
           <CardContent>

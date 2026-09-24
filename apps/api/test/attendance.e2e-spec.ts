@@ -491,6 +491,38 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       expect(off.keyIssuedByUserId).toBe(company.adminUserId);
     });
 
+    it('cannot be raced: rotating while switching on never leaves a live unapproved key', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Raced gate', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+      const deviceId = made.body.device.id as string;
+      await activateDevice(app, company, deviceId);
+
+      // The issuer rotates the key and switches it on in the same breath. The
+      // rotate sets the device INACTIVE; without the row lock the switch-on
+      // could read the older ACTIVE status, skip the two-person gate, and
+      // leave a fresh key working that nobody approved.
+      await Promise.allSettled([
+        request(app.getHttpServer())
+          .post(`/api/v1/devices/${deviceId}/rotate-secret`)
+          .set(...bearer(adminToken)),
+        request(app.getHttpServer())
+          .patch(`/api/v1/devices/${deviceId}`)
+          .set(...bearer(adminToken))
+          .send({ status: 'ACTIVE' }),
+      ]);
+
+      const after = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
+      // Whichever order they landed in: a live device was switched on by
+      // somebody, and never by the person who issued its key.
+      if (after.status === 'ACTIVE') {
+        expect(after.activatedAt).not.toBeNull();
+        expect(after.activatedByUserId).not.toBe(after.keyIssuedByUserId);
+      }
+    });
+
     it('refuses in the database too: a key issuer can never be its activator', async () => {
       const made = await request(app.getHttpServer())
         .post('/api/v1/devices')
