@@ -102,7 +102,7 @@ rules read payroll data.
 
 - [x] The engine, the alert queue and the sweep, per [Ghost detection engine](08-ghost-detection-engine.md), with rules R4, R5 and R10 built and the other eight in the catalogue, switched off and reported as skipped
 - [x] **All eleven rules are built.** R3 (paid without presence) and R6 (terminated but active) read payroll through its own service; R3's comparison is a shared function in `src/common/paid-beyond-presence.ts`, so payroll can refuse a run at submission without importing detection
-- [ ] **Owner task:** set `CRON_SECRET` on the API's Vercel project and add the daily cron that calls `POST /detection/sweep`. Until then the sweep is a button an ADMIN presses (docs/plan/08 §7)
+- [x] The daily run: a Vercel Cron entry in `apps/api/vercel.json` calls `GET /detection/daily-sweep` at 02:00. No secret to set — the twenty-hour gap per company is the guard (docs/plan/08 §7)
 - [x] Alert review queue showing evidence; every resolution audited. The queue, one alert and the rules pages, with the risk panel and the sweep button, on the dashboard
 - **Exit demo:** the three planted ghosts in the seed data are all caught live; a written false-positive discussion for the report
 

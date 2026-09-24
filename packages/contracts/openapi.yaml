@@ -4088,7 +4088,7 @@ paths:
       operationId: runDetectionSweep
       summary: Run every rule now
       description: >-
-        **Roles:** ADMIN. The same sweep a heartbeat runs once a day, on
+        **Roles:** ADMIN. The same sweep the daily schedule runs, on
         demand — which is what the exit demo uses. Repeating it changes
         nothing: each alert carries a key built from its rule, its subject
         and its window, so a finding already raised is not raised twice and
@@ -4109,6 +4109,33 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/Busy"
+
+  /detection/daily-sweep:
+    get:
+      tags: [Detection]
+      operationId: runDailyDetectionSweep
+      summary: The daily run, for the hosting platform's scheduler
+      description: >-
+        **Public, and deliberately so.** Called once a day by the Vercel
+        schedule in `apps/api/vercel.json`. It sweeps every company whose
+        last sweep is more than twenty hours old, oldest first, and claims
+        each company before sweeping it, so two calls at once never sweep the
+        same company twice.
+
+
+        It needs no secret because it can do nothing a secret would protect:
+        anybody who calls it causes at most the one daily sweep per company
+        that was going to happen anyway, and the sweep only ever raises
+        questions for a person to answer. The answer is a count — no company,
+        worker or rule is named.
+      security: []
+      responses:
+        "200":
+          description: How many companies were swept by this call.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailySweepResult"
 
   /detection/rules:
     get:
@@ -8835,6 +8862,15 @@ components:
           description: Rules switched off, or that failed and were skipped.
           items:
             $ref: "#/components/schemas/DetectionRuleCode"
+
+    DailySweepResult:
+      type: object
+      required: [companiesSwept]
+      properties:
+        companiesSwept:
+          type: integer
+          minimum: 0
+          description: Zero when every company was already swept in the last twenty hours.
 
     RiskScore:
       type: object

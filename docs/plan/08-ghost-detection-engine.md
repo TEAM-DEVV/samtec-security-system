@@ -189,11 +189,22 @@ demo uses, and pressing it twice is safe.
 It does **not** ride the heartbeat, although the retention sweep does. The
 heartbeat lives in the attendance module, so calling detection from it would
 make attendance import detection while detection imports attendance — the
-circle section 1 exists to avoid. The daily run therefore comes from outside
-the application: a Vercel Cron job calling the same endpoint. That needs an
-environment secret the owner sets, so it is an owner task in the roadmap
-rather than something hidden in the code. Until it is set the sweep is a
-button, and `detection_checks` records when it last ran.
+circle section 1 exists to avoid.
+
+**Every day at 02:00**, from outside the application: a Vercel Cron entry in
+`apps/api/vercel.json` calls `GET /detection/daily-sweep`. It sweeps every
+company whose last sweep (`detection_checks.swept_at`) is more than twenty
+hours old, oldest first, claiming each one before sweeping it so two calls at
+once never sweep a company twice. The audit log records these sweeps with no
+actor: the system did it.
+
+**It is public and needs no secret, deliberately.** The usual way to guard a
+cron endpoint is a shared secret, which would be one more thing an owner has
+to set and keep. It would protect nothing here: anybody who calls the route
+causes at most the one daily sweep per company that was going to happen
+anyway, a sweep only raises questions for a person to answer, and the answer
+is a bare count that names no company, worker or rule. The twenty-hour gap is
+the guard, and it holds whoever is calling.
 
 A sweep never fails a heartbeat, and a rule that throws is logged by code and
 skipped — one broken rule must not stop the other ten.

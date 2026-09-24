@@ -8,6 +8,7 @@ import {
 import type {
   DetectionAlert as ApiAlert,
   DetectionRule as ApiRule,
+  DailySweepResult,
   DetectionAlertList,
   DetectionRuleList,
   DetectionSweepResult,
@@ -50,6 +51,23 @@ import {
 } from './detection-rules.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The daily run (docs/plan/08 §7). A company is due once its last sweep is
+ * this old. Twenty hours, not twenty-four, so a schedule that fires a little
+ * early one day never skips the company until tomorrow.
+ */
+const DAILY_SWEEP_GAP_MS = 20 * 60 * 60 * 1000;
+
+/** The most companies one daily call looks at, oldest sweep first. */
+const DAILY_SWEEP_COMPANIES = 25;
+
+/**
+ * When one call stops starting new companies. The API's functions may run for
+ * thirty seconds (`apps/api/vercel.json`); stopping at twenty leaves the last
+ * company room to finish, and whoever is left waits for the next call.
+ */
+const DAILY_SWEEP_BUDGET_MS = 20_000;
 
 /** How far back a risk score looks (docs/plan/08 §8). */
 const SCORE_WINDOW_DAYS = 90;
@@ -115,7 +133,71 @@ export class DetectionService {
    * must never stop the other ten.
    */
   async sweep(viewer: SignedInUser, now = new Date()): Promise<DetectionSweepResult> {
-    const rules = await this.liveRules(viewer.companyId);
+    return this.sweepCompany(viewer.companyId, viewer.userId, now);
+  }
+
+  /**
+   * The daily run, called by the hosting platform's schedule with nobody
+   * signed in (docs/plan/08 §7).
+   *
+   * **It needs no secret, on purpose.** Whoever calls it can cause at most
+   * what the schedule causes — one sweep per company per twenty hours — and a
+   * sweep only raises questions for a person to answer. Each company is
+   * **claimed** before it is swept, by moving its `swept_at` only if it still
+   * holds the value just read, so two calls arriving together never sweep one
+   * company twice. The answer is a count and names nobody.
+   */
+  async dailySweep(now = new Date()): Promise<DailySweepResult> {
+    const startedAt = Date.now();
+    // A company that has never been swept gets a bookmark dated long ago, so
+    // one query below finds everybody who is due.
+    const neverSwept = await this.prisma.company.findMany({
+      where: { detectionCheck: null },
+      select: { id: true },
+      take: DAILY_SWEEP_COMPANIES,
+    });
+    if (neverSwept.length > 0) {
+      await this.prisma.detectionCheck.createMany({
+        data: neverSwept.map((company) => ({ companyId: company.id, sweptAt: new Date(0) })),
+        skipDuplicates: true,
+      });
+    }
+    const due = await this.prisma.detectionCheck.findMany({
+      where: { sweptAt: { lt: new Date(now.getTime() - DAILY_SWEEP_GAP_MS) } },
+      orderBy: { sweptAt: 'asc' },
+      take: DAILY_SWEEP_COMPANIES,
+      select: { companyId: true, sweptAt: true },
+    });
+
+    let companiesSwept = 0;
+    for (const company of due) {
+      if (Date.now() - startedAt > DAILY_SWEEP_BUDGET_MS) {
+        break;
+      }
+      const claimed = await this.prisma.detectionCheck.updateMany({
+        where: { companyId: company.companyId, sweptAt: company.sweptAt },
+        data: { sweptAt: now },
+      });
+      if (claimed.count === 0) {
+        // Another call got here first.
+        continue;
+      }
+      await this.sweepCompany(company.companyId, null, now);
+      companiesSwept += 1;
+    }
+    return { companiesSwept };
+  }
+
+  /**
+   * One company's sweep. `actorUserId` is the ADMIN who pressed the button,
+   * or null for the daily run, which the audit log then records as the system.
+   */
+  private async sweepCompany(
+    companyId: string,
+    actorUserId: string | null,
+    now: Date,
+  ): Promise<DetectionSweepResult> {
+    const rules = await this.liveRules(companyId);
     const ran: DetectionRuleCode[] = [];
     const skipped: DetectionRuleCode[] = [];
     const reads: SweepReads = {};
@@ -129,13 +211,13 @@ export class DetectionService {
       }
       try {
         const found = await this.runOne(
-          viewer.companyId,
+          companyId,
           rule.code,
           thresholdsOf(row) ?? rule.thresholds,
           now,
           reads,
         );
-        raised += await this.record(viewer.companyId, found, rule.code, now);
+        raised += await this.record(companyId, found, rule.code, now);
         ran.push(rule.code);
       } catch (error) {
         // By code and message only: a rule's failure must never put a
@@ -143,7 +225,7 @@ export class DetectionService {
         this.logger.error({
           reason: 'rule_failed',
           ruleCode: rule.code,
-          companyId: viewer.companyId,
+          companyId: companyId,
           message: error instanceof Error ? error.message : 'unknown',
         });
         skipped.push(rule.code);
@@ -151,16 +233,16 @@ export class DetectionService {
     }
 
     await this.prisma.detectionCheck.upsert({
-      where: { companyId: viewer.companyId },
-      create: { companyId: viewer.companyId, sweptAt: now },
+      where: { companyId: companyId },
+      create: { companyId: companyId, sweptAt: now },
       update: { sweptAt: now },
     });
     await this.audit.record({
-      companyId: viewer.companyId,
-      actorUserId: viewer.userId,
+      companyId: companyId,
+      actorUserId,
       action: 'detection.swept',
       entityType: 'company',
-      entityId: viewer.companyId,
+      entityId: companyId,
       detail: { raised, rulesRun: ran.join(','), rulesSkipped: skipped.join(',') },
     });
     return { ranAt: now.toISOString(), raised, rulesRun: ran, rulesSkipped: skipped };
