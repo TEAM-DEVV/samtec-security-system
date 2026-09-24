@@ -761,6 +761,99 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
     });
   });
 
+  describe('the daily run', () => {
+    /**
+     * Makes this test's company the only one due, and nobody else.
+     *
+     * The daily run is deliberately global — it sweeps whichever companies
+     * are due — and the local database holds every company earlier runs and
+     * other test files left behind. Marking them all as swept just now is
+     * what keeps this test from reaching into another file's data while both
+     * run. A company created by another file **after** this runs is safe too:
+     * the daily run gives a company with no bookmark one dated now, so its
+     * first sweep is the next day, never this call.
+     *
+     * The bookmark is bookkeeping only; no other test reads `swept_at`.
+     */
+    const onlyThisCompanyDue = async () => {
+      const unmarked = await prisma.company.findMany({
+        where: { detectionCheck: null },
+        select: { id: true },
+      });
+      await prisma.detectionCheck.createMany({
+        data: unmarked.map((row) => ({ companyId: row.id, sweptAt: new Date() })),
+        skipDuplicates: true,
+      });
+      await prisma.detectionCheck.updateMany({
+        where: { companyId: { not: company.companyId } },
+        data: { sweptAt: new Date() },
+      });
+      await prisma.detectionCheck.upsert({
+        where: { companyId: company.companyId },
+        create: { companyId: company.companyId, sweptAt: new Date(0) },
+        update: { sweptAt: new Date(0) },
+      });
+    };
+
+    it('sweeps a company that is due with nobody signed in, and records the system as the actor', async () => {
+      const worker = await ghost(40);
+      await onlyThisCompanyDue();
+
+      const ran = await api().get('/api/v1/detection/daily-sweep').expect(200);
+
+      expect(ran.body.companiesSwept).toBeGreaterThanOrEqual(1);
+      // A count, and nothing that names anybody.
+      expect(Object.keys(ran.body)).toEqual(['companiesSwept']);
+      const check = await prisma.detectionCheck.findUniqueOrThrow({
+        where: { companyId: company.companyId },
+      });
+      expect(Date.now() - check.sweptAt.getTime()).toBeLessThan(60_000);
+      expect(
+        await prisma.detectionAlert.count({ where: { ruleCode: 'R5', employeeId: worker.id } }),
+      ).toBe(1);
+      const audit = await prisma.auditLog.findFirst({
+        where: { companyId: company.companyId, action: 'detection.swept' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(audit?.actorUserId).toBeNull();
+    });
+
+    it('gives a brand-new company a bookmark, and sweeps it tomorrow rather than now', async () => {
+      const fresh = await prisma.company.create({ data: { name: `Daily run ${randomUUID()}` } });
+      await onlyThisCompanyDue();
+
+      await api().get('/api/v1/detection/daily-sweep').expect(200);
+
+      const bookmark = await prisma.detectionCheck.findUnique({
+        where: { companyId: fresh.id },
+      });
+      // It has one now, dated now — so it is not due, and nothing was swept
+      // for it. A company with no attendance yet has nothing to find, and a
+      // burst of new companies never becomes a burst of sweeps.
+      expect(bookmark).not.toBeNull();
+      expect(Date.now() - (bookmark?.sweptAt.getTime() ?? 0)).toBeLessThan(60_000);
+      expect(await prisma.detectionAlert.count({ where: { companyId: fresh.id } })).toBe(0);
+    });
+
+    it('does nothing for a company already swept in the last twenty hours', async () => {
+      await onlyThisCompanyDue();
+      await api().get('/api/v1/detection/daily-sweep').expect(200);
+      const first = await prisma.detectionCheck.findUniqueOrThrow({
+        where: { companyId: company.companyId },
+      });
+
+      // Called again straight away, as anybody could. Nothing moves: either
+      // the minute-long "nothing due" answer replies from memory, or the
+      // twenty-hour gap refuses the company again.
+      await api().get('/api/v1/detection/daily-sweep').expect(200);
+
+      const second = await prisma.detectionCheck.findUniqueOrThrow({
+        where: { companyId: company.companyId },
+      });
+      expect(second.sweptAt).toEqual(first.sweptAt);
+    });
+  });
+
   describe('the planted ghost', () => {
     it('is in the seeded data, on the books and never at a gate', async () => {
       // The labelled ground truth the report's precision and recall

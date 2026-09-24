@@ -15,6 +15,7 @@ Every rule, with its reason and its numbers, is in
 | `detection-rules.spec.ts` | One test per rule, including a threshold being moved and the finding changing with it — which is how the report's tuning table is built. |
 | `detection.service.ts` | The plumbing: fetch what each rule needs through the other modules' services, run it, write what it found. |
 | `detection.controller.ts` | `/api/v1/detection/*`. ADMIN and HR_PAYROLL only. |
+| `detection-schedule.controller.ts` | `GET /api/v1/detection/daily-sweep`, the daily run the Vercel schedule calls. Public on purpose; why is on `DetectionService.dailySweep`. |
 | `detection.schemas.ts` | Every input, as a Zod rule. |
 
 ## Rules that must hold
