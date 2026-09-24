@@ -86,8 +86,8 @@ the house style for a backend module is in
 [16 · How a backend module is built here](16-building-a-backend-module.md).
 
 - [x] Contract and dashboard mocks for periods, runs, lines, payslips, tax tables, pay terms and payment details, with seven of the eight hand-calculated payslips pinned as tests (the eighth, the night shift crossing the period boundary, is pinned against the API engine, which reads dated segments)
-- [x] The eight tables, with the rules the database enforces itself: a whole calendar month, a status that only moves forward, the maker never the checker, a locked run frozen, pay terms append-only, and every line proved to add up by a `CHECK`
-- [x] The calculation as pure functions with the eight hand-calculated payslips as tests, plus a property test over 5,000 generated lines; PAYE bands and SSNIT rates read from the versioned tables, never from the code
+- [x] The eight tables, with the rules the database enforces itself: a whole calendar month, a status that only moves forward from a draft, the maker never the checker, a run's lines frozen from the moment it is submitted, pay terms append-only, nothing ever deleted, no row ever hanging off another company's record, and every line proved to add up by a `CHECK`
+- [x] The calculation as pure functions with the eight hand-calculated payslips as tests, and a second implementation written differently that has to agree with it on every field of all eight and of 5,000 generated lines; PAYE bands and SSNIT rates read from the versioned tables, never from the code
 - [x] The 2026 rates seeded with their source recorded, and pay terms for every seeded employee
 - Close a period, calculate a draft run, copy every input into its lines
 - Maker–checker approval endpoints, payslip PDFs, bank CSV export
