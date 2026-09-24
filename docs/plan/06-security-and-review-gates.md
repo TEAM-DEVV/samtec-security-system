@@ -136,13 +136,14 @@ as `SOLE_ADMINISTRATOR`. A determined sole administrator could still
 switch off the account they just made and repeat, and each of those steps is
 in the audit log under their name.
 
-**Rule R11 does not cover this yet.** Ghost detection flags a two-person
-*biometric* decision made by somebody with a hand in it, and knows nothing
-about who created or confirmed an administrator account
-([Ghost detection engine](08-ghost-detection-engine.md), "What version 1
-leaves out", still accurate). Feeding these four columns to R11 is the next
-Phase 7 change; until then this risk is watched by reading the audit log, not
-by a rule.
+**Rule R11 watches what this rule cannot refuse.** Ghost detection reads
+these four columns: a two-person biometric decision made by somebody whose
+*own* administrator account was created or confirmed by the person who
+handled that worker is flagged for the payroll checker
+([Ghost detection engine](08-ghost-detection-engine.md), rule R11). It cannot
+be refused outright — that would deadlock a company whose administrators made
+each other's accounts, which is every small company — so it is surfaced
+instead, and a person decides.
 
 ## Law: Ghana Data Protection Act, 2012 (Act 843)
 

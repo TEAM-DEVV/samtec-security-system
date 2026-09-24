@@ -23,6 +23,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
+import { AccountFactsService } from '../identity/account-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { deriveKey } from '../identity/secret-box.js';
 import { type PaidLine, PayrollFactsService } from '../payroll/payroll-facts.service.js';
@@ -124,6 +125,7 @@ export class DetectionService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceFactsService,
+    private readonly accounts: AccountFactsService,
     private readonly payroll: PayrollFactsService,
     private readonly config: AppConfig,
   ) {}
@@ -670,7 +672,13 @@ export class DetectionService {
     }
     if (code === 'R11') {
       const { decisions, hands } = await this.attendance.twoPersonDecisions(companyId);
-      return conflictedDecision(decisions, hands, thresholds, now);
+      // Who made each decider's own administrator account, asked of the
+      // module that owns accounts (docs/plan/06, "Two administrators").
+      const accountsMadeBy = await this.accounts.whoMadeTheseAdmins(
+        companyId,
+        decisions.map((decision) => decision.decidedByUserId),
+      );
+      return conflictedDecision(decisions, hands, thresholds, now, accountsMadeBy);
     }
     if (code === 'R8') {
       const days = thresholds.workingDays ?? 10;

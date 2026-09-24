@@ -459,6 +459,76 @@ describe('R11 · conflicted decision', () => {
   });
 });
 
+describe('R11 · the decider’s own account', () => {
+  const decision = {
+    kind: 'duplicate review' as const,
+    recordId: 'face-7',
+    employeeIds: ['abena', 'grace'],
+    subjectEmployeeId: 'abena',
+    decidedByUserId: 'admin-two',
+    decidedAt: daysAgo(1),
+  };
+
+  it('flags a decision by somebody whose account was made by the worker’s handler', () => {
+    const found = conflictedDecision(
+      [decision],
+      // The decider touched nothing. But the administrator who enrolled
+      // Grace's face is the one who created the decider's account.
+      [{ employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) }],
+      {},
+      NOW,
+      new Map([['admin-two', ['admin-one']]]),
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence.accountMadeByWhoAlsoDid).toEqual(['enrolled']);
+    // The decider themselves did nothing, and the evidence says so.
+    expect(found[0]?.evidence.alsoDid).toEqual([]);
+    expect(found[0]?.evidence.concerningEmployeeIds).toEqual(['grace']);
+  });
+
+  it('says nothing when the two are really two people', () => {
+    const found = conflictedDecision(
+      [decision],
+      [{ employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) }],
+      {},
+      NOW,
+      // The decider's account was made by somebody else entirely.
+      new Map([['admin-two', ['admin-three']]]),
+    );
+
+    expect(found).toEqual([]);
+  });
+
+  it('says nothing when nobody made the decider’s account', () => {
+    // The seed and the rescue script leave nobody named, and an account made
+    // under the sole-administrator shortcut names nobody either.
+    const found = conflictedDecision(
+      [decision],
+      [{ employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) }],
+      {},
+      NOW,
+      new Map(),
+    );
+
+    expect(found).toEqual([]);
+  });
+
+  it('counts only a hand held before the decision, through an account as well', () => {
+    const found = conflictedDecision(
+      [decision],
+      // Stamped in the same breath as the decision, as a by-the-book
+      // resolution does.
+      [{ employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: decision.decidedAt }],
+      {},
+      NOW,
+      new Map([['admin-two', ['admin-one']]]),
+    );
+
+    expect(found).toEqual([]);
+  });
+});
+
 describe('R3 · paid without presence', () => {
   const line = {
     lineId: 'line-1',

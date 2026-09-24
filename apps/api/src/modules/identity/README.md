@@ -34,6 +34,10 @@ is `POST /users/{id}/confirm-admin`. The rules, including the one shortcut for
 a company gaining its first second administrator, are in docs/plan/06,
 "Two administrators".
 
+`account-facts.service.ts` is what ghost detection may ask about accounts:
+who created and who confirmed an administrator account, by ID and nothing
+else. Rule R11 uses it to tell one person with two accounts from two people.
+
 ## Rules that must hold
 
 - Passwords are hashed with scrypt. Nobody ever sees another person's password: accounts get a one-time link and the owner chooses their own.

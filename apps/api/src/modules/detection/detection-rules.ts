@@ -481,32 +481,57 @@ export interface HandsOn {
  * this rule. A finding there is routine and worth a look; it is not a bug
  * report.
  *
- * What it never is, either way, is a finding about the worker. Nobody is
- * accused of anything by a rule about who signed a form.
+ * **Phase 7 adds a third link: the decider's own account.** An
+ * administrator who created or confirmed somebody's administrator account
+ * chose who "the other administrator" would be. If that same person had also
+ * handled this worker, then the two-person rule was satisfied by two accounts
+ * and one pair of hands. Nothing refuses that — it cannot be refused without
+ * deadlocking small companies — so it is flagged here, which is what
+ * docs/plan/06 means by watching what the two-administrator rule cannot stop.
+ *
+ * What it never is, in any of the three cases, is a finding about the worker.
+ * Nobody is accused of anything by a rule about who signed a form.
  */
 export function conflictedDecision(
   decisions: readonly TwoPersonDecision[],
   hands: readonly HandsOn[],
   _thresholds: Record<string, number>,
   now: Date,
+  /**
+   * Who made each decider's own administrator account: the administrator who
+   * asked for it and the one who confirmed it (docs/plan/06, "Two
+   * administrators"). Empty for an account nobody else made.
+   */
+  accountsMadeBy: ReadonlyMap<string, readonly string[]> = new Map(),
 ): Finding[] {
   const byEmployee = new Map<string, HandsOn[]>();
   for (const hand of hands) {
     byEmployee.set(hand.employeeId, [...(byEmployee.get(hand.employeeId) ?? []), hand]);
   }
   return decisions.flatMap((decision) => {
-    const clashes = decision.employeeIds
+    const handsOnEither = decision.employeeIds
       .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
-      .filter((hand) => hand.userId === decision.decidedByUserId)
-      // **Only a hand they had before.** Settling a duplicate as one person
-      // wipes the losing record, stamped with the decider's own name in the
-      // same breath as the decision — so without this, every by-the-book
-      // resolution would report itself, and the rule would be noise within
-      // a week.
+      // **Only a hand somebody had before.** Settling a duplicate as one
+      // person wipes the losing record, stamped with the decider's own name
+      // in the same breath as the decision — so without this, every
+      // by-the-book resolution would report itself, and the rule would be
+      // noise within a week.
       .filter((hand) => hand.at.getTime() < decision.decidedAt.getTime());
-    if (clashes.length === 0) {
+    const clashes = handsOnEither.filter((hand) => hand.userId === decision.decidedByUserId);
+    // **The second person may not be a second person.** An administrator who
+    // created or confirmed the decider's account chose who "the other
+    // administrator" would be; if that same administrator handled this
+    // worker, the two-person rule was two accounts and one hand
+    // (docs/plan/06, "Two administrators"). Phase 7 records that, so the
+    // clause docs/plan/08 §9 left out is now here.
+    const madeThisAccount = accountsMadeBy.get(decision.decidedByUserId) ?? [];
+    const throughTheAccount = handsOnEither.filter(
+      (hand) => hand.userId !== decision.decidedByUserId && madeThisAccount.includes(hand.userId),
+    );
+    if (clashes.length === 0 && throughTheAccount.length === 0) {
       return [];
     }
+    const cited = [...clashes, ...throughTheAccount];
     return [
       {
         ruleCode: 'R11' as const,
@@ -514,7 +539,7 @@ export function conflictedDecision(
         // the answer cannot change by asking again.
         dedupeKey: `R11:${decision.kind === 'exemption' ? 'exemption' : 'review'}:${decision.recordId}`,
         employeeId: decision.subjectEmployeeId,
-        windowFrom: clashes.reduce(
+        windowFrom: cited.reduce(
           (earliest, hand) => (hand.at < earliest ? hand.at : earliest),
           decision.decidedAt,
         ),
@@ -525,11 +550,14 @@ export function conflictedDecision(
           // What the same person had already done. Never their name: an
           // alert about a decision is not a file on the person who made it.
           alsoDid: [...new Set(clashes.map((hand) => hand.did))].sort(),
+          // The same, for whoever made the decider's own account — the
+          // clause that tells one person with two accounts from two people.
+          accountMadeByWhoAlsoDid: [...new Set(throughTheAccount.map((hand) => hand.did))].sort(),
           // **Which worker** the earlier involvement was with. On a duplicate
           // review the alert lands on one file while the history may be with
           // the other, and a checker cannot act on an alert that does not say
           // which.
-          concerningEmployeeIds: [...new Set(clashes.map((hand) => hand.employeeId))].sort(),
+          concerningEmployeeIds: [...new Set(cited.map((hand) => hand.employeeId))].sort(),
           decidedByUserId: decision.decidedByUserId,
         },
       },

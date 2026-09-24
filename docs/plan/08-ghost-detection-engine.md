@@ -244,12 +244,14 @@ recurrence = times that rule fired for that worker in 90 days
 
 - **R2 has no next-of-kin clause**: the field does not exist. Phone, bank
   account and mobile money do (the last two arrive with payroll).
-- **R11 has no ADMIN-provenance clause.** "Decided by somebody whose ADMIN
-  account was created or reset by the person who handled the worker" cannot
-  be reconstructed: the audit log records which fields changed, never who was
-  promoted by whom. Phase 7's two-ADMIN account rules record it properly, and
-  R11 gains the clause then. Version 1 covers the part the data supports:
-  decided by somebody who created either record or enrolled the other face.
+- **R11 gained its ADMIN-provenance clause in Phase 7** (it was left out of
+  version 1, because the audit log records which fields changed and never who
+  was promoted by whom). The two-administrator rule records who asked for an
+  administrator account and who confirmed it
+  ([Security and review gates](06-security-and-review-gates.md), "Two
+  administrators"), so R11 now also asks whether the person who made the
+  decider's own account had handled this worker — one person with two
+  accounts, rather than two people.
 - **R9 has no offline-window clause**: nothing declares a device's offline
   windows yet. It can also ask about a device's first genuinely busy day: a
   site that opens quietly while people are enrolled, then runs at full
