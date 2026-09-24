@@ -409,6 +409,22 @@ describe('mock payroll API: the rules of a run', () => {
     expect(refused.error?.errors?.[0]?.path).toBe('bankName');
   });
 
+  it('refuses a formula hiding behind a leading space', async () => {
+    await signInForTests('hr@samtec.example');
+    // A spreadsheet trims the space away on import, then runs what follows it.
+    const refused = await fetchClient.PUT('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
+      body: {
+        bankName: 'Akwaaba Bank',
+        accountName: ' =1+1+cmd|calc',
+        accountNumber: '1234567890123',
+        momoNumber: null,
+      },
+    });
+    expect(refused.response.status).toBe(400);
+    expect(refused.error?.errors?.[0]?.path).toBe('accountName');
+  });
+
   it('says in the file when a destination moved after the run was approved', async () => {
     await signInForTests('hr@samtec.example');
     const runs = await fetchClient.GET('/payroll/runs');

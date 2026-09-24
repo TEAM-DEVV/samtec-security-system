@@ -8608,17 +8608,19 @@ components:
           type: [string, "null"]
           minLength: 2
           maxLength: 100
-          pattern: "^[^=+@\\t\\r\\n\"-][^\\t\\r\\n]*$"
+          pattern: "^[^=+@\\s\"-][^\\t\\r\\n]*$"
           description: >-
             The bank the salary is paid into, or `null`. Because this value is
             written into the bank file, it may not contain a tab or a line
-            break, and may not begin with `=`, `+`, `-`, `@` or a quote,
-            which a spreadsheet would read as a formula.
+            break, and may not begin with a space, `=`, `+`, `-`, `@` or a
+            quote, which a spreadsheet would read as a formula. A leading
+            space is refused too, because a spreadsheet trims it away on
+            import and would then run whatever was hiding behind it.
         accountName:
           type: [string, "null"]
           minLength: 2
           maxLength: 100
-          pattern: "^[^=+@\\t\\r\\n\"-][^\\t\\r\\n]*$"
+          pattern: "^[^=+@\\s\"-][^\\t\\r\\n]*$"
           description: >-
             The name on the account, exactly as the bank holds it, or `null`.
             Because this value is written into the bank file, it may not contain

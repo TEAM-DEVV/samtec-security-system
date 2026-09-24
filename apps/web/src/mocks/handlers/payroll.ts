@@ -153,9 +153,12 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * A value safe to write into the bank file: 2 to 100 characters, no tab or
  * line break, and never a leading character a spreadsheet would run as a
- * formula. The same shape the contract gives these fields.
+ * formula. A leading space is refused too, because a spreadsheet trims it
+ * away on import and would then run whatever was hiding behind it. The same
+ * shape the contract gives these fields, and the same one the database
+ * enforces as a CHECK.
  */
-const BANK_TEXT = /^[^=+@\t\r\n"-][^\t\r\n]{1,99}$/;
+const BANK_TEXT = /^[^=+@\s"-][^\t\r\n]{1,99}$/;
 
 function dateProblem(value: unknown, path: string) {
   return typeof value === 'string' && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value))

@@ -39,14 +39,26 @@ about confirmed shifts.
   DELETE and no TRUNCATE, on any of the eight tables, in any state.
 - **`employee_payment_details` is personal data.** It is never logged, never
   put in an error message, and never returned by a list endpoint; it exists on
-  the endpoint that sets it and inside the bank export, and nowhere else.
+  the endpoint that sets it and inside the bank export, and nowhere else. The
+  audit log records only which fields moved, never a value and never a hash of
+  one: an account number is short enough that its hash can be worked backwards
+  in minutes (decision 25).
 
 ## The files
 
 | File | What it is for |
 |---|---|
+| `payroll.module.ts` | The wiring: which controllers, which services, what it imports |
+| `payroll.controller.ts` | `/payroll/periods` and `/payroll/tax-tables`. HTTP only, one method per contract operation |
+| `employee-pay.controller.ts` | `/employees/{id}/pay-terms` and `/payment-details`. They hang off a person, but the data is payroll's |
+| `payroll.schemas.ts` | Every Zod input rule for the module, in one file. Always `strictObject` |
+| `payroll-periods.service.ts` | Opening a month, listing months, closing one for good |
+| `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
+| `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
+| `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
 | `pay-calculation.ts` | The money, as a pure function: pro-rating, SSNIT, the graduated PAYE bands, net pay. No database, no `this` |
 | `worked-minutes.ts` | Which shifts belong to the period, which minutes are overtime, and how many days somebody was employed. Also pure |
+| `tax-band-shape.ts` | Whether a set of PAYE bands covers every income, so a bad one is a clear 400 and not a trigger error |
 | `*.spec.ts` | The unit tests beside each one, including the eight hand-calculated payslips from the design page |
 
 The rules the **database** enforces live in the migration
@@ -71,6 +83,8 @@ That leaves a company behind on each local run, which is harmless — run
 
 ## Still to build
 
-The endpoints, the payslip PDF (`pdfkit`), and the dashboard screens. The
-contract for all of them is already merged, inside the
-`# --- Payroll (Phase 4) ---` banners of `packages/contracts/openapi.yaml`.
+The runs themselves — calculating a draft, submitting, approving, rejecting and
+marking paid — the payslip PDF (`pdfkit`), the bank export, the statutory
+summary, and the dashboard screens. The contract for all of them is already
+merged, inside the `# --- Payroll (Phase 4) ---` banners of
+`packages/contracts/openapi.yaml`.

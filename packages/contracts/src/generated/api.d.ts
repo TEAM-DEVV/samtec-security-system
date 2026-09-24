@@ -4144,7 +4144,7 @@ export interface components {
         };
         /** @description Replaces an employee's payment details. All four fields are required: send `null` for anything the worker does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
         SetEmployeePaymentDetailsRequest: {
-            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
             bankName: string | null;
             /** @description The name on the account, exactly as the bank holds it, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
             accountName: string | null;
