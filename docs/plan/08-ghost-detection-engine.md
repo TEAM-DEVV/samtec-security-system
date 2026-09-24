@@ -92,6 +92,11 @@ is built by moving them.
 
 R1, R6 and R11 need no threshold: they are facts, not gradients.
 
+**R3's tolerance tunes the sweep only.** Payroll's own gate at submission
+(§1) uses the fixed default of sixty minutes, because payroll may not read
+detection's table. So the gate is a floor: the sweep can be made stricter
+than it, never looser in what gets refused.
+
 ## 3. What counts as "present" for R3
 
 Every `CONFIRMED` work segment counts, whatever its basis. Excluding
@@ -102,6 +107,20 @@ But the evidence **records the split** — how many of those minutes were
 `MANUAL` (a person typed them) and how many were `PIN_FALLBACK` (a co-sign or
 a staff number) — so a checker looking at a flagged line sees immediately
 whether the hours rest on a face or on somebody's word.
+
+Two things R3 knowingly does not handle yet, so nobody mistakes an alert from
+them for a bug:
+
+- **Paid leave has no record in this system.** A guard on approved leave is
+  paid their basic (decision 4 of [Payroll engine (Ghana)](09-payroll-engine-ghana.md))
+  and has no shifts, so to R3 the month looks like absence. Until leave
+  exists as a thing the system knows about, the checker resolves that alert
+  with a note saying so — which is the audit trail a leave record would have
+  been anyway.
+- **An adjustment line is not judged.** It corrects an earlier period's
+  money (decision 20 there); its minutes are not a claim about the period it
+  sits in, so R3 leaves lines with `adjusts_line_id` alone. What to compare
+  them with is settled when Phase 4 builds adjustments.
 
 ## 3b. Somebody who has left
 

@@ -51,12 +51,25 @@ Every rule, with its reason and its numbers, is in
 
 ## Built so far
 
-R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
-(bilocation), R5 (never seen), R7 (fallback abuse, counted for the worker
-**and** for the supervisor doing the letting in), R8 (robot regularity), R9
-(device anomaly, against a device's own history) and R10 (orphan punches).
+R1 (duplicate enrollment), R2 (identity collision, the phone for now), R3
+(paid without presence), R4 (bilocation), R5 (never seen), R6 (terminated but
+active), R7 (fallback abuse, counted for the worker **and** for the supervisor
+doing the letting in), R8 (robot regularity), R9 (device anomaly, against a
+device's own history), R10 (orphan punches) and R11 (a two-person decision
+settled by somebody with a hand in it).
 
-**Nine of eleven.** Only R3 and R6 are left.
+**All eleven.** Nothing in the catalogue is switched off any more, so a quiet
+queue really is a quiet queue.
+
+R3 and R6 are the two that read payroll, through
+[`PayrollFactsService`](../payroll/payroll-facts.service.ts) — minutes and
+identifiers, never money. R3 does **not** trust the `punchedMinutes` written
+on the line it is judging: it counts the confirmed shifts again from the
+attendance tables, which is the only way it can see a line that was edited or
+a shift that was voided after the money went out. The comparison itself is
+[`paidBeyondPresence`](../../common/paid-beyond-presence.ts), in `common` and
+not here, so payroll can refuse a run at submission with the same arithmetic
+without importing detection.
 
 R11 reads two ways at once, so it is worth being plain about both.
 
