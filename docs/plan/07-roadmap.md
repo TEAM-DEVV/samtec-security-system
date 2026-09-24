@@ -85,6 +85,7 @@ open is now decided in [Payroll engine (Ghana)](09-payroll-engine-ghana.md);
 the house style for a backend module is in
 [16 · How a backend module is built here](16-building-a-backend-module.md).
 
+- [x] Contract and dashboard mocks for periods, runs, lines, payslips, tax tables, pay terms and payment details, with seven of the eight hand-calculated payslips pinned as tests (the eighth, the night shift crossing the period boundary, is pinned against the API engine, which reads dated segments)
 - Close a period, calculate a draft run, copy every input into its lines
 - PAYE bands and SSNIT rates from versioned tables, per [Payroll engine (Ghana)](09-payroll-engine-ghana.md), with golden tests
 - Maker–checker approval, lock trigger, payslip PDFs, bank CSV export

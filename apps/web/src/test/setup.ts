@@ -8,6 +8,7 @@ import { resetMockBiometrics } from '@/mocks/handlers/biometrics';
 import { resetMockDetection } from '@/mocks/handlers/detection';
 import { resetMockDevices } from '@/mocks/handlers/devices';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
+import { resetMockPayroll } from '@/mocks/handlers/payroll';
 import { resetMockRosters } from '@/mocks/handlers/rosters';
 import { resetMockUsers } from '@/mocks/handlers/users';
 import { server } from '@/mocks/node';
@@ -27,6 +28,7 @@ afterEach(() => {
   resetMockAttendance();
   resetMockDevices();
   resetMockBiometrics();
+  resetMockPayroll();
   resetMockDetection();
   clearSession();
   cleanup();

@@ -23,7 +23,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 
 ## Conventions
 
-- **Base path:** `/api/v1`. JSON only. IDs are UUID version 7.
+- **Base path:** `/api/v1`. JSON, except two Phase 4 downloads: a payroll run bank file (`text/csv`) and a payslip (`application/pdf`). Every error, including on those two, is still `application/problem+json`. IDs are UUID version 7.
 - **Money:** integer pesewas, with field names ending in `Pesewas`.
 - **Time:** timestamps in UTC (ISO 8601); calendar dates as `YYYY-MM-DD`.
 - **Errors:** Problem Details (RFC 9457) with `type`, `title`, `status`, `detail`, `traceId`, and `errors` for validation. Stack traces never leave the server. When several problems apply, the answer follows the order the API checks them: `401` (not signed in), `403` (wrong role), `400` (a bad ID or body), `404` (not found or not yours), `400` (a field that is wrong for this record, such as a device's kind), `403` (a second-person rule), then `409` (a clash with the current state). The mock API follows the same order.
@@ -48,7 +48,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 | Kiosk (device-signed) | `POST /kiosk/identify`, `/kiosk/confirm`, `/kiosk/not-me`, `/kiosk/fingerprint-options`, `/kiosk/assisted-punches`; ADMIN token **and** signature: `POST /kiosk/consents`, `/kiosk/face-enrollments`, `/kiosk/passkey-options`, `/kiosk/passkeys` | In the contract (Phase 3) — see [13 · Biometrics design](13-biometrics-design.md) |
 | Biometrics | `GET /biometrics/consent-text`, `GET /employees/{id}/biometrics`, `POST /employees/{id}/biometrics/revoke`, `/biometric-exemption`, `/biometric-exemption/review`, `/biometric-consents/withdraw`, `GET /biometric-collisions`, `POST /biometric-collisions/{credentialId}/resolve` | In the contract (Phase 3) |
 | Live attendance | `GET /attendance/punches` (live clock-ins board), `GET /attendance/clock-in-attempts` (ADMIN) | In the contract (Phase 3) |
-| Payroll | periods, runs, submit, approve, payslips, bank export | Phase 4 |
+| Payroll | periods, runs (calculate, submit, approve, reject, mark paid), lines, payslips and their PDFs, bank export, statutory summary, tax tables, pay terms, payment details | **In the contract** (Phase 4) |
 | Detection | alerts, resolution, rules, sweep | Phase 5 |
 | Reports | attendance and payroll summaries, CSV and PDF export | Phase 6 |
 

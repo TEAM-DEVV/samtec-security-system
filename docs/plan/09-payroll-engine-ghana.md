@@ -230,6 +230,96 @@ Phase 7 task for Francis, not part of this build.
 
 ---
 
+# Added during the build, after the four-lens review
+
+The twenty-one decisions above were settled before any code was written. The
+security lens on the contract pull request found one more question the design
+had not answered, and one rule the design had assumed rather than stated.
+
+**22. The approval covers the amount, not the destination.** A run is a locked
+snapshot of what each worker is *owed*, and a trigger refuses to change it. But
+`employee_payment_details` is edited in place and the bank export reads it when
+the file is downloaded, which is after the checker has signed the run off. So
+an HR user could have a correct run approved and then move one worker's account
+number before producing the file, and maker–checker would not have covered it.
+
+Version 1 answers this by making the change **visible and traceable**, not by
+blocking it: a worker really does sometimes change bank account between the
+approval and the payment, and a rule that forces a whole new run for that would
+be worked around.
+
+- The bank export carries a last column, `details_changed_after_approval`,
+  which is `yes` for any worker whose payment details were changed after the
+  run was approved. Whoever uploads the file sees it before the money moves.
+- Downloading the bank export is **audited**: who, which run, and when. It is
+  the one endpoint that returns every account number in the company, so it
+  should not be the one endpoint that leaves no trace.
+- Changing payment details is audited with a **SHA-256 of the account number**,
+  never the number itself, so an investigation can later prove which account
+  was in force without the audit log ever holding one.
+
+Freezing the details onto the run at lock time was considered and rejected for
+version 1: it would put bank details inside the payroll tables, which decision 2
+deliberately keeps them out of. If a client later needs the stronger rule, the
+change is to copy a `payment_details_id` onto each line at lock time and read
+the snapshot in the export.
+
+**23. The bank file is a money instruction, so it is escaped like one.** Every
+cell is written as RFC 4180 says — always quoted, with every quote inside it
+doubled — so a name or an account holder containing a comma, a quote or a line
+break can never break a row apart or add a payee. A cell whose value begins
+with `=`, `+`, `-`, `@` or a tab is written with a leading apostrophe, so a
+spreadsheet shows it instead of running it. `bankName` and `accountName` also
+refuse those leading characters, and any tab or line break, at the contract
+boundary.
+
+**24. Every figure on a payslip is worked out from the figures printed beside
+it.** Decision 9 says to calculate in ten-thousandths of a pesewa and round
+half-up once at the end of each line. Followed literally that produces a
+payslip which does not add up: if gross is the rounded sum of the unrounded
+parts, while basic and overtime are each rounded on their own, the printed
+parts can total one pesewa less than the printed gross. A guard checking their
+own payslip with a calculator would find SAMTEC wrong.
+
+So the rule is sharpened, and this is what the engine implements:
+
+- Only the two amounts that need a **division** are rounded: the basic pay
+  pro-rated by days employed, and the overtime. Each is one exact fraction,
+  rounded half-up exactly once, to a whole pesewa.
+- **Everything after that is addition and subtraction of those already-rounded
+  pesewas.** Gross is the sum of its four parts. Taxable gross is the sum of
+  its three. Employee SSNIT is a percentage of the rounded basic. Chargeable
+  income is taxable gross minus employee SSNIT. PAYE is the graduated bands
+  applied to that chargeable income. Net pay is gross minus employee SSNIT,
+  PAYE and other deductions.
+- Nothing is rounded twice, no floating point number appears at any step, and
+  every rate still comes from the tax table version, never from the code.
+
+The effect is that the whole payslip can be re-derived by hand from the numbers
+on it, the run totals are the exact sums of the line values, and
+`net_pay_pesewas = gross − SSNIT − PAYE − other` holds by construction, so the
+database `CHECK` can never be broken by rounding.
+
+Two small rules that follow, written down so the API cannot quietly pick
+differently:
+
+- **Half-up means half away from zero.** An adjustment line may be negative
+  (decision 20), so −0.5 pesewas rounds to −1, not to 0.
+- **The last PAYE band must have no width.** A tax table whose top band is
+  bounded would leave the highest earners silently untaxed, so the API refuses
+  one at the boundary.
+
+**A limitation to write in the report, not a bug:** allowances and the monthly
+other-deduction are not pro-rated, only the basic is (decision 4 names only the
+basic). A worker employed for one day of a month therefore receives a whole
+month's allowance and has a whole month's uniform or loan instalment taken off.
+Where that leaves a net pay of zero or less, the bank file leaves the row out —
+a bank cannot take a negative payment — and the payroll line and the payslip
+still show it, so the money is recovered by an adjustment line in a later
+period.
+
+---
+
 # What to build
 
 ## Tables
