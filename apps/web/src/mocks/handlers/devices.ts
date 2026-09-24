@@ -6,6 +6,7 @@ import type {
   UpdateDeviceRequest,
 } from '@samtec/contracts';
 import { HttpResponse, http, type PathParams } from 'msw';
+import { mockAccounts } from '../data/accounts';
 import { mockDevices } from '../data/devices';
 import { mockSites } from '../data/sites';
 import {
@@ -33,6 +34,7 @@ let devices: Device[] = mockDevices.map((device) => ({ ...device }));
 
 export function resetMockDevices(): void {
   devices = mockDevices.map((device) => ({ ...device }));
+  keyIssuedBy = new Map();
 }
 
 const KINDS = ['MOCK', 'ZKTECO', 'FACE_KIOSK'] as const;
@@ -55,6 +57,19 @@ function adminOnly(request: Request) {
   if (user.role !== 'ADMIN') return forbidden();
   return undefined;
 }
+
+/** The signed-in administrator's ID, for the two-administrator device rules. */
+function adminId(request: Request): string {
+  return userForRequest(request)?.id ?? '';
+}
+
+/**
+ * Who issued each device's key: whoever registered it or last rotated its
+ * secret. The real API keeps this on the device row; the mock keeps it beside
+ * the list, because the contract does not show it (docs/plan/06, "Two
+ * administrators").
+ */
+let keyIssuedBy = new Map<string, string>();
 
 function findDevice(deviceId: string) {
   if (!isUuid(deviceId)) {
@@ -109,7 +124,9 @@ export const deviceHandlers = [
         name: body.name,
         siteId: body.siteId,
         kind: body.kind,
-        status: 'ACTIVE',
+        // Born switched off: a different administrator switches it on, having
+        // seen it is really at the site (docs/plan/06, "Two administrators").
+        status: 'INACTIVE',
         lastSeenAt: null,
         lastClockDriftSeconds: null,
         failedSignatureCount: 0,
@@ -120,6 +137,7 @@ export const deviceHandlers = [
         updatedAt: now,
       };
       devices.push(device);
+      keyIssuedBy.set(device.id, adminId(request));
       return HttpResponse.json<DeviceWithSecret>(
         { device, secret: newSecret() },
         { status: 201, headers: { Location: `/api/v1/devices/${device.id}`, ...noStore } },
@@ -201,6 +219,21 @@ export const deviceHandlers = [
       }
 
       if (name !== undefined) device.name = name;
+      if (status === 'ACTIVE' && device.status !== 'ACTIVE') {
+        // The issuer may not switch it on — unless there is nobody else to
+        // ask, the same exception the real API makes (docs/plan/06, rule 8).
+        const somebodyElse = mockAccounts.some(
+          (account) =>
+            account.role === 'ADMIN' &&
+            account.id !== adminId(request) &&
+            account.status === 'ACTIVE',
+        );
+        if (keyIssuedBy.get(device.id) === adminId(request) && somebodyElse) {
+          return conflict(
+            'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
+          );
+        }
+      }
       if (status !== undefined) device.status = status;
       if (serialNumber !== undefined) device.serialNumber = serialNumber;
       if (passkeysEnabled !== undefined) {
@@ -220,7 +253,10 @@ export const deviceHandlers = [
       if (refused) return refused;
       const found = findDevice(params.deviceId);
       if (!found.device) return found.problem;
+      // A new key is a new key: the device waits to be switched on again.
+      found.device.status = 'INACTIVE';
       found.device.updatedAt = new Date().toISOString();
+      keyIssuedBy.set(found.device.id, adminId(request));
       return HttpResponse.json<DeviceWithSecret>(
         { device: found.device, secret: newSecret() },
         { headers: noStore },

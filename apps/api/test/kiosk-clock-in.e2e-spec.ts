@@ -8,6 +8,7 @@ import { FaceProvider } from '../src/modules/attendance/face-provider.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
+  activateDevice,
   createAttendanceCompany,
   signedPost,
   type TestDevice,
@@ -142,6 +143,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name, siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, registered.body.device.id);
     return { id: registered.body.device.id, secret: registered.body.secret } as TestDevice;
   };
 
@@ -284,6 +286,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
         .set(...bearer(adminToken))
         .send({ name: 'Clock-in terminal', siteId: company.siteA, kind: 'ZKTECO' })
         .expect(201);
+      await activateDevice(app, company, terminal.body.device.id);
 
       const refused = await identify(
         { purpose: 'CLOCK', direction: 'IN', sample: sampleAt(4.4) },

@@ -68,7 +68,7 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Transport | HTTPS only, with HSTS, on the hosted demo | Phase 8 |
 | Passwords | scrypt hashes (settings recorded per hash). 5 wrong passwords for one email lock it for 15 minutes with a `429`, whether or not the account exists, and a stand-in hash keeps the timing identical for unknown emails. The counter is one atomic SQL statement, so parallel guesses cannot slip past it, and the throttle table stores only keyed hashes (HMAC), never emails. | **Phase 1 (built)** |
 | Two-factor authentication | TOTP required for ADMIN and HR_PAYROLL, set up at first sign-in. Challenge and setup tokens expire (5 and 10 minutes), work once and belong to one account; 5 wrong codes cancel a challenge; an accepted code cannot be used again. Wrong codes are **also counted per account**, so signing in again never grants fresh guesses — a leaked password cannot brute-force the 6-digit code. Authenticator secrets are stored AES-256-GCM-encrypted. A lost authenticator is reset by another ADMIN with **reset sign-in**, which clears the password too, so someone holding a stolen password cannot simply ask for "a new phone". Refresh also refuses an ADMIN or HR_PAYROLL account without two-factor, so a promotion can never skip it. | **Phase 1 (built)** |
-| Two administrators | Creating, promoting, resetting or switching on an ADMIN account holds it (`AWAITING_CONFIRMATION`) until a different administrator confirms it; the service and a database CHECK both refuse the requester and the account itself. See "Two administrators" below | **Phase 7 (built)** |
+| Two administrators | Creating, promoting, resetting or switching on an ADMIN account holds it (`AWAITING_CONFIRMATION`) until a different administrator confirms it; the service and a database CHECK both refuse the requester and the account itself. A device key is born switched off and its issuer may not switch it on, by the same pair of rules. See "Two administrators" below | **Phase 7 (built)** |
 | Accounts | Only ADMIN manages sign-in accounts. **Nobody ever sees another person's password:** a new or reset account gets a one-time link (72 hours, single use, stored as a SHA-256 hash, sent with `Cache-Control: no-store`) and the person chooses their own password (12–128 characters). An administrator can never change, switch off or reset their own account (only their name), and every change to an existing account first locks the administrator's and the target's rows and re-checks the administrator — so two admins switching each other off at the same instant can never leave the company with none. SUPERVISOR and GUARD accounts must be linked to an employee and office accounts never are (a database CHECK); terminating an employee switches their account off in the same transaction. Every account change is audited with field names only. The recovery path for a sole locked-out admin is `pnpm --filter @samtec/api account:admin`, which needs database access and is audited. | **Phase 1 (built)** |
 | Sessions | 15-minute access tokens kept in memory only. A 7-day refresh cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`) rotates on every use with an atomic claim, so even two simultaneous replays cannot both mint sessions; a reused refresh token revokes all of that user's sessions; the database stores only token hashes. `Origin` is checked on refresh and logout, the only two endpoints that act on the cookie alone. Phase 3 also checks it on the sign-in steps, to tell a dashboard sign-in from a kiosk sign-in (`CORS_ORIGINS`, `KIOSK_ORIGINS`). Revocation on logout. **The access-token guard also checks the account on every request** (one lookup by ID), so switching an account off, changing its role or employee link, or resetting its sign-in takes effect on the very next request rather than when the token expires. A session that was simply ended (sign-out, admin action) answers `401` without the stolen-token alarm; only a token that was already swapped for a newer one raises it. Accepted risk: after a *self-service* password change, another device's access token lives out its remaining minutes (at most 15), though it can no longer refresh. | **Phase 1 (built)** |
 | Object-level access | Every route needs a token unless marked public; roles checked per route; supervisors scoped to their sites, guards to themselves; hidden records answer 404. Proven by tests against a real database. | **Phase 1 (built)** |
@@ -127,6 +127,30 @@ script) has no request recorded and does not wait — database access is a
 stronger check than a second login. Administrators that existed before this
 rule were recorded as confirmed when they were created, naming nobody.
 
+### Devices
+
+**6. Every new device key is born switched off.** Registering a device, or
+rotating its secret, always leaves the device `INACTIVE`. The key signs
+nothing until somebody switches the device on. This was already true of a
+kiosk setting itself up (Phase 3); now it is true of every device, however it
+was made.
+
+**7. Somebody else switches it on.** Setting a device to `ACTIVE` is
+refused to the administrator who registered it or last rotated its key
+(`devices.key_issued_by_user_id`). The second administrator is the one who
+checks that the device is really on the wall at that site — that check is the
+point, not the click. A database CHECK refuses an activator who is the
+issuer, the same shape as payroll's maker-is-not-checker rule.
+
+Switching a device **off** stays open to any administrator, at once: it only
+ever takes power away. It also forgets who switched it on, so going back on
+has to be answered for again.
+
+**8. The same exception as rule 4:** a company with one administrator may
+switch on a device they issued, audited as `SOLE_ADMINISTRATOR`, because
+there is nobody to ask. Devices made before this rule, and by the seed, have
+no issuer recorded, so any administrator may switch them on.
+
 **What it still does not stop, stated plainly.** A company with genuinely one
 administrator has nobody to ask, so that person can give themselves a second
 account. No rule can change that while only one person exists. What is
@@ -171,7 +195,7 @@ This section belongs in Samuel's report and in the client presentation.
 |---|---|---|
 | Buddy punching: a friend clocks in for an absent guard | Guard | Biometric-only clock-in; PIN fallback flagged and co-signed by a supervisor |
 | Editing payroll after approval | HR user | Locked runs, maker–checker, audit log, database trigger |
-| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); each signed route accepts only some device kinds, so a kiosk key never posts raw punches (built, Phase 3); volume anomaly detection (Phase 5); registering a device or rotating its secret needs a second ADMIN (Phase 7) |
+| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); each signed route accepts only some device kinds, so a kiosk key never posts raw punches (built, Phase 3); volume anomaly detection (built, Phase 5); **a new or rotated key is born switched off and its issuer may not switch it on** — the second administrator checks the device is really at the site, refused by the service and by a database CHECK (built, Phase 7) |
 | Stealing biometric templates | Outsider | Encryption at rest, bound to each row; no images stored; templates never leave the server or reach a log. Face templates can be turned back into a rough face, so they are treated as sensitive data (Phase 3) |
 | Replaying captured punches | Network attacker | Idempotency key and payload hash, plus a signed timestamp that expires after 5 minutes (built, Phase 2) |
 | Holding a photo up to the face kiosk | Guard | Anti-spoofing and liveness scores, checked on the kiosk and again on the server, plus a random head-turn challenge; documented as a version 1 limitation, because a replayed video or a mask can still pass (Phase 3) |

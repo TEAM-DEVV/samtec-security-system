@@ -86,7 +86,7 @@ export function NewDevicePage() {
             <CardContent className="grid gap-4">
               <SecretPanel
                 secret={registered.secret}
-                explanation="Put this secret into the device or its gateway; it signs every request the device sends."
+                explanation="Put this secret into the device or its gateway; it signs every request the device sends. It does nothing until another administrator switches the device on."
               />
               <div className="flex flex-wrap gap-2">
                 <Button asChild>

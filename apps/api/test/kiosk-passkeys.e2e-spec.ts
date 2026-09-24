@@ -9,6 +9,7 @@ import { FaceProvider } from '../src/modules/attendance/face-provider.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
+  activateDevice,
   createAttendanceCompany,
   signedPost,
   type TestDevice,
@@ -74,6 +75,7 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name, siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, registered.body.device.id);
     await api()
       .patch(`/api/v1/devices/${registered.body.device.id}`)
       .set(...bearer(adminToken))

@@ -122,7 +122,7 @@ final visual pass: **Francis**.
 - **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
 - Full security review of the repository; findings fixed or accepted in writing
 - [x] Creating, resetting, promoting or switching on an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules). Rules and what is still open: [Security and review gates](06-security-and-review-gates.md), "Two administrators"
-- Registering a device or rotating its secret needs a second ADMIN (a device key can post punches)
+- [x] Registering a device or rotating its secret needs a second ADMIN (a device key can post punches): the key is born switched off, and whoever issued it may not switch it on — service and database CHECK alike ([Security and review gates](06-security-and-review-gates.md), "Two administrators", rules 6 to 8)
 - Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 

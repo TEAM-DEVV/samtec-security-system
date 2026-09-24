@@ -673,7 +673,9 @@ export interface paths {
         put?: never;
         /**
          * Register a clock-in device
-         * @description **Roles:** ADMIN. A device belongs to one site for life; to move a terminal, register it again. The response carries the device's secret, shown **only this once**: it goes into the device (or its gateway) and signs every request the device sends. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be registered, and it starts `INACTIVE` until an ADMIN switches it on from the dashboard, so a kiosk session alone can never make a working key.
+         * @description **Roles:** ADMIN. A device belongs to one site for life; to move a terminal, register it again. The response carries the device's secret, shown **only this once**: it goes into the device (or its gateway) and signs every request the device sends. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be registered.
+         *
+         *     **The device starts `INACTIVE`, and its key signs nothing until a *different* administrator switches it on** (docs/plan/06, "Two administrators"): a device key can post punches, so one person never both issues one and puts it to work. The second administrator is the one who checks the device is really on the wall at that site.
          */
         post: operations["registerDevice"];
         delete?: never;
@@ -705,6 +707,8 @@ export interface paths {
         /**
          * Rename a device, switch it off, or change its Phase 3 settings
          * @description **Roles:** ADMIN. Send only the fields you want to change. A device is never deleted; `INACTIVE` refuses everything it sends from then on. Phase 3 adds `serialNumber` (a ZKTeco terminal's serial, which its gateway uses) and `passkeysEnabled` (switches on the device's own fingerprint sensor; only a `FACE_KIOSK` can have it).
+         *
+         *     **Switching a device on is refused (`409`) to whoever issued its key** — registered the device, or last rotated its secret — unless they are the company's only administrator (docs/plan/06, "Two administrators"). Switching one **off** is open to any administrator, at once, and forgets who switched it on, so going back on has to be answered for again.
          */
         patch: operations["updateDevice"];
         trace?: never;
@@ -723,7 +727,9 @@ export interface paths {
         put?: never;
         /**
          * Give a device a new secret
-         * @description **Roles:** ADMIN. The old secret stops working **at once**; there is no overlap. The device keeps any batch that was not acknowledged and sends it again once it has the new secret, so no punch is lost. The new secret is shown only this once. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be rotated (for a kiosk that lost its storage), and it becomes `INACTIVE` until an ADMIN switches it on again from the dashboard. Its fingerprint keys stay, because the device ID stays.
+         * @description **Roles:** ADMIN. The old secret stops working **at once**; there is no overlap. The device keeps any batch that was not acknowledged and sends it again once it has the new secret, so no punch is lost. The new secret is shown only this once. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be rotated (for a kiosk that lost its storage). Its fingerprint keys stay, because the device ID stays.
+         *
+         *     **A new key is a new key:** the device becomes `INACTIVE` and a *different* administrator must switch it on (docs/plan/06, "Two administrators"). Rotating is how a stolen device is dealt with, so it must not be the way one person quietly gets a working key.
          */
         post: operations["rotateDeviceSecret"];
         delete?: never;

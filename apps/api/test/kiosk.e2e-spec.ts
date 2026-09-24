@@ -5,7 +5,11 @@ import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { signRequest } from '../src/modules/attendance/device-signature.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import { totpCode, totpStep } from '../src/modules/identity/totp.js';
-import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  createAttendanceCompany,
+  switchDeviceOn,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -29,6 +33,8 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
   let terminal: { id: string; secret: string };
   let kioskAdmin = '';
   let dashboardAdmin = '';
+  /** The other administrator, who switches a device on after somebody else made its key. */
+  let secondAdmin = '';
   let supervisorEmail = '';
   let plainAdminEmail = '';
   /** An ADMIN whose authenticator secret the test knows, so it can sign in for real. */
@@ -57,12 +63,18 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       .send(text);
   };
 
+  /**
+   * Registers a device and has the **second** administrator switch it on: a
+   * new key is born switched off, and whoever issued it may not put it to
+   * work (docs/plan/06, 'Two administrators').
+   */
   const registerDevice = async (name: string, kind: 'FACE_KIOSK' | 'ZKTECO') => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/devices')
       .set(...bearer(dashboardAdmin))
       .send({ name, siteId: company.siteA, kind })
       .expect(201);
+    await switchDeviceOn(app, secondAdmin, response.body.device.id);
     return { id: response.body.device.id, secret: response.body.secret };
   };
 
@@ -108,6 +120,13 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       });
     kioskAdmin = await signIn(true);
     dashboardAdmin = await signIn(false);
+    secondAdmin = await tokens.signAccessToken({
+      userId: company.secondAdminUserId,
+      companyId: company.companyId,
+      role: 'ADMIN',
+      employeeId: null,
+      onKiosk: false,
+    });
 
     kiosk = await registerDevice('Kiosk door test kiosk', 'FACE_KIOSK');
     terminal = await registerDevice('Kiosk door test terminal', 'ZKTECO');
@@ -318,11 +337,14 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       };
       await kioskPost('kiosk/consents', consent, { device: waiting }).expect(401);
 
+      // The administrator who set it up on the kiosk may not switch it on:
+      // a key's issuer never puts it to work (docs/plan/06).
       await request(app.getHttpServer())
         .patch(`/api/v1/devices/${waiting.id}`)
         .set(...bearer(dashboardAdmin))
         .send({ status: 'ACTIVE' })
-        .expect(200);
+        .expect(409);
+      await switchDeviceOn(app, secondAdmin, waiting.id);
       await kioskPost('kiosk/consents', consent, { device: waiting }).expect(201);
 
       // It may rotate a kiosk secret, never a terminal's...

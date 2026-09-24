@@ -85,7 +85,7 @@ describe.skipIf(!databaseUrl)('the simulator against the real API (e2e)', () => 
     company = await createAttendanceCompany(prisma);
     app = await createDbTestApp(databaseUrl as string);
     const tokens = await tokensFor(app, company);
-    const registered = await registerDevice(app, tokens.admin, company.siteA, 'Simulated gate');
+    const registered = await registerDevice(app, company, company.siteA, 'Simulated gate');
     device = { apiUrl: `${await app.getUrl()}/api/v1`, ...registered };
   }, 120_000);
 
