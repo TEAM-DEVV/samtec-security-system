@@ -73,12 +73,18 @@ const BASIS_POINTS = 10_000n;
  * out with integers only — never a float, at any step.
  *
  * The rule that matters, and the reason a payslip can be checked by hand:
- * **every figure is worked out from the figures printed beside it.** Only the
- * two amounts that need a division — the pro-rated basic and the overtime —
- * are rounded, each exactly once, half-up. Everything after that is plain
- * addition and subtraction of those already-rounded pesewas, so the parts on a
- * payslip always add up to its totals, and `netPayPesewas` always satisfies
- * the database's `CHECK`. See decision 24 in docs/plan/09-payroll-engine-ghana.md.
+ * **every figure is worked out from the figures printed beside it.** Six
+ * figures come from a division — the pro-rated basic, the overtime, the three
+ * SSNIT shares read from the table, and the PAYE — and each is rounded half-up
+ * exactly once. Everything else is plain addition and subtraction of those
+ * already-rounded pesewas, so the parts on a payslip always add up to its
+ * totals, and `netPayPesewas` always satisfies the database's `CHECK`. See
+ * decision 24 in docs/plan/09-payroll-engine-ghana.md.
+ *
+ * This must stay in step with `apps/api/src/modules/payroll/pay-calculation.ts`
+ * figure for figure. The dashboard is built against these numbers, so where
+ * the two disagree a screen is built to show something the real API never
+ * returns.
  *
  * Every rate comes from the tax table version passed in, never from a number
  * written into this file, because rates change with each national budget.
@@ -123,9 +129,14 @@ export function calculatePay(
   const ssnitEmployeePesewas = shareOfBasic(taxTable.ssnitEmployeeBasisPoints);
   const ssnitEmployerPesewas = shareOfBasic(taxTable.ssnitEmployerBasisPoints);
   const ssnitTier1Pesewas = shareOfBasic(taxTable.ssnitTier1BasisPoints);
-  const ssnitTier2Pesewas = shareOfBasic(taxTable.ssnitTier2BasisPoints);
+  // Tier 2 is derived, not calculated again, so the two tiers always add up to
+  // what was actually contributed. The API does the same.
+  const ssnitTier2Pesewas = ssnitEmployeePesewas + ssnitEmployerPesewas - ssnitTier1Pesewas;
 
-  const chargeableIncomePesewas = Math.max(0, taxableGrossPesewas - ssnitEmployeePesewas);
+  // Never clamped at zero. An adjustment line may be negative (decision 20),
+  // and the database's CHECK is the plain difference with no floor, so a
+  // clamped value here would be one the real API can never return.
+  const chargeableIncomePesewas = taxableGrossPesewas - ssnitEmployeePesewas;
 
   // Each band taxes the next slice of the chargeable income. The last band has
   // no width, so it takes whatever is left.
@@ -191,7 +202,7 @@ export const mockPaymentDetails: EmployeePaymentDetails[] = mockEmployees
   .slice(0, 10)
   .map((employee, index) => ({
     employeeId: employee.id,
-    bankName: index % 3 === 2 ? null : 'GCB Bank',
+    bankName: index % 3 === 2 ? null : 'Akwaaba Bank',
     accountName: index % 3 === 2 ? null : employee.fullName,
     accountNumber: index % 3 === 2 ? null : `10${String(index + 1).padStart(11, '0')}`,
     momoNumber: index % 3 === 2 ? `+2332400000${String(index + 10).padStart(2, '0')}` : null,
@@ -248,7 +259,15 @@ function workedFor(staffNumber: string, daysInPeriod: number, daysEmployed: numb
   };
 }
 
-/** Whole days of the period the worker was employed, counting both end days. */
+/**
+ * Whole days of the period the worker was employed, counting both end days.
+ *
+ * This is an approximation of what the API does, and the API is authoritative.
+ * It reads the employee's hire and termination dates as one envelope, while
+ * the API unions the separate employment periods, so for somebody who left and
+ * came back inside one month the API excludes the gap and this does not. The
+ * mock has no employment-period data to work from.
+ */
 export function daysEmployedIn(
   employee: { hireDate: string; terminationDate: string | null },
   startDate: string,

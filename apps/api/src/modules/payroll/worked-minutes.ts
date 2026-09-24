@@ -63,19 +63,27 @@ export function workedDaysIn(
   period: { startDate: string; endDate: string },
   scheduledMinutesOn: (workDate: string) => number,
 ): WorkedDay[] {
+  const startDate = calendarDate(period.startDate, 'The period start');
+  const endDate = calendarDate(period.endDate, 'The period end');
   const byDate = new Map<string, number>();
   for (const segment of segments) {
     if (segment.status !== 'CONFIRMED') continue;
-    if (segment.workDate < period.startDate || segment.workDate > period.endDate) continue;
-    byDate.set(segment.workDate, (byDate.get(segment.workDate) ?? 0) + segment.workedMinutes);
+    const workDate = calendarDate(segment.workDate, 'A segment work date');
+    if (workDate < startDate || workDate > endDate) continue;
+    byDate.set(workDate, (byDate.get(workDate) ?? 0) + segment.workedMinutes);
   }
-  return [...byDate.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([workDate, workedMinutes]) => ({
-      workDate,
-      workedMinutes,
-      scheduledMinutes: scheduledMinutesOn(workDate),
-    }));
+  return (
+    [...byDate.entries()]
+      // Plain text order, the same comparison the filter above uses. A calendar
+      // date in this format sorts correctly as text, and localeCompare would be
+      // a second, slower ordering over one set of data.
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([workDate, workedMinutes]) => ({
+        workDate,
+        workedMinutes,
+        scheduledMinutes: scheduledMinutesOn(workDate),
+      }))
+  );
 }
 
 /**
@@ -114,14 +122,37 @@ export function daysEmployedIn(
   employment: readonly { startsOn: string; endsOn: string | null }[],
   period: { startDate: string; endDate: string },
 ): number {
+  const startDate = calendarDate(period.startDate, 'The period start');
+  const endDate = calendarDate(period.endDate, 'The period end');
   const days = new Set<string>();
   for (const spell of employment) {
-    const from = spell.startsOn > period.startDate ? spell.startsOn : period.startDate;
-    const to =
-      spell.endsOn !== null && spell.endsOn < period.endDate ? spell.endsOn : period.endDate;
+    const startsOn = calendarDate(spell.startsOn, 'An employment start date');
+    const endsOn =
+      spell.endsOn === null ? null : calendarDate(spell.endsOn, 'An employment end date');
+    const from = startsOn > startDate ? startsOn : startDate;
+    const to = endsOn !== null && endsOn < endDate ? endsOn : endDate;
     for (const day of datesBetween(from, to)) days.add(day);
   }
   return days.size;
+}
+
+/**
+ * Refuses anything but a plain calendar date.
+ *
+ * Every date in this file is compared as text, and a `@db.Date` column reaches
+ * the contract through `toIsoDate`. A missed conversion hands over a full
+ * timestamp instead, which TypeScript cannot tell apart — both are `string`.
+ * It would not throw: `'2026-09-01' < '2026-09-01T00:00:00.000Z'` is true, so
+ * the first day of the month would silently drop out of somebody's minutes,
+ * and `Date.parse` of a doubled timestamp gives `NaN`, so their days employed
+ * would come out zero and they would be paid nothing. A loud failure here is
+ * the difference between a test going red and a worker being under-paid.
+ */
+function calendarDate(value: string, what: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`${what} must be a plain calendar date such as 2026-09-01, not "${value}".`);
+  }
+  return value;
 }
 
 /** Every calendar date from `from` to `to`, both included. Empty when `to` is earlier. */
@@ -139,5 +170,8 @@ function datesBetween(from: string, to: string): string[] {
 
 /** Calendar days in the period, counting both end days. */
 export function daysInPeriod(period: { startDate: string; endDate: string }): number {
-  return datesBetween(period.startDate, period.endDate).length;
+  return datesBetween(
+    calendarDate(period.startDate, 'The period start'),
+    calendarDate(period.endDate, 'The period end'),
+  ).length;
 }

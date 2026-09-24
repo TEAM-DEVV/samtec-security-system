@@ -90,7 +90,10 @@ The API connects as the owner of the tables, and row-level security does not res
 | A run's status only moves forward, a locked run and its lines never change, and a month has at most one approved run | Database triggers and a partial unique index (Phase 4, built) |
 | A tax table version a run has used can never be edited; its bands run 1..n with no gaps and the last has no upper limit | Database triggers (Phase 4, built) |
 | Pay terms are history: a change in pay is a new row, never an edit | Database trigger (Phase 4, built) |
-| Nothing in payroll is ever deleted, and a bank account name can never hold a line break or a spreadsheet formula | Database triggers and a CHECK (Phase 4, built) |
+| Nothing in payroll is ever deleted or truncated — on any of the eight tables, in any state | Database triggers (Phase 4, built) |
+| A bank account name can never hold a line break, or a spreadsheet formula, even behind a leading space | Database CHECK (Phase 4, built) |
+| A payroll row can never hang off another company's record | Database trigger on every child row (Phase 4, built) |
+| A run is born a draft in an open month, and the frozen list of who was left out has the shape the contract promises | Database triggers (Phase 4, built) |
 | The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
 | A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
 | A face that collided is never matched at clock-in until a second ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afterwards; one pair of records is never decided two ways | Database CHECKs and triggers (Phase 3, built) |

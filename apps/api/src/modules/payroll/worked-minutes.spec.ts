@@ -167,7 +167,8 @@ describe('how many days of the period a worker was employed', () => {
   });
 
   it('leaves out the gap when somebody left and was hired again', () => {
-    // Away from the 11th to the 19th, so nineteen days of the month are paid.
+    // Away from the 11th to the 19th, so twenty-one of the thirty days are
+    // paid: the 1st to the 10th, then the 20th to the 30th.
     const rehired = [
       { startsOn: '2024-01-01', endsOn: '2026-09-10' },
       { startsOn: '2026-09-20', endsOn: null },
@@ -186,5 +187,34 @@ describe('how many days of the period a worker was employed', () => {
   it('counts February correctly, leap year and not', () => {
     expect(daysInPeriod({ startDate: '2026-02-01', endDate: '2026-02-28' })).toBe(28);
     expect(daysInPeriod({ startDate: '2028-02-01', endDate: '2028-02-29' })).toBe(29);
+  });
+});
+
+/**
+ * Every date in this module is compared as text, so a full timestamp would not
+ * fail loudly — it would sort wrongly and quietly under-pay somebody. These
+ * tests pin the guard that turns that into an error.
+ */
+describe('dates that are not plain calendar dates', () => {
+  it('refuses a timestamp where a period date belongs', () => {
+    expect(() =>
+      daysInPeriod({ startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-09-30' }),
+    ).toThrow(/plain calendar date/);
+  });
+
+  it('refuses a timestamp on an employment spell', () => {
+    expect(() =>
+      daysEmployedIn([{ startsOn: '2026-09-01T00:00:00.000Z', endsOn: null }], SEPTEMBER),
+    ).toThrow(/plain calendar date/);
+  });
+
+  it('refuses a timestamp on a segment work date', () => {
+    expect(() =>
+      workedDaysIn(
+        [{ workDate: '2026-09-01T00:00:00.000Z', workedMinutes: 480, status: 'CONFIRMED' }],
+        SEPTEMBER,
+        () => 480,
+      ),
+    ).toThrow(/plain calendar date/);
   });
 });

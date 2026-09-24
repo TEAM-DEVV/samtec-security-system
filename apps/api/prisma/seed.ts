@@ -406,7 +406,7 @@ async function seedPayroll(companyId: string): Promise<void> {
           data: {
             companyId,
             employeeId: employee.id,
-            bankName: byMomo ? null : 'GCB Bank',
+            bankName: byMomo ? null : 'Akwaaba Bank',
             accountName: byMomo ? null : `Account of ${employee.staffNumber}`,
             accountNumber: byMomo ? null : `10${String(index + 1).padStart(11, '0')}`,
             momoNumber: byMomo ? `+2332400000${String(index % 100).padStart(2, '0')}` : null,

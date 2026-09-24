@@ -15,10 +15,12 @@
  *    here. Rates change with each national budget, so a new version is a new
  *    row, and a run records which one it used.
  * 3. **Every figure is worked out from the figures printed beside it**
- *    (decision 24). Only the two amounts that need a division are rounded,
- *    half-up, once each; everything else is addition and subtraction of those
- *    already-rounded pesewas. So a worker can check their payslip by hand, the
- *    run totals are the exact sums of the lines, and
+ *    (decision 24). Six figures come from a division — the pro-rated basic,
+ *    the overtime, the three SSNIT shares that are read from the table, and
+ *    the PAYE — and each is rounded half-up exactly once. Every other figure
+ *    is addition and subtraction of those already-rounded pesewas, never a
+ *    fresh division of its own. So a worker can check their payslip by hand,
+ *    the run totals are the exact sums of the lines, and
  *    `net = gross − SSNIT − PAYE − other` holds by construction — which is
  *    also a `CHECK` constraint, so a bug here cannot reach the database.
  */
@@ -112,6 +114,16 @@ export function payeOn(chargeableIncomePesewas: number, bands: readonly TaxBandR
     scaledTax += inBand * BigInt(band.rateBasisPoints);
     left -= inBand;
   }
+  // The last band must have no width, so that it takes whatever is left however
+  // large. If a table ever reaches here with every band bounded, the income
+  // above the top band would be untaxed and nobody would be told. The database
+  // refuses such a table, so this can only fire on a table built in code, and
+  // when it does it must fail loudly rather than under-tax a high earner.
+  if (left > 0n) {
+    throw new Error(
+      'The highest tax band must have no upper limit, or the top slice of pay would go untaxed.',
+    );
+  }
   return Number(divideHalfUp(scaledTax, BASIS_POINTS));
 }
 
@@ -133,6 +145,11 @@ export function calculatePay(
   }
   if (worked.daysEmployed < 0 || worked.daysEmployed > worked.daysInPeriod) {
     throw new Error('Days employed must fall inside the period.');
+  }
+  // Negative overtime would quietly reduce gross and net. A correction is an
+  // adjustment line (decision 20), never negative minutes on an ordinary one.
+  if (worked.overtimeMinutes < 0) {
+    throw new Error('Overtime minutes can never be negative.');
   }
 
   // The only two divisions in the whole calculation, each rounded once.
@@ -159,6 +176,25 @@ export function calculatePay(
   const shareOfBasic = (basisPoints: number) =>
     Number(divideHalfUp(BigInt(basicPesewas) * BigInt(basisPoints), BASIS_POINTS));
   const ssnitEmployeePesewas = shareOfBasic(rates.ssnitEmployeeBasisPoints);
+  const ssnitEmployerPesewas = shareOfBasic(rates.ssnitEmployerBasisPoints);
+  const ssnitTier1Pesewas = shareOfBasic(rates.ssnitTier1BasisPoints);
+
+  // The two tiers are a split of the same total contribution, not two separate
+  // charges: by law 13.5% of basic goes to SSNIT and 5% to a private scheme,
+  // and together they are exactly the 5.5% + 13% deducted and paid. Rounding
+  // all four separately broke that for about a third of salaries by one pesewa
+  // — basic 120,019 gave 22,203 contributed but 22,204 split. So Tier 2 is
+  // derived from the other three (decision 24), which makes the statutory
+  // summary reconcile for every possible basic.
+  if (
+    rates.ssnitTier1BasisPoints + rates.ssnitTier2BasisPoints !==
+    rates.ssnitEmployeeBasisPoints + rates.ssnitEmployerBasisPoints
+  ) {
+    throw new Error(
+      'The SSNIT tiers must add up to the employee and employer shares together, because they are a split of the same contribution.',
+    );
+  }
+  const ssnitTier2Pesewas = ssnitEmployeePesewas + ssnitEmployerPesewas - ssnitTier1Pesewas;
 
   // Taxable gross is at least the basic, and the employee's share is a small
   // percentage of the basic, so this is never negative for an ordinary line.
@@ -173,9 +209,9 @@ export function calculatePay(
     grossPesewas,
     taxableGrossPesewas,
     ssnitEmployeePesewas,
-    ssnitEmployerPesewas: shareOfBasic(rates.ssnitEmployerBasisPoints),
-    ssnitTier1Pesewas: shareOfBasic(rates.ssnitTier1BasisPoints),
-    ssnitTier2Pesewas: shareOfBasic(rates.ssnitTier2BasisPoints),
+    ssnitEmployerPesewas,
+    ssnitTier1Pesewas,
+    ssnitTier2Pesewas,
     chargeableIncomePesewas,
     payePesewas,
     otherDeductionsPesewas,

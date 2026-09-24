@@ -32,7 +32,11 @@ about confirmed shifts.
   re-checked years later without reading anything else.
 - **The maker is never the checker.** Whoever calculated or submitted a run
   may never approve or reject it.
-- **A locked run never changes**, and nothing in payroll is ever deleted.
+- **The lines freeze when a run is submitted**, not when it is approved, so
+  the numbers a checker reads are the numbers that get frozen. A correction
+  after that means rejecting the run and calculating a new one.
+- **A locked run never changes**, and nothing in payroll is ever deleted — no
+  DELETE and no TRUNCATE, on any of the eight tables, in any state.
 - **`employee_payment_details` is personal data.** It is never logged, never
   put in an error message, and never returned by a list endpoint; it exists on
   the endpoint that sets it and inside the bank export, and nowhere else.
@@ -48,6 +52,22 @@ about confirmed shifts.
 The rules the **database** enforces live in the migration
 `20260924004536_phase_4_payroll`, and are proved against a real PostgreSQL by
 [`test/payroll-rules.e2e-spec.ts`](../../../test/payroll-rules.e2e-spec.ts).
+
+## Writing tests that touch these tables
+
+**A payroll test makes its own company.** It cannot use `TEST_COMPANY_ID` from
+[`test/db-fixture.ts`](../../../test/db-fixture.ts), because `resetFixture`
+deletes that company's employees, and an employee with pay terms can never be
+deleted — the pay terms reference it with `onDelete: Restrict`, and payroll rows
+can never be removed to clear the way. The first test that writes payroll rows
+for the shared fixture company would break `resetFixture` for **every**
+database-backed test in the repository, permanently, with no way back except
+`pnpm db:reset`.
+
+[`test/payroll-rules.e2e-spec.ts`](../../../test/payroll-rules.e2e-spec.ts)
+shows the pattern: a `randomUUID()` company per run, and no cleanup afterwards.
+That leaves a company behind on each local run, which is harmless — run
+`pnpm db:reset` when the local database feels cluttered.
 
 ## Still to build
 

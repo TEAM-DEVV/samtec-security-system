@@ -36,7 +36,20 @@ export function openFixtureDb(databaseUrl: string): PrismaClient {
   return new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 }
 
-/** Deletes the test company's rows (audit rows excepted) and builds them afresh. */
+/**
+ * Deletes the test company's rows (audit rows excepted) and builds them afresh.
+ *
+ * **Never add payroll deletes here.** Nothing in payroll can be deleted — that
+ * is one of the rules the database enforces — so the call would simply throw.
+ * Worse, an employee carrying pay terms cannot be deleted either, because the
+ * pay terms reference it with `onDelete: Restrict` and cannot be cleared out of
+ * the way. One payroll row written for `TEST_COMPANY_ID` would therefore break
+ * this function for **every** database-backed test at once, permanently, with
+ * no way back except `pnpm db:reset`.
+ *
+ * A test that needs payroll rows makes its own company instead. See
+ * `payroll-rules.e2e-spec.ts` and `src/modules/payroll/README.md`.
+ */
 export async function resetFixture(prisma: PrismaClient): Promise<void> {
   // Children first, so no foreign key is left pointing at nothing.
   await prisma.userSession.deleteMany({ where: { user: { companyId: TEST_COMPANY_ID } } });
