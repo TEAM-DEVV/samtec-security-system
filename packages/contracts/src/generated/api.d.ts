@@ -313,6 +313,7 @@ export interface paths {
         /**
          * Create a sign-in account
          * @description **Roles:** ADMIN. SUPERVISOR and GUARD accounts must be linked to an employee of the company who has not left (`employeeId`); ADMIN and HR_PAYROLL accounts must not be. The account starts as `AWAITING_PASSWORD`. The response carries a one-time password link token, shown **only this once**: the dashboard turns it into a link (`/set-password#token=…`) for the admin to hand over in person or by private message, and the person chooses their own password with `POST /auth/set-password`.
+         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
          */
         post: operations["createUser"];
         delete?: never;
@@ -344,6 +345,7 @@ export interface paths {
         /**
          * Change an account's name, email, role or employee link
          * @description **Roles:** ADMIN. Send only the fields you want to change. The link rule is checked on the result: SUPERVISOR and GUARD need an employee, ADMIN and HR_PAYROLL must have none. Changing the role or the link ends every session of the account at once, so the person signs in again (and a new ADMIN or HR_PAYROLL sets up two-factor authentication). **On your own account only `fullName` may change** (`409` otherwise), so nobody can lock themselves out. A switched-off account answers `409`.
+         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such. Taking the ADMIN role away needs nobody else.
          */
         patch: operations["updateUser"];
         trace?: never;
@@ -386,6 +388,7 @@ export interface paths {
         /**
          * Switch an account back on
          * @description **Roles:** ADMIN, never on your own account. Old sessions stay ended. An account whose linked employee has left the company cannot be switched back on (`409`).
+         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
          */
         post: operations["reactivateUser"];
         delete?: never;
@@ -409,8 +412,32 @@ export interface paths {
         /**
          * Reset a forgotten password or a lost authenticator
          * @description **Roles:** ADMIN, never on your own account. Clears **both** the password and the two-factor authenticator, ends every session, and issues a new one-time password link (shown only this once). The person chooses a new password with the link; ADMIN and HR_PAYROLL accounts then set up a new authenticator at their next sign-in. Clearing both together stops a caller who knows the password from simply asking for "a new phone". A switched-off account answers `409`.
+         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
          */
         post: operations["resetUserSignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/confirm-admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an administrator account another ADMIN made or changed
+         * @description **Roles:** ADMIN. The second half of every ADMIN account change (docs/plan/06, "Two administrators"). Refused (`409`) to the administrator who made the change, on your own account, and for an account that is not waiting for confirmation. The confirmer should check in person that the account belongs to the person it names — that check is the whole point.
+         */
+        post: operations["confirmAdminAccount"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2087,11 +2114,14 @@ export interface components {
          *     - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
          *       account sets up two-factor authentication at its first sign-in;
          *       `twoFactorEnabled` shows whether that has happened yet.
+         *     - `AWAITING_CONFIRMATION` — an ADMIN account made, promoted, reset
+         *       or switched back on by one administrator, waiting for a second to
+         *       confirm it. Cannot be used at all until then, password or not.
          *     - `DEACTIVATED` — switched off by an administrator, or because the
          *       linked employee left. Cannot sign in. Kept for history.
          * @enum {string}
          */
-        UserAccountStatus: "AWAITING_PASSWORD" | "ACTIVE" | "DEACTIVATED";
+        UserAccountStatus: "AWAITING_PASSWORD" | "AWAITING_CONFIRMATION" | "ACTIVE" | "DEACTIVATED";
         /** @description A sign-in account as administrators see it. Never contains a password or secret. */
         UserAccount: {
             /** Format: uuid */
@@ -2107,10 +2137,31 @@ export interface components {
              * @description The linked employee for SUPERVISOR and GUARD accounts; `null` for ADMIN and HR_PAYROLL.
              */
             employeeId: string | null;
+            /** @description Who asked for this ADMIN account and who confirmed it. `null` for every other role, and for an ADMIN made directly in the database (the seed or the setup script). */
+            adminConfirmation: components["schemas"]["AdminConfirmation"] | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        AdminConfirmation: {
+            /**
+             * Format: uuid
+             * @description The administrator who made the change. `null` for the setup script, and for accounts older than the rule.
+             */
+            requestedByUserId: string | null;
+            /** Format: date-time */
+            requestedAt: string;
+            /**
+             * Format: uuid
+             * @description The second administrator. `null` while waiting, and when nobody else was needed (the company's only administrator, the setup script, or an account older than the rule).
+             */
+            confirmedByUserId: string | null;
+            /**
+             * Format: date-time
+             * @description Empty (`null`) while the account waits for confirmation.
+             */
+            confirmedAt: string | null;
         };
         UserAccountList: {
             items: components["schemas"]["UserAccount"][];
@@ -4419,6 +4470,7 @@ export type UserRole = components['schemas']['UserRole'];
 export type CurrentUser = components['schemas']['CurrentUser'];
 export type UserAccountStatus = components['schemas']['UserAccountStatus'];
 export type UserAccount = components['schemas']['UserAccount'];
+export type AdminConfirmation = components['schemas']['AdminConfirmation'];
 export type UserAccountList = components['schemas']['UserAccountList'];
 export type PasswordSetupToken = components['schemas']['PasswordSetupToken'];
 export type PasswordSetup = components['schemas']['PasswordSetup'];
@@ -5151,7 +5203,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The account, now `AWAITING_PASSWORD`, with its new link. */
+            /** @description The account, now `AWAITING_PASSWORD` (or `AWAITING_CONFIRMATION` for an ADMIN), with its new link. */
             200: {
                 headers: {
                     "Cache-Control": components["headers"]["NoStore"];
@@ -5162,6 +5214,33 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    confirmAdminAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in account's ID. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account, confirmed. It can be used once it has a password and two-factor sign-in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
