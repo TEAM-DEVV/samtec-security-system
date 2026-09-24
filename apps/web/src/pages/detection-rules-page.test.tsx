@@ -40,6 +40,23 @@ describe('DetectionRulesPage', () => {
     expect(within(neverSeen).getByLabelText('Window (days)')).toHaveValue(30);
   });
 
+  it('refuses half a day: thresholds are whole numbers', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderWithProviders(<DetectionRulesPage />);
+    const neverSeen = await screen.findByRole('region', { name: /^R5 ·/ });
+
+    const days = within(neverSeen).getByLabelText('Window (days)');
+    await user.clear(days);
+    await user.type(days, '14.5');
+    await user.click(within(neverSeen).getByRole('button', { name: 'Save R5' }));
+
+    expect(
+      await within(neverSeen).findByText('Window (days) must be a whole number, zero or more.'),
+    ).toBeInTheDocument();
+    expect(within(neverSeen).queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('refuses a number that is not a number', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();

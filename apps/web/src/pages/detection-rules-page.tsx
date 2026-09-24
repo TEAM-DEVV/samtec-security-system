@@ -208,7 +208,7 @@ function ThresholdForm({ rule }: { rule: DetectionRule }) {
     const thresholds: Record<string, number> = {};
     for (const [name, text] of Object.entries(values)) {
       const number = Number(text.trim());
-      if (text.trim() === '' || !Number.isFinite(number) || number < 0) {
+      if (text.trim() === '' || !Number.isInteger(number) || number < 0) {
         setMistake(`${thresholdLabels[name] ?? name} must be a whole number, zero or more.`);
         return;
       }
