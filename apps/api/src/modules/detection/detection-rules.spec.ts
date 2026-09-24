@@ -2,12 +2,14 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
   bilocation,
+  deviceAnomaly,
   duplicateEnrollment,
   fallbackAbuse,
   identityCollision,
   neverSeen,
   orphanPunches,
   RULE_CATALOGUE,
+  robotRegularity,
   SEVERITY_WEIGHT,
 } from './detection-rules.js';
 
@@ -209,6 +211,99 @@ describe('R7 · fallback abuse', () => {
   });
 });
 
+describe('R8 · robot regularity', () => {
+  const sameEveryDay = (minute: number, days: number) => Array.from({ length: days }, () => minute);
+
+  it('names a row of arrivals too alike to be a person', () => {
+    const found = robotRegularity(
+      [
+        // 05:59 to the minute, every day for a fortnight.
+        { employeeId: 'too-perfect', minutesOfDay: sameEveryDay(359, 14), siteId: 'site-a' },
+        // A real guard: traffic, a tro-tro, a child to drop off.
+        {
+          employeeId: 'human',
+          minutesOfDay: [352, 364, 358, 371, 349, 366, 355, 361, 347, 369, 357, 363],
+        },
+      ],
+      { standardDeviationMinutes: 3, workingDays: 10 },
+      NOW,
+    );
+
+    expect(found.map((row) => row.employeeId)).toEqual(['too-perfect']);
+    expect(found[0]?.evidence.days).toBe(14);
+    expect(found[0]?.evidence.spreadMinutes).toBe(0);
+    // The clock face explains itself in a way the statistic does not.
+    expect(found[0]?.evidence.usualTime).toBe('05:59');
+  });
+
+  it('waits for enough days before calling anything a pattern', () => {
+    const threeIdenticalDays = [{ employeeId: 'new', minutesOfDay: sameEveryDay(359, 3) }];
+
+    expect(
+      robotRegularity(threeIdenticalDays, { standardDeviationMinutes: 3, workingDays: 10 }, NOW),
+    ).toEqual([]);
+  });
+});
+
+describe('R9 · device anomaly', () => {
+  const steady = Array.from({ length: 20 }, () => 40);
+
+  it('notices a terminal sending far more than it ever has', () => {
+    const found = deviceAnomaly(
+      [
+        {
+          deviceId: 'spiking',
+          deviceName: 'ACC-01',
+          dailyCounts: [...steady, 200],
+          clockDriftSeconds: 0,
+        },
+        {
+          deviceId: 'busy',
+          deviceName: 'ACC-02',
+          dailyCounts: [...steady, 45],
+          clockDriftSeconds: 0,
+        },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+    );
+
+    // Against its own history, never against another device: a busy gate is
+    // not an anomaly and a quiet one is not innocent.
+    expect(found.map((row) => row.deviceId)).toEqual(['spiking']);
+    expect(found[0]?.evidence.multiple).toBe(5);
+    expect(found[0]?.evidence.medianPunches).toBe(40);
+  });
+
+  it('notices a clock that has wandered, in either direction', () => {
+    const found = deviceAnomaly(
+      [
+        { deviceId: 'fast', deviceName: 'ACC-03', dailyCounts: steady, clockDriftSeconds: 900 },
+        { deviceId: 'slow', deviceName: 'ACC-04', dailyCounts: steady, clockDriftSeconds: -600 },
+        { deviceId: 'right', deviceName: 'ACC-05', dailyCounts: steady, clockDriftSeconds: 30 },
+      ],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+    );
+
+    // A terminal running fast makes a late arrival look punctual every day,
+    // with nobody touching a record.
+    expect(found.map((row) => row.deviceId).sort()).toEqual(['fast', 'slow']);
+    expect(found.find((row) => row.deviceId === 'fast')?.evidence.fast).toBe(true);
+    expect(found.find((row) => row.deviceId === 'slow')?.evidence.fast).toBe(false);
+  });
+
+  it('says nothing about a device with barely any history', () => {
+    const found = deviceAnomaly(
+      [{ deviceId: 'new', deviceName: 'ACC-06', dailyCounts: [1, 90], clockDriftSeconds: 0 }],
+      { volumeMultiple: 3, medianDays: 30, clockDriftMinutes: 5 },
+      NOW,
+    );
+
+    expect(found).toEqual([]);
+  });
+});
+
 describe('the catalogue', () => {
   it('has all eleven rules, and says which are built', () => {
     expect(RULE_CATALOGUE).toHaveLength(11);
@@ -219,6 +314,8 @@ describe('the catalogue', () => {
       'R4',
       'R5',
       'R7',
+      'R8',
+      'R9',
       'R10',
     ]);
   });

@@ -220,6 +220,109 @@ export class AttendanceFactsService {
   }
 
   /**
+   * What time each worker clocked in, day by day, since `from` (rule R8).
+   *
+   * One time per calendar day — the first clock-in of that day — because a
+   * worker with two shifts would otherwise look erratic when they are not.
+   * Ghana keeps GMT all year, so a moment's UTC minutes past midnight are
+   * also Accra's.
+   */
+  async clockInTimesPerEmployee(
+    companyId: string,
+    from: Date,
+  ): Promise<{ employeeId: string; siteId: string; minutesOfDay: number[] }[]> {
+    const rows = await this.prisma.punchEvent.findMany({
+      where: {
+        companyId,
+        employeeId: { not: null },
+        direction: 'IN',
+        pairable: true,
+        serverTime: { gte: from },
+      },
+      select: { employeeId: true, siteId: true, deviceTime: true },
+      orderBy: { deviceTime: 'asc' },
+    });
+    const byEmployee = new Map<
+      string,
+      { employeeId: string; siteId: string; perDay: Map<string, number> }
+    >();
+    for (const row of rows) {
+      if (row.employeeId === null) {
+        continue;
+      }
+      const running = byEmployee.get(row.employeeId) ?? {
+        employeeId: row.employeeId,
+        siteId: row.siteId,
+        perDay: new Map<string, number>(),
+      };
+      const day = row.deviceTime.toISOString().slice(0, 10);
+      if (!running.perDay.has(day)) {
+        running.perDay.set(day, row.deviceTime.getUTCHours() * 60 + row.deviceTime.getUTCMinutes());
+      }
+      byEmployee.set(row.employeeId, running);
+    }
+    return [...byEmployee.values()].map((row) => ({
+      employeeId: row.employeeId,
+      siteId: row.siteId,
+      minutesOfDay: [...row.perDay.values()],
+    }));
+  }
+
+  /**
+   * How busy each device has been, day by day, and how far its own clock is
+   * off (rule R9).
+   *
+   * Every punch carries the device's own time, so a terminal running fast
+   * can make a late arrival look punctual every day with nobody touching a
+   * record — which is why the drift is reported beside the volume.
+   */
+  async deviceActivity(
+    companyId: string,
+    from: Date,
+  ): Promise<
+    {
+      deviceId: string;
+      deviceName: string;
+      siteId: string;
+      dailyCounts: number[];
+      clockDriftSeconds: number | null;
+    }[]
+  > {
+    const devices = await this.prisma.device.findMany({
+      where: { companyId },
+      select: { id: true, name: true, siteId: true, lastClockDriftSeconds: true },
+    });
+    if (devices.length === 0) {
+      return [];
+    }
+    const punches = await this.prisma.punchEvent.findMany({
+      where: { companyId, serverTime: { gte: from } },
+      select: { deviceId: true, serverTime: true },
+    });
+    const perDevice = new Map<string, Map<string, number>>();
+    for (const punch of punches) {
+      const days = perDevice.get(punch.deviceId) ?? new Map<string, number>();
+      const day = punch.serverTime.toISOString().slice(0, 10);
+      days.set(day, (days.get(day) ?? 0) + 1);
+      perDevice.set(punch.deviceId, days);
+    }
+    return devices.map((device) => {
+      const days = perDevice.get(device.id) ?? new Map<string, number>();
+      // Oldest first, so the last entry is the day being judged.
+      const dailyCounts = [...days.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, count]) => count);
+      return {
+        deviceId: device.id,
+        deviceName: device.name,
+        siteId: device.siteId,
+        dailyCounts,
+        clockDriftSeconds: device.lastClockDriftSeconds,
+      };
+    });
+  }
+
+  /**
    * How many punches on each device matched nobody since `from` (rule R10),
    * and which numbers were tried — which is what tells a typo apart from
    * somebody working through numbers to see which ones answer.
