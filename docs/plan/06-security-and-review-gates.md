@@ -76,7 +76,7 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Devices | A 32-byte secret per device, shown once and stored encrypted (AES-256-GCM, its own key derived from `AUTH_SECRET`). Every request is signed with HMAC-SHA256 over a version, the timestamp, the route name and the raw body; timestamps older or newer than 5 minutes are refused; every failure answers the same `401`. Rotating a secret kills the old one at once. Punches are append-only (database trigger), unique per device and event ID, and a changed resend is refused and audited | **Phase 2 (built)** |
 | Audit | Append-only audit log — a database trigger rejects every change and delete (built, recording sign-in events). Attendance exception resolutions are audited without their free-text note (built, Phase 2). Payroll approvals always audited | Phases 2–5 |
 | Biometric data | Templates only, AES-256-GCM at rest, key outside the database, deleted on termination according to the retention policy | Phase 3 |
-| Backups | Supabase daily backups plus a database dump before every payroll lock | Phase 4 |
+| Backups | **The hosted database has no backups**: it is on Supabase's free plan, where scheduled backups and point-in-time recovery are both paid. Ours is `pnpm --filter @samtec/api db:backup`, which needs no PostgreSQL tools, and a restore is rehearsed and measured in [Backup and restore](../guides/11-backup-and-restore.md). Nothing takes one automatically yet; that guide says what it would cost to fix | **Phase 7 (restore proven, scheduling owed)** |
 
 ## Two administrators (Phase 7)
 

@@ -192,6 +192,70 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
   });
 
   describe('signed ingest', () => {
+    it('a burst of a thousand punches is stored exactly once, however they arrive', async () => {
+      // A terminal that was offline for a day, reconnecting: ten full batches,
+      // arriving together rather than politely in turn. The same shape the
+      // load-test script measures (scripts/load-test.ts); this pins the
+      // promise it checks — nothing lost, nothing counted twice — so a
+      // regression fails in CI rather than in a demo.
+      const run = Date.now();
+      const punches = Array.from({ length: 1_000 }, (_, index) => ({
+        deviceEventId: `burst-${run}-${index}`,
+        deviceUserRef: '70001',
+        deviceTime: new Date(run - (1_000 - index) * 1_000).toISOString(),
+        direction: index % 2 === 0 ? 'IN' : 'OUT',
+        method: 'FINGERPRINT',
+      }));
+      const batches = Array.from({ length: 10 }, (_, index) =>
+        punches.slice(index * 100, (index + 1) * 100),
+      );
+      const send = () =>
+        Promise.all(
+          batches.map((batch) =>
+            signed('ingest/punches', {
+              deviceClockAt: new Date().toISOString(),
+              punches: batch,
+            }),
+          ),
+        );
+
+      const first = await send();
+      // A busy answer is allowed — punches are written under one lock per
+      // company — but it must be the only refusal, and it must say when to
+      // come back.
+      for (const answer of first) {
+        expect([200, 503]).toContain(answer.status);
+        if (answer.status === 503) {
+          expect(Number(answer.headers['retry-after'])).toBeGreaterThan(0);
+        }
+      }
+      const busy = first.filter((answer) => answer.status === 503).length;
+      // Whoever was turned away tries again, as a real terminal does.
+      const retried = busy === 0 ? [] : await send();
+      const accepted = [...first, ...retried]
+        .filter((answer) => answer.status === 200)
+        .reduce((total, answer) => total + answer.body.accepted, 0);
+      expect(accepted).toBe(1_000);
+
+      // Sent again in full: every one a duplicate, none accepted twice.
+      const again = await send();
+      const duplicates = again
+        .filter((answer) => answer.status === 200)
+        .reduce((total, answer) => total + answer.body.duplicates, 0);
+      const acceptedAgain = again
+        .filter((answer) => answer.status === 200)
+        .reduce((total, answer) => total + answer.body.accepted, 0);
+      expect(acceptedAgain).toBe(0);
+      expect(duplicates).toBeGreaterThan(0);
+
+      // And the database agrees with the answers.
+      expect(
+        await prisma.punchEvent.count({
+          where: { deviceId: gate.id, deviceEventId: { startsWith: `burst-${run}-` } },
+        }),
+      ).toBe(1_000);
+    }, 60_000);
+
     it('stores a batch sent twice at the same moment exactly once', async () => {
       const batch = {
         punches: [punch({ deviceEventId: 'race-1', deviceTime: '2026-09-15T06:00:00Z' })],

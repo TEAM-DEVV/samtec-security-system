@@ -24,6 +24,8 @@ Both developers are learning. Explain changes in plain language, and prefer simp
 | Apply migrations to a shared or hosted database | `pnpm db:deploy` |
 | Load fictional demo data (local database only) | `pnpm db:seed` |
 | Rebuild the local database (asks to confirm) | `pnpm db:reset` |
+| Back up a database, or put a backup back ([guide](docs/guides/11-backup-and-restore.md)) | `pnpm --filter @samtec/api db:backup` / `db:restore -- --from <file>` |
+| Measure a burst of punches through the signed endpoint | `pnpm --filter @samtec/api load:punches` |
 | Everything CI runs | `pnpm check` |
 | Fix formatting and import order | `pnpm lint:fix` |
 | Regenerate contract types | `pnpm contracts:generate` |
