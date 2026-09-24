@@ -16,11 +16,13 @@ import type {
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
 import { AuditService } from '../identity/audit.service.js';
+import { deriveKey } from '../identity/secret-box.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import type {
   ListAlertsQuery,
@@ -29,7 +31,10 @@ import type {
 } from './detection.schemas.js';
 import {
   bilocation,
+  duplicateEnrollment,
   type Finding,
+  fallbackAbuse,
+  identityCollision,
   neverSeen,
   orphanPunches,
   RECURRENCE_CAP,
@@ -70,6 +75,7 @@ export class DetectionService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceFactsService,
+    private readonly config: AppConfig,
   ) {}
 
   /**
@@ -397,6 +403,38 @@ export class DetectionService {
         new Date(now.getTime() - days * DAY_MS),
       );
       return bilocation(counts, { overlaps: thresholds.overlaps ?? 3, days }, now);
+    }
+    if (code === 'R1') {
+      const collisions = await this.attendance.openFaceCollisions(companyId);
+      return duplicateEnrollment(collisions, thresholds, now);
+    }
+    if (code === 'R2') {
+      const shared = await this.employees.sharedPhoneNumbers(companyId);
+      return identityCollision(
+        shared.map((row) => ({ kind: 'phone' as const, ...row })),
+        { sharedBy: thresholds.sharedBy ?? 2 },
+        now,
+        deriveKey(this.config.authSecret, 'detection-fingerprint'),
+      );
+    }
+    if (code === 'R7') {
+      const days = thresholds.days ?? 30;
+      const from = new Date(now.getTime() - days * DAY_MS);
+      const [workers, supervisors] = await Promise.all([
+        this.attendance.clockInMethodsPerEmployee(companyId, from),
+        this.attendance.coSignsPerSupervisor(companyId, from),
+      ]);
+      return fallbackAbuse(
+        workers,
+        supervisors,
+        {
+          sharePercent: thresholds.sharePercent ?? 40,
+          days,
+          minimumClockIns: thresholds.minimumClockIns ?? 5,
+          supervisorCoSigns: thresholds.supervisorCoSigns ?? 20,
+        },
+        now,
+      );
     }
     if (code === 'R10') {
       const days = thresholds.days ?? 7;

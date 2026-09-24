@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 
 /**
@@ -44,7 +45,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'One face enrolled twice, under two names.',
     severity: 'CRITICAL',
     thresholds: {},
-    built: false,
+    built: true,
   },
   {
     code: 'R2',
@@ -52,7 +53,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'Two workers sharing a phone number, bank account or mobile money number.',
     severity: 'HIGH',
     thresholds: { sharedBy: 2 },
-    built: false,
+    built: true,
   },
   {
     code: 'R3',
@@ -92,7 +93,7 @@ export const RULE_CATALOGUE: readonly RuleDefaults[] = [
     description: 'A worker, or a supervisor, leaning on the ways around the camera.',
     severity: 'MEDIUM',
     thresholds: { sharePercent: 40, days: 30, minimumClockIns: 5, supervisorCoSigns: 20 },
-    built: false,
+    built: true,
   },
   {
     code: 'R8',
@@ -256,6 +257,181 @@ export function orphanPunches(
         numbersTried: row.numbersTried.slice(0, 20),
       },
     }));
+}
+
+// --- R1 · Duplicate enrollment ---------------------------------------------
+
+export interface OpenCollision {
+  credentialId: string;
+  employeeId: string;
+  siteId?: string;
+  lookedLikeStaffNumber: string;
+  similarity: number;
+  enrolledAt: Date;
+}
+
+/**
+ * One face, two names — the same person enrolled twice.
+ *
+ * Phase 3 already refuses to match a face that collided until a second ADMIN
+ * decides, so nobody clocks in on it. This rule does not repeat that
+ * decision: it puts the waiting question where an investigator sees it,
+ * because a duplicate enrollment that nobody ever looks at is a ghost with a
+ * face.
+ */
+export function duplicateEnrollment(
+  collisions: readonly OpenCollision[],
+  _thresholds: Record<string, number>,
+  now: Date,
+): Finding[] {
+  return collisions.map((collision) => ({
+    ruleCode: 'R1' as const,
+    // One per face record, ever: it is one question about one enrollment.
+    dedupeKey: `R1:${collision.credentialId}`,
+    employeeId: collision.employeeId,
+    siteId: collision.siteId,
+    windowFrom: collision.enrolledAt,
+    windowTo: now,
+    evidence: {
+      // The staff number and the score, which is what the duplicate queue
+      // already shows an ADMIN. Never a template and never an image.
+      lookedLikeStaffNumber: collision.lookedLikeStaffNumber,
+      similarity: collision.similarity,
+      credentialId: collision.credentialId,
+    },
+  }));
+}
+
+// --- R2 · Identity collision -------------------------------------------------
+
+export interface SharedDetail {
+  kind: 'phone';
+  value: string;
+  employeeIds: string[];
+  staffNumbers: string[];
+}
+
+/**
+ * Two workers who share a detail only one person should have.
+ *
+ * The Ghana Card number is already a hard database rule, so it can never
+ * happen. A shared phone can be innocent — a family, one handset between
+ * two brothers — which is exactly why this raises a question rather than an
+ * accusation. Version 1 checks the phone; the bank account and mobile money
+ * number join it when payroll stores them.
+ */
+export function identityCollision(
+  shared: readonly SharedDetail[],
+  thresholds: { sharedBy: number },
+  now: Date,
+  /** The server's own key, so the fingerprint below cannot be looked up. */
+  fingerprintKey: Buffer,
+): Finding[] {
+  return shared
+    .filter((detail) => detail.employeeIds.length >= thresholds.sharedBy)
+    .flatMap((detail) =>
+      // One finding per worker, so each person's own file shows it, but all
+      // of them naming the same group.
+      detail.employeeIds.map((employeeId) => ({
+        ruleCode: 'R2' as const,
+        dedupeKey: `R2:${detail.kind}:${employeeId}:${fingerprintOf(detail.value, fingerprintKey)}`,
+        employeeId,
+        windowFrom: now,
+        windowTo: now,
+        evidence: {
+          shares: detail.kind,
+          withStaffNumbers: detail.staffNumbers,
+          people: detail.employeeIds.length,
+        },
+      })),
+    );
+}
+
+// --- R7 · Fallback abuse -----------------------------------------------------
+
+export interface ClockInMix {
+  employeeId: string;
+  siteId?: string;
+  clockIns: number;
+  /** A supervisor's co-sign, or a staff number and any finger on the kiosk. */
+  flagged: number;
+}
+
+export interface SupervisorCoSigns {
+  employeeId: string;
+  siteId?: string;
+  coSigns: number;
+}
+
+/**
+ * Somebody going around the camera, again and again.
+ *
+ * Every way past a face is recorded and flagged already; what matters is the
+ * **share**. A guard whose face fails now and then is a guard with a bad
+ * camera angle. A guard who almost never uses their face is a guard whose
+ * face may not be theirs.
+ *
+ * It counts both ends: the worker who is let in, and the supervisor doing
+ * the letting in — because the supervisor is the likelier of the two to be
+ * selling it.
+ */
+export function fallbackAbuse(
+  workers: readonly ClockInMix[],
+  supervisors: readonly SupervisorCoSigns[],
+  thresholds: {
+    sharePercent: number;
+    days: number;
+    minimumClockIns: number;
+    supervisorCoSigns: number;
+  },
+  now: Date,
+): Finding[] {
+  const from = new Date(now.getTime() - thresholds.days * DAY_MS);
+  const month = isoMonth(now);
+  const byWorker = workers
+    .filter((worker) => worker.clockIns > 0 && worker.clockIns >= thresholds.minimumClockIns)
+    .filter((worker) => (worker.flagged * 100) / worker.clockIns > thresholds.sharePercent)
+    .map((worker) => ({
+      ruleCode: 'R7' as const,
+      dedupeKey: `R7:worker:${worker.employeeId}:${month}`,
+      employeeId: worker.employeeId,
+      siteId: worker.siteId,
+      windowFrom: from,
+      windowTo: now,
+      evidence: {
+        clockIns: worker.clockIns,
+        flagged: worker.flagged,
+        sharePercent: Math.round((worker.flagged * 100) / worker.clockIns),
+      },
+    }));
+  const bySupervisor = supervisors
+    .filter((supervisor) => supervisor.coSigns > thresholds.supervisorCoSigns)
+    .map((supervisor) => ({
+      ruleCode: 'R7' as const,
+      dedupeKey: `R7:supervisor:${supervisor.employeeId}:${month}`,
+      employeeId: supervisor.employeeId,
+      siteId: supervisor.siteId,
+      windowFrom: from,
+      windowTo: now,
+      evidence: { coSigned: supervisor.coSigns, as: 'supervisor' },
+    }));
+  return [...byWorker, ...bySupervisor];
+}
+
+/**
+ * A short fingerprint of a detail, for a dedupe key.
+ *
+ * The key has to change when the shared number changes, but it must not be a
+ * second place a worker's phone number is written down. A **plain** hash
+ * would not do that: every Ghanaian mobile number fits in a table anybody
+ * could build in a second, so a bare SHA-256 of one is the number itself
+ * with extra steps.
+ *
+ * Keyed with the server's own secret, it cannot be looked up by anyone
+ * holding only the rows.
+ */
+function fingerprintOf(value: string, key: Buffer): string {
+  return createHmac('sha256', key).update(value).digest('hex').slice(0, 16);
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

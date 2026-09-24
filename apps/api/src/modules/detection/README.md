@@ -51,6 +51,9 @@ Every rule, with its reason and its numbers, is in
 
 ## Built so far
 
-R4 (bilocation), R5 (never seen) and R10 (orphan punches). The other eight
-are in the catalogue, switched off and reported as skipped, and land with
-their own tests. R3 and R6 wait for payroll.
+R1 (duplicate enrollment), R2 (identity collision, the phone for now), R4
+(bilocation), R5 (never seen), R7 (fallback abuse, counted for the worker
+**and** for the supervisor doing the letting in) and R10 (orphan punches).
+
+R8, R9 and R11 are in the catalogue, switched off and reported as skipped,
+and land with their own tests. R3 and R6 wait for payroll.

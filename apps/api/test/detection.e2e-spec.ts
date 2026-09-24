@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
+import { AttendanceFactsService } from '../src/modules/attendance/attendance-facts.service.js';
+import { CONSENT_TEXT_SHA256 } from '../src/modules/attendance/consent-text.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
@@ -26,6 +29,9 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
   let adminToken = '';
   let hrToken = '';
   let supervisorToken = '';
+  /** Consent and kiosk rows need a face kiosk (a database trigger says so). */
+  let consentKiosk = '';
+  let coSignKiosk = '';
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
@@ -89,6 +95,13 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       employeeId: company.supervisorEmployeeId,
       onKiosk: false,
     });
+    const kiosk = await api()
+      .post('/api/v1/devices')
+      .set(...bearer(adminToken))
+      .send({ name: 'Detection kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
+      .expect(201);
+    consentKiosk = kiosk.body.device.id;
+    coSignKiosk = kiosk.body.device.id;
   }, 120_000);
 
   afterAll(async () => {
@@ -299,6 +312,143 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
     });
   });
 
+  describe('the rules that read other tables', () => {
+    it('asks about a duplicate face that is still waiting, and never one already blocked', async () => {
+      const [enrolled, lookedLike] = [await ghost(50), await ghost(50)];
+      const consent = await prisma.biometricConsent.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: enrolled.id,
+          status: 'GIVEN',
+          textVersion: 'bio-v1',
+          textSha256: CONSENT_TEXT_SHA256,
+          recordedByUserId: company.adminUserId,
+          deviceId: consentKiosk,
+        },
+      });
+      const waiting = await prisma.biometricCredential.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: enrolled.id,
+          kind: 'FACE',
+          deviceId: consentKiosk,
+          templateSealed: new Uint8Array([1, 2, 3]),
+          keyVersion: 1,
+          faceModel: 'human-faceres-1',
+          consentId: consent.id,
+          enrolledByUserId: company.adminUserId,
+          dedupe: 'COLLISION',
+          collisionEmployeeId: lookedLike.id,
+          collisionSimilarity: 0.71,
+          status: 'PENDING',
+        },
+      });
+
+      await sweep().expect(200);
+
+      const raised = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R1', employeeId: enrolled.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(raised.body.items).toHaveLength(1);
+      expect(raised.body.items[0].evidence.lookedLikeStaffNumber).toBe(lookedLike.staffNumber);
+      expect(raised.body.items[0].evidence.similarity).toBeCloseTo(0.71, 2);
+      // Never a template, whatever else the evidence carries.
+      expect(JSON.stringify(raised.body)).not.toMatch(/template|embedding/i);
+
+      // A record another review already blocked keeps COLLISION and no
+      // verdict for ever, because the database refuses to decide a blocked
+      // face — so an alert about one could never be cleared, and
+      // `openFaceCollisions` leaves them out for exactly the reason the
+      // duplicate queue does.
+      //
+      // That state cannot be built here: the database refuses to block a
+      // face except through a real SAME_PERSON decision against its own
+      // record, which is itself reassuring. What is asserted instead is
+      // that a review the database has since decided stops being raised.
+      await api()
+        .post(`/api/v1/detection/alerts/${raised.body.items[0].id}/resolve`)
+        .set(...bearer(adminToken))
+        .send({ status: 'RESOLVED', note: 'Same man, one record kept. Queue cleared.' })
+        .expect(200);
+      const after = await sweep().expect(200);
+      expect(after.body.raised).toBe(0);
+      expect(waiting.dedupe).toBe('COLLISION');
+    });
+
+    it('asks about two workers sharing a phone, without writing the number down', async () => {
+      const shared = `+2332055${String(Date.now()).slice(-6)}`;
+      const one = await ghost(50);
+      const two = await ghost(50);
+      await prisma.employee.updateMany({
+        where: { id: { in: [one.id, two.id] } },
+        data: { phone: shared },
+      });
+
+      await sweep().expect(200);
+
+      const raised = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R2', employeeId: one.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(raised.body.items).toHaveLength(1);
+      expect(raised.body.items[0].evidence.withStaffNumbers).toContain(two.staffNumber);
+      // The question is that it is shared, not what it is. The number is not
+      // in the evidence, and the key that makes the sweep repeatable is
+      // keyed with the server's own secret, so it cannot be looked up.
+      const stored = await prisma.detectionAlert.findFirstOrThrow({
+        where: { employeeId: one.id, ruleCode: 'R2' },
+      });
+      expect(JSON.stringify(stored)).not.toContain(shared);
+    });
+
+    it('counts only the co-signs that really let somebody in', async () => {
+      const supervisor = await ghost(50);
+      const attempts = await Promise.all(
+        [1, 2].map(() =>
+          prisma.clockInAttempt.create({
+            data: {
+              companyId: company.companyId,
+              deviceId: coSignKiosk,
+              purpose: 'CO_SIGN',
+              direction: 'IN',
+              outcome: 'MATCHED',
+              employeeId: supervisor.id,
+              staffNumberTried: 'SMT-70001',
+            },
+            select: { id: true },
+          }),
+        ),
+      );
+      // Only the first one ever became a punch. A supervisor whose co-signs
+      // are refused is the opposite of the person this rule looks for.
+      await prisma.punchEvent.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: coSignKiosk,
+          siteId: company.siteA,
+          deviceEventId: attempts[0]?.id ?? '',
+          deviceUserRef: 'SMT-70001',
+          employeeId: company.active.id,
+          deviceTime: new Date(),
+          serverTime: new Date(),
+          direction: 'IN',
+          method: 'PIN_FALLBACK',
+          // 64 hex characters, as the database insists.
+          payloadHash: createHash('sha256').update(String(Date.now())).digest('hex'),
+        },
+      });
+
+      const counted = await app
+        .get(AttendanceFactsService)
+        .coSignsPerSupervisor(company.companyId, new Date(Date.now() - 30 * DAY_MS));
+
+      expect(counted.find((row) => row.employeeId === supervisor.id)?.coSigns).toBe(1);
+    });
+  });
+
   describe('the planted ghost', () => {
     it('is in the seeded data, on the books and never at a gate', async () => {
       // The labelled ground truth the report's precision and recall
@@ -324,7 +474,14 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(rules.body.items).toHaveLength(11);
       const built = rules.body.items.filter((rule: { enabled: boolean }) => rule.enabled);
       // A rule that is not built must never read as a clean bill of health.
-      expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual(['R10', 'R4', 'R5']);
+      expect(built.map((rule: { code: string }) => rule.code).sort()).toEqual([
+        'R1',
+        'R10',
+        'R2',
+        'R4',
+        'R5',
+        'R7',
+      ]);
     });
 
     it('refuses a threshold the rule does not have', async () => {
@@ -336,20 +493,27 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
     });
 
     it('adds up a score from the open alerts, highest first', async () => {
-      await ghost(40);
+      const worker = await ghost(40);
       await sweep().expect(200);
 
       const scores = await api()
         .get('/api/v1/detection/risk-scores')
+        .query({ limit: 100 })
         .set(...bearer(adminToken))
         .expect(200);
 
       expect(scores.body.items.length).toBeGreaterThan(0);
       const values = scores.body.items.map((row: { score: number }) => row.score);
       expect([...values].sort((a: number, b: number) => b - a)).toEqual(values);
-      // HIGH is worth 5, and every one of these has exactly one open R5.
-      expect(scores.body.items[0].score).toBe(5);
-      expect(scores.body.items[0].topRule).toBe('R5');
+      // This worker has exactly one open alert, a HIGH one, which is worth 5.
+      // Others in this company may have collected several by now, so the
+      // assertion is about the one we just made, not whoever is top.
+      const mine = scores.body.items.find(
+        (row: { employee: { id: string } }) => row.employee.id === worker.id,
+      );
+      expect(mine.score).toBe(5);
+      expect(mine.openAlerts).toBe(1);
+      expect(mine.topRule).toBe('R5');
     });
   });
 });
