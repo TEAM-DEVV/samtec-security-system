@@ -123,7 +123,9 @@ final visual pass: **Francis**.
 - Full security review of the repository; findings fixed or accepted in writing
 - [x] Creating, resetting, promoting or switching on an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules). Rules and what is still open: [Security and review gates](06-security-and-review-gates.md), "Two administrators"
 - [x] Registering a device or rotating its secret needs a second ADMIN (a device key can post punches): the key is born switched off, and whoever issued it may not switch it on — service and database CHECK alike ([Security and review gates](06-security-and-review-gates.md), "Two administrators", rules 6 to 8)
-- Load test of punch ingestion (a burst of 1,000 punches); backup and restore drill; threat model refresh
+- [x] **Load test of punch ingestion**: `pnpm --filter @samtec/api load:punches` sends a burst through the real signed endpoint and measures it. A thousand punches land in about a second, every one stored exactly once, and sending the whole burst again changes nothing. Pushed to five thousand at sixteen batches at a time it sheds load politely — `503` with `Retry-After` — and still loses nothing. The same promise is pinned by a test in CI
+- [x] **Backup and restore drill**, written up with its numbers in [Backup and restore](../guides/11-backup-and-restore.md). It found that the hosted database has **no backups at all** (Supabase free plan), so the drill also built the backup: 17,535 rows out, database destroyed, rebuilt empty, put back, and the whole test suite run against the restored copy. **Still owed:** nobody takes one automatically, and the full drill has not been run against the hosted database
+- Threat model refresh
 - **Exit demo:** the security chapter of the report is drafted from the results
 
 ## Phase 8 · Deploy and present (week 15 onwards)

@@ -192,6 +192,79 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
   });
 
   describe('signed ingest', () => {
+    it('a burst of a thousand punches is stored exactly once, however they arrive', async () => {
+      // A terminal that was offline for a day, reconnecting: ten full batches,
+      // arriving together rather than politely in turn. The same shape the
+      // load-test script measures (scripts/load-test.ts); this pins the
+      // promise it checks — nothing lost, nothing counted twice — so a
+      // regression fails in CI rather than in a demo.
+      const run = Date.now();
+      const punches = Array.from({ length: 1_000 }, (_, index) => ({
+        deviceEventId: `burst-${run}-${index}`,
+        deviceUserRef: '70001',
+        deviceTime: new Date(run - (1_000 - index) * 1_000).toISOString(),
+        direction: index % 2 === 0 ? 'IN' : 'OUT',
+        method: 'FINGERPRINT',
+      }));
+      const batches = Array.from({ length: 10 }, (_, index) =>
+        punches.slice(index * 100, (index + 1) * 100),
+      );
+      const send = (these: (typeof punches)[number][][]) =>
+        Promise.all(
+          these.map((batch) =>
+            signed('ingest/punches', {
+              deviceClockAt: new Date().toISOString(),
+              punches: batch,
+            }),
+          ),
+        );
+
+      /**
+       * Sends every batch and keeps trying the ones turned away, as a real
+       * terminal does. A busy answer is allowed — punches are written under
+       * one lock per company — but it must be the only refusal, and it must
+       * say when to come back. Retrying until nobody is busy is what keeps
+       * this test honest rather than lucky: with one retry it would depend on
+       * how fast the machine running it happens to be.
+       */
+      const sendEverything = async () => {
+        const answers = [];
+        let waiting = batches;
+        for (let attempt = 1; waiting.length > 0 && attempt <= 10; attempt += 1) {
+          const round = await send(waiting);
+          const busy = [];
+          for (const [index, answer] of round.entries()) {
+            expect([200, 503]).toContain(answer.status);
+            if (answer.status === 503) {
+              expect(Number(answer.headers['retry-after'])).toBeGreaterThan(0);
+              busy.push(waiting[index] as (typeof punches)[number][]);
+            } else {
+              answers.push(answer);
+            }
+          }
+          waiting = busy;
+        }
+        expect(waiting).toHaveLength(0);
+        return answers;
+      };
+
+      const first = await sendEverything();
+      const accepted = first.reduce((total, answer) => total + answer.body.accepted, 0);
+      expect(accepted).toBe(1_000);
+
+      // Sent again in full: every one a duplicate, none accepted twice.
+      const again = await sendEverything();
+      expect(again.reduce((total, answer) => total + answer.body.accepted, 0)).toBe(0);
+      expect(again.reduce((total, answer) => total + answer.body.duplicates, 0)).toBe(1_000);
+
+      // And the database agrees with the answers.
+      expect(
+        await prisma.punchEvent.count({
+          where: { deviceId: gate.id, deviceEventId: { startsWith: `burst-${run}-` } },
+        }),
+      ).toBe(1_000);
+    }, 60_000);
+
     it('stores a batch sent twice at the same moment exactly once', async () => {
       const batch = {
         punches: [punch({ deviceEventId: 'race-1', deviceTime: '2026-09-15T06:00:00Z' })],
