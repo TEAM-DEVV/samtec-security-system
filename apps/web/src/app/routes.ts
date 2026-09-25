@@ -35,6 +35,12 @@ export const routes = {
     deviceId ? `/devices/attempts?deviceId=${encodeURIComponent(deviceId)}` : '/devices/attempts',
   /** The duplicate-enrollment queue: faces that looked like someone already enrolled (ADMIN only). */
   duplicateFaces: '/biometrics/duplicates',
+  /** Payroll months and their runs (Phase 4): ADMIN and HR_PAYROLL. */
+  payroll: '/payroll',
+  /** One run: its totals, its lines, and the decisions about it. */
+  payrollRun: (runId: string) => `/payroll/runs/${encodeURIComponent(runId)}`,
+  /** A guard's own payslips. The one payroll page a guard may open. */
+  myPayslips: '/payroll/payslips/me',
   /** The ghost-detection queue (Phase 5): ADMIN and HR_PAYROLL. */
   detection: '/detection',
   /** One alert, with its evidence and the way to answer it. */
