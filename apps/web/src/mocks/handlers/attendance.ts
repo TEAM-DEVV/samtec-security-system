@@ -57,6 +57,7 @@ const EXCEPTION_TYPES = [
   'UNKNOWN_EMPLOYEE',
   'INACTIVE_EMPLOYEE',
   'OVERLAP',
+  'UNEXPECTED_DEVICE_ENROLLMENT',
 ] as const;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;

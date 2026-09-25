@@ -62,7 +62,9 @@ The answer splits the two things that were tangled together:
 - **Payroll enforces it at submission**, using its own data. A line already
   carries `punchedMinutes` (decision 8 of
   [Payroll engine (Ghana)](09-payroll-engine-ghana.md)), so payroll needs
-  nothing from detection to refuse a run.
+  nothing from detection to refuse a run. **Still owed:** the run endpoints
+  are Phase 4 and not built, so nothing in `modules/payroll` calls the shared
+  function yet, and the sweep alert below is R3's only control today.
 - **Detection raises the alert** on its sweep, using the same shared function,
   so the queue and the report see it too.
 

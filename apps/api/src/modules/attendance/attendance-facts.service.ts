@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { toAccraDate } from '../../common/dates.js';
+import { isUuid } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -226,11 +227,22 @@ export class AttendanceFactsService {
     //
     // A co-sign's punch carries the attempt's own id as its device event id,
     // which is what joins the two.
+    //
+    // **Only the ones shaped like an id.** A device event id is free text the
+    // terminal chooses, and PIN_FALLBACK is a method any terminal may send —
+    // the shipped simulator sends `SMT-00042-2026-09-23-in`. Handing that to a
+    // uuid column threw, `sweepCompany` caught the error and skipped the rule,
+    // and R7 — the one that catches a supervisor selling co-signs — was
+    // silently off for that company from the first fallback punch onwards,
+    // while the rules page still said it was on.
     const punches = await this.prisma.punchEvent.findMany({
       where: { companyId, method: 'PIN_FALLBACK', serverTime: { gte: from } },
       select: { deviceEventId: true },
     });
-    if (punches.length === 0) {
+    const attemptIds = punches
+      .map((punch) => punch.deviceEventId)
+      .filter((deviceEventId) => isUuid(deviceEventId));
+    if (attemptIds.length === 0) {
       return [];
     }
     const rows = await this.prisma.clockInAttempt.groupBy({
@@ -239,7 +251,7 @@ export class AttendanceFactsService {
         companyId,
         purpose: 'CO_SIGN',
         employeeId: { not: null },
-        id: { in: punches.map((punch) => punch.deviceEventId) },
+        id: { in: attemptIds },
       },
       _count: { _all: true },
     });
@@ -481,9 +493,15 @@ export class AttendanceFactsService {
     // Every calendar day in the window, in order, with a **zero** for a day
     // the device said nothing. A silent day that was simply missing would
     // shuffle the array along, so "the last entry" would be the last day the
-    // device spoke rather than today — and a spike from last week would keep
-    // being judged as though it had just happened.
-    const calendar = daysBetween(from, to);
+    // device spoke rather than the day being judged — and a spike from last
+    // week would keep being judged as though it had just happened.
+    //
+    // The window ends at the **last finished day**. The rule compares its last
+    // entry with the median of the ones before it, and the daily run happens at
+    // 02:00, so including today handed the rule two hours of a guard company's
+    // quietest time: the comparison was always false, and yesterday's real
+    // spike sat in the median instead of being reported.
+    const calendar = daysBetween(from, to).filter((day) => day < toAccraDate(to));
     return devices.map((device) => {
       const days = perDevice.get(device.id) ?? new Map<string, number>();
       const dailyCounts = calendar.map((day) => days.get(day) ?? 0);

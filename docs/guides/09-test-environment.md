@@ -43,8 +43,18 @@ project (or merge the next pull request).
 
 1. You merge a pull request into `main` (after CI is green and review).
 2. Vercel builds both projects from the new `main`.
-3. The API build runs `prisma migrate deploy` first, so **database migrations
-   apply themselves** — merging a migration is all it takes.
+3. The **production** API build runs `prisma migrate deploy` first, so
+   **database migrations apply themselves** — merging a migration is all it
+   takes.
+
+   A preview build (every push to a branch, every pull request) deliberately
+   does **not** migrate. There is one TEST database for both, so a preview
+   used to change the shared schema before anybody had reviewed it — and
+   because a migration regenerated on top of `main` gets a new folder name,
+   the old one stayed recorded in a database where the repository no longer
+   had it, and every later deploy died at the migrate step until somebody
+   deleted that row by hand. The guard is in `apps/api/vercel.json`, in the
+   build command: migrations run only when `VERCEL_ENV` is `production`.
 4. A minute or two later, TEST is running your change.
 
 Normally there is nothing to click. If TEST breaks, check the deploy logs

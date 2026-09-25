@@ -119,13 +119,13 @@ final visual pass: **Francis**.
 
 ## Phase 7 · Hardening (week 14)
 
-- **Whole-system review after the final polish:** every module, the database and every screen, through all four lenses; findings fixed or accepted in writing
-- Full security review of the repository; findings fixed or accepted in writing
+- [x] **Whole-system review:** every module, the database, every screen and the repository itself, through all four lenses, with a sceptic sent to refute each serious finding. Twenty survived. Three were blockers: switching the other administrator off re-opened the sole-administrator shortcut; a device could claim its own clock ran hours fast and have future punches paid; and rule R7 died on every sweep the moment any terminal sent an ordinary PIN fallback punch. All twenty are fixed, each with a test that fails without the fix where one could be written
+- [x] **Full security review of the repository**, in the same pass: it found that every Vercel preview build was applying migrations to the one shared TEST database, before review and before merge
 - [x] Creating, resetting, promoting or switching on an ADMIN account needs a second ADMIN (closes the "one person, two accounts" gap in the Phase 3 two-person rules). Rules and what is still open: [Security and review gates](06-security-and-review-gates.md), "Two administrators"
 - [x] Registering a device or rotating its secret needs a second ADMIN (a device key can post punches): the key is born switched off, and whoever issued it may not switch it on — service and database CHECK alike ([Security and review gates](06-security-and-review-gates.md), "Two administrators", rules 6 to 8)
 - [x] **Load test of punch ingestion**: `pnpm --filter @samtec/api load:punches` sends a burst through the real signed endpoint and measures it. A thousand punches land in about a second, every one stored exactly once, and sending the whole burst again changes nothing. Pushed to five thousand at sixteen batches at a time it sheds load politely — `503` with `Retry-After` — and still loses nothing. The same promise is pinned by a test in CI
 - [x] **Backup and restore drill**, written up with its numbers in [Backup and restore](../guides/11-backup-and-restore.md). It found that the hosted database has **no backups at all** (Supabase free plan), so the drill also built the backup: 17,535 rows out, database destroyed, rebuilt empty, put back, and the whole test suite run against the restored copy. **Still owed:** nobody takes one automatically, and the full drill has not been run against the hosted database
-- Threat model refresh
+- [x] **Threat model refresh**: [Security and review gates](06-security-and-review-gates.md) now carries a row for what Phases 5 to 7 actually built — the eleven sweep rules that hunt a ghost, losing the database, a stolen backup file, the open daily-sweep route, and the hosting dashboards themselves. The stale promise to teach R11 the administrator columns is replaced by the reason that clause was rejected, and the row says plainly that R3's second control (payroll refusing a run) waits on the Phase 4 run endpoints
 - **Exit demo:** the security chapter of the report is drafted from the results
 
 ## Phase 8 · Deploy and present (week 15 onwards)

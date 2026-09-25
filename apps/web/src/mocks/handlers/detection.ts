@@ -228,7 +228,11 @@ export const detectionHandlers = [
     const byEmployee = new Map<string, RiskScore>();
     for (const alert of memory.alerts) {
       const person = alert.subject.employee;
-      if (!person || alert.resolution) {
+      // R11 asks whether the right person settled a two-person decision. The
+      // worker's name is on it only so a checker can find the record, so an
+      // argument between two administrators must never make a guard look
+      // risky — the real API excludes it the same way.
+      if (!person || alert.resolution || alert.ruleCode === 'R11') {
         continue;
       }
       const running = byEmployee.get(person.id);
