@@ -111,15 +111,16 @@ restore is one long transaction on one connection.
 since the last backup, and nothing else. **What it does not prove:** that
 anybody is taking backups. Nothing schedules this yet — see below.
 
-## Taking one every day, without anybody remembering
+## Taking one every week, without anybody remembering
 
 ```bash
 pnpm --filter @samtec/api db:backup:scheduled
 ```
 
 That is the command a scheduler runs. It takes a backup, keeps the newest 14
-and deletes the rest, and appends one line to `samtec-backups/backup-log.txt`
-so a person can see at a glance that it is still happening:
+and deletes the rest — at the weekly cadence below, about three months of
+history — and appends one line to `samtec-backups/backup-log.txt`, so a person
+can see at a glance that it is still happening:
 
 ```
 2026-09-25T09:41:25.643Z  OK  63314 rows from localhost:54329/samtec_dev into C:\Users\…\samtec-2026-09-25T09-41-21.ndjson
@@ -145,22 +146,27 @@ to keep, default 14).
 location, so the task needs no paths of its own:
 
 ```bash
-schtasks /Create /TN "SAMTEC daily backup" /TR "<repo>\apps\api\scripts\scheduled-backup.cmd" /SC DAILY /ST 13:00 /F
+schtasks /Create /TN "SAMTEC weekly backup" /TR "<repo>\apps\api\scripts\scheduled-backup.cmd" /SC WEEKLY /D SUN /ST 13:00 /F
 ```
+
+**A fixed weekday on purpose.** Every six days, or every ten, drifts across
+the calendar, so nobody can ever say what the log should contain. "There is a
+Sunday line every week" is a thing a person can check in two seconds, and a
+missing one is obvious.
 
 Set it to start when available, so a day the computer was switched off at
 13:00 is caught up at the next opportunity instead of being missed silently:
 
 ```bash
-powershell -Command "Set-ScheduledTask -TaskName 'SAMTEC daily backup' -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1))"
+powershell -Command "Set-ScheduledTask -TaskName 'SAMTEC weekly backup' -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1))"
 ```
 
-Check on it with `schtasks /Query /TN "SAMTEC daily backup" /FO LIST`, or just
-read `backup-log.txt`.
+Check on it with `schtasks /Query /TN "SAMTEC weekly backup" /FO LIST`, or
+just read `backup-log.txt`.
 
 **On this project's computer it is installed and proven**: it ran on 25
-September 2026 at 09:41, finished with result 0, took 63,314 rows, kept the
-newest and deleted the older ones, and is next due at 13:00.
+September 2026 with result 0, took 63,314 rows, kept the newest and deleted
+the older ones, and is next due on Sunday at 13:00.
 
 ### Why not GitHub Actions
 
@@ -173,12 +179,19 @@ owns, or in a private store bought for the purpose. Not in CI.
 
 ## What is still owed
 
-- **The schedule is only as reliable as the computer it runs on.** A daily
+- **A week is the most this can lose, and a week is too much for real pay.**
+  Weekly is the right cadence for TEST, whose data is invented and whose worst
+  case is reseeding it. It is the wrong cadence for a company's actual
+  payroll: losing a week there means a week of punches, corrections and
+  approvals gone. **Before real client data exists, buy Supabase's daily
+  backups** — they also bring point-in-time recovery, which is what you
+  actually want after a mistaken delete, and which no file-by-file backup can
+  give you at any cadence.
+- **The schedule is only as reliable as the computer it runs on.** A weekly
   task on a developer's laptop is a real improvement on nobody at all, but it
-  is not a backup service: if the laptop is away for a week, so is the backup.
-  Before real client data exists, buy Supabase's daily backups — they also
-  bring point-in-time recovery, which is what you actually want after a
-  mistaken delete, and which no file-by-file backup can give you.
+  is not a backup service: if the laptop is away, so is the backup. It catches
+  up at the next opportunity rather than skipping, which is the most a laptop
+  can promise.
 - **Before a payroll run is locked**, [Payroll engine (Ghana)](../plan/09-payroll-engine-ghana.md)
   decision 21 asks for a dump. Take one with `db:backup` before locking, and
   keep it with that month's records. The API cannot do this for itself: it
