@@ -13,9 +13,10 @@ import type {
 } from '@samtec/contracts';
 import { REFRESH_COOKIE_MAX_AGE_SECONDS } from '../../common/cookies.js';
 import { normalizeEmail } from '../../common/emails.js';
+import { RateLimitException } from '../../common/rate-limit.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthChallenge, User } from '../../generated/prisma/client.js';
-import { mayUseAccount } from './account-rules.js';
+import { awaitsAdminConfirmation, mayUseAccount } from './account-rules.js';
 import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { hashPassword, NO_SUCH_USER_HASH, verifyPassword } from './password.js';
@@ -41,6 +42,8 @@ const LINK_GONE = 'This link has expired or was already used. Ask an administrat
 const WRONG_PLACE = 'Finish signing in where you started.';
 /** A kiosk stands at a guard post: only enrollment happens there. */
 const KIOSK_ADMINS_ONLY = 'Only an administrator signs in on a kiosk.';
+const AWAITING_SECOND_ADMIN =
+  'A second administrator must confirm this account before it can be used.';
 
 /** What `login` can decide. The controller turns each kind into its HTTP shape. */
 export type LoginOutcome =
@@ -99,6 +102,11 @@ export class AuthService {
     if (place === 'KIOSK' && user.role !== 'ADMIN') {
       throw new ForbiddenException(KIOSK_ADMINS_ONLY);
     }
+    // Only after the password was right, so the answer reveals nothing to a
+    // stranger. Before two-factor setup too: a held account sets nothing up.
+    if (awaitsAdminConfirmation(user)) {
+      throw new ForbiddenException(AWAITING_SECOND_ADMIN);
+    }
 
     if (user.twoFactorEnabledAt) {
       // A locked-out authenticator answers 429 here already, instead of
@@ -149,7 +157,11 @@ export class AuthService {
     place: SignInPlace,
   ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
     const { challenge, user } = await this.loadChallenge(challengeToken, 'VERIFY_CODE', place);
-    await this.throttle.assertNotLocked('totp', user.id);
+    // Take the attempt **before** the code is judged. A plain "are you locked
+    // out?" read let a thousand requests sent at the same moment all see "not
+    // locked" and all have their code checked, which turns 5 guesses every 15
+    // minutes into a thousand.
+    await this.claimCodeAttempt(user);
     const secret = user.twoFactorSecretEncrypted
       ? this.tokens.decryptSecret(user.twoFactorSecretEncrypted)
       : null;
@@ -192,7 +204,7 @@ export class AuthService {
     place: SignInPlace,
   ): Promise<{ session: AuthenticatedSession; refreshToken: string | null }> {
     const { challenge, user } = await this.loadChallenge(setupToken, 'SET_UP', place);
-    await this.throttle.assertNotLocked('totp', user.id);
+    await this.claimCodeAttempt(user);
     if (!challenge.pendingSecretEncrypted) {
       throw new BadRequestException('Call POST /auth/2fa/setup first to get your QR code.');
     }
@@ -517,11 +529,13 @@ export class AuthService {
   }
 
   /**
-   * Checks a 6-digit code. A wrong code counts against both the challenge (5
-   * cancel it) and the account's `totp` throttle (5 in 15 minutes lock it) —
-   * the second one is what stops someone with the password from grinding
-   * codes across fresh challenges. A code at or before the last accepted
-   * step is a replay and is refused. Returns the step the code matched.
+   * Checks a 6-digit code. The attempt was already taken from the account's
+   * `totp` throttle by the caller (5 every 15 minutes, counted and judged in
+   * the one statement), which is what stops someone who has the password from
+   * grinding codes — across fresh challenges, or a thousand at a time on one.
+   * A right answer hands the slate back; a wrong one also counts against this
+   * challenge, and 5 cancel it. A code at or before the last accepted step is
+   * a replay and is refused. Returns the step the code matched.
    */
   private async checkCode(
     challenge: AuthChallenge,
@@ -542,10 +556,7 @@ export class AuthService {
       where: { id: challenge.id },
       data: { failedAttempts: { increment: 1 } },
     });
-    const lockedNow = await this.throttle.recordFailure('totp', user.id);
-    if (lockedNow) {
-      await this.recordLockout(user, 'totp');
-    }
+
     if (updated.failedAttempts >= MAX_CODE_ATTEMPTS) {
       throw new UnauthorizedException(CHALLENGE_GONE);
     }
@@ -553,6 +564,21 @@ export class AuthService {
       throw new UnauthorizedException('That code was already used. Wait for the next one.');
     }
     throw new UnauthorizedException('The code is incorrect.');
+  }
+
+  /**
+   * Takes one of this account's five code attempts, and records the lockout
+   * when that was the last of them.
+   */
+  private async claimCodeAttempt(user: User): Promise<void> {
+    try {
+      await this.throttle.claimAttempt('totp', user.id);
+    } catch (error) {
+      if (error instanceof RateLimitException && error.justLocked) {
+        await this.recordLockout(user, 'totp');
+      }
+      throw error;
+    }
   }
 
   /** A lockout is worth remembering: it may be the start of an attack. */

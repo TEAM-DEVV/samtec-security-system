@@ -92,6 +92,24 @@ function employeeProblem(employeeId: string, exceptAccountId?: string) {
   return undefined;
 }
 
+/**
+ * What an administrator change writes while it waits for a second
+ * administrator (docs/plan/06, "Two administrators"). The mock never takes
+ * the sole-administrator shortcut: the mock company has two administrators,
+ * so the waiting state is the one worth showing.
+ */
+function held(requestedByUserId: string, at: string) {
+  return { requestedByUserId, requestedAt: at, confirmedByUserId: null, confirmedAt: null };
+}
+
+/** A hold that nobody has confirmed yet. Such an account keeps the name it has. */
+function stillWaiting(account: UserAccount): boolean {
+  return (
+    account.adminConfirmation?.requestedByUserId != null &&
+    account.adminConfirmation.confirmedByUserId == null
+  );
+}
+
 /** A fresh one-time link, valid 72 hours, like the real API's. */
 function issueLink(accountId: string) {
   deleteLinks(accountId);
@@ -198,9 +216,10 @@ export const userHandlers = [
         email,
         fullName: body.fullName,
         role: body.role,
-        status: 'AWAITING_PASSWORD',
+        status: body.role === 'ADMIN' ? 'AWAITING_CONFIRMATION' : 'AWAITING_PASSWORD',
         twoFactorEnabled: false,
         employeeId,
+        adminConfirmation: body.role === 'ADMIN' ? held(caller.user.id, now) : null,
         createdAt: now,
         updatedAt: now,
       };
@@ -282,9 +301,21 @@ export const userHandlers = [
         account.email = email;
       }
       if (body.fullName !== undefined) account.fullName = body.fullName;
+      // Becoming an administrator waits for a second one; leaving the role
+      // clears the record (the same rule the API keeps).
+      const now = new Date().toISOString();
+      if (role === 'ADMIN' && account.role !== 'ADMIN') {
+        account.adminConfirmation = held(caller.user.id, now);
+        account.status = 'AWAITING_CONFIRMATION';
+      } else if (role !== 'ADMIN') {
+        account.adminConfirmation = null;
+        if (account.status === 'AWAITING_CONFIRMATION') {
+          account.status = awaitingPassword.has(account.id) ? 'AWAITING_PASSWORD' : 'ACTIVE';
+        }
+      }
       account.role = role;
       account.employeeId = employeeId;
-      account.updatedAt = new Date().toISOString();
+      account.updatedAt = now;
       return HttpResponse.json<UserAccount>(account);
     },
   ),
@@ -335,9 +366,22 @@ export const userHandlers = [
       if (employee?.status === 'TERMINATED') {
         return conflict('This account belongs to an employee who has left the company.');
       }
-      // An account whose owner never chose a password is still waiting for one.
-      account.status = awaitingPassword.has(account.id) ? 'AWAITING_PASSWORD' : 'ACTIVE';
-      account.updatedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      if (account.role === 'ADMIN') {
+        // An administrator coming back waits for a second one, like a new one
+        // — but an account **already** waiting keeps the name of whoever put
+        // it there. Rewriting it let the creator ask a colleague for an
+        // innocent "switch it back on", and that made the colleague the
+        // requester, freeing the creator to confirm their own account.
+        if (!stillWaiting(account)) {
+          account.adminConfirmation = held(caller.user.id, now);
+        }
+        account.status = 'AWAITING_CONFIRMATION';
+      } else {
+        // An account whose owner never chose a password is still waiting for one.
+        account.status = awaitingPassword.has(account.id) ? 'AWAITING_PASSWORD' : 'ACTIVE';
+      }
+      account.updatedAt = now;
       return HttpResponse.json<UserAccount>(account);
     },
   ),
@@ -360,13 +404,57 @@ export const userHandlers = [
       if (account.status === 'DEACTIVATED') {
         return conflict('This account is switched off. Reactivate it first.');
       }
-      account.status = 'AWAITING_PASSWORD';
+      const now = new Date().toISOString();
+      // Whoever holds the new link holds the account, so a reset administrator
+      // waits for a second one (docs/plan/06, "Two administrators").
+      if (account.role === 'ADMIN') {
+        // An account already waiting keeps its original hold; see "Switch on".
+        if (!stillWaiting(account)) {
+          account.adminConfirmation = held(caller.user.id, now);
+        }
+        account.status = 'AWAITING_CONFIRMATION';
+      } else {
+        account.status = 'AWAITING_PASSWORD';
+      }
       account.twoFactorEnabled = false;
-      account.updatedAt = new Date().toISOString();
+      account.updatedAt = now;
       return HttpResponse.json<UserAccountWithPasswordSetup>(
         { user: account, passwordSetup: issueLink(account.id) },
         { headers: noStore },
       );
+    },
+  ),
+
+  http.post<{ userId: string }, never, OrProblem<UserAccount>>(
+    apiUrl('/users/:userId/confirm-admin'),
+    ({ params, request }) => {
+      const caller = adminFor(request);
+      if (!caller.user) {
+        return caller.problem;
+      }
+      const found = findAccount(params.userId);
+      if (!found.account) {
+        return found.problem;
+      }
+      const account = found.account;
+      if (account.id === caller.user.id) {
+        return conflict('You cannot confirm your own account. Ask another administrator.');
+      }
+      if (account.status !== 'AWAITING_CONFIRMATION' || !account.adminConfirmation) {
+        return conflict('This account is not waiting for a second administrator.');
+      }
+      if (account.adminConfirmation.requestedByUserId === caller.user.id) {
+        return conflict('You made this change, so another administrator must confirm it.');
+      }
+      const now = new Date().toISOString();
+      account.adminConfirmation = {
+        ...account.adminConfirmation,
+        confirmedByUserId: caller.user.id,
+        confirmedAt: now,
+      };
+      account.status = awaitingPassword.has(account.id) ? 'AWAITING_PASSWORD' : 'ACTIVE';
+      account.updatedAt = now;
+      return HttpResponse.json<UserAccount>(account);
     },
   ),
 
@@ -390,7 +478,11 @@ export const userHandlers = [
       }
       passwordLinks.delete(body.token);
       awaitingPassword.delete(account.id);
-      account.status = 'ACTIVE';
+      // Choosing a password never lifts a hold: an administrator account still
+      // waits for a second administrator (docs/plan/06, "Two administrators").
+      if (!stillWaiting(account)) {
+        account.status = 'ACTIVE';
+      }
       account.updatedAt = new Date().toISOString();
       return new HttpResponse(null, { status: 204 });
     },

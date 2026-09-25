@@ -6,7 +6,11 @@ import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { AttendanceFactsService } from '../src/modules/attendance/attendance-facts.service.js';
 import { CONSENT_TEXT_SHA256 } from '../src/modules/attendance/consent-text.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
-import { type AttendanceCompany, createAttendanceCompany } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  activateDevice,
+  createAttendanceCompany,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -100,6 +104,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       .set(...bearer(adminToken))
       .send({ name: 'Detection kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
       .expect(201);
+    await activateDevice(app, company, kiosk.body.device.id);
     consentKiosk = kiosk.body.device.id;
     coSignKiosk = kiosk.body.device.id;
   }, 120_000);
@@ -121,6 +126,16 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         .post('/api/v1/detection/sweep')
         .set(...bearer(supervisorToken))
         .expect(403);
+    });
+
+    it('refuses a cursor that decodes cleanly but is not an id, with 400 and not 500', async () => {
+      // "hello" in base64url: a real-looking cursor that is not an id. It
+      // reached a uuid column and came back as a 500; see the same test on
+      // /users and on payroll's lists.
+      await api()
+        .get('/api/v1/detection/alerts?cursor=aGVsbG8')
+        .set(...bearer(adminToken))
+        .expect(400);
     });
 
     it('lets HR read the queue but never change a rule', async () => {
@@ -446,6 +461,54 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         .coSignsPerSupervisor(company.companyId, new Date(Date.now() - 30 * DAY_MS));
 
       expect(counted.find((row) => row.employeeId === supervisor.id)?.coSigns).toBe(1);
+    });
+
+    it('survives a terminal whose own event id is not an id at all', async () => {
+      // A device event id is free text the terminal chooses, and PIN_FALLBACK
+      // is a method any terminal may send — the shipped simulator sends
+      // "SMT-00042-2026-09-23-in". Handing that to a uuid column threw, the
+      // sweep caught it and skipped the rule, and R7 was silently off for that
+      // company from its first fallback punch onwards.
+      await prisma.punchEvent.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: coSignKiosk,
+          siteId: company.siteA,
+          deviceEventId: 'SMT-00042-2026-09-23-in',
+          deviceUserRef: 'SMT-00042',
+          employeeId: company.active.id,
+          deviceTime: new Date(),
+          serverTime: new Date(),
+          direction: 'IN',
+          method: 'PIN_FALLBACK',
+          payloadHash: createHash('sha256').update(`plain-${Date.now()}`).digest('hex'),
+        },
+      });
+
+      await expect(
+        app
+          .get(AttendanceFactsService)
+          .coSignsPerSupervisor(company.companyId, new Date(Date.now() - 30 * DAY_MS)),
+      ).resolves.toBeInstanceOf(Array);
+    });
+
+    it('judges a device on its last finished day, never on a few hours of today', async () => {
+      // R9 compares the last day in this list with the median of the ones
+      // before it, and the daily run happens at 02:00. Including today handed
+      // the rule two hours of a guard company's quietest time: the comparison
+      // came out false every night, while yesterday's real spike sat in the
+      // median instead of being reported.
+      const now = new Date();
+      const activity = await app
+        .get(AttendanceFactsService)
+        .deviceActivity(company.companyId, new Date(now.getTime() - 3 * DAY_MS), now);
+
+      // Four calendar days are in the window; only the three finished ones
+      // are counted, so the last entry is yesterday.
+      expect(activity.length).toBeGreaterThan(0);
+      for (const device of activity) {
+        expect(device.dailyCounts).toHaveLength(3);
+      }
     });
   });
 
@@ -924,6 +987,48 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       expect(mine.score).toBe(5);
       expect(mine.openAlerts).toBe(1);
       expect(mine.topRule).toBe('R5');
+    });
+
+    it('never lets a decision about administrators weigh on a worker (R11)', async () => {
+      const worker = await ghost(40);
+      await sweep().expect(200);
+      const before = await api()
+        .get('/api/v1/detection/risk-scores')
+        .query({ limit: 100 })
+        .set(...bearer(adminToken))
+        .expect(200);
+      const scoreOf = (body: { items: { employee: { id: string }; score: number }[] }) =>
+        body.items.find((row) => row.employee.id === worker.id)?.score ?? 0;
+
+      // An R11 alert lands on this worker's file: it names them so a checker
+      // can find the record, but it asks about who settled a decision.
+      await prisma.detectionAlert.create({
+        data: {
+          companyId: company.companyId,
+          ruleCode: 'R11',
+          severity: 'HIGH',
+          employeeId: worker.id,
+          dedupeKey: `R11:review:score-test-${randomUUID()}`,
+          windowFrom: new Date(Date.now() - DAY_MS),
+          windowTo: new Date(),
+          evidence: { decision: 'duplicate review', recordId: 'made-up-for-this-test' },
+        },
+      });
+
+      const after = await api()
+        .get('/api/v1/detection/risk-scores')
+        .query({ limit: 100 })
+        .set(...bearer(adminToken))
+        .expect(200);
+
+      // The queue shows it; the worker's score does not move.
+      expect(scoreOf(after.body)).toBe(scoreOf(before.body));
+      const queue = await api()
+        .get('/api/v1/detection/alerts')
+        .query({ ruleCode: 'R11', employeeId: worker.id })
+        .set(...bearer(adminToken))
+        .expect(200);
+      expect(queue.body.items).toHaveLength(1);
     });
   });
 });

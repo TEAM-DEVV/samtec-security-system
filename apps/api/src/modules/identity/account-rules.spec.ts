@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { accountStatus, employeeLinkProblem, mayUseAccount } from './account-rules.js';
+import {
+  accountStatus,
+  awaitsAdminConfirmation,
+  employeeLinkProblem,
+  mayUseAccount,
+} from './account-rules.js';
 
 const usable = {
   isActive: true,
   passwordHash: 'scrypt$…',
   role: 'SUPERVISOR' as const,
   twoFactorEnabledAt: null,
+  adminRequestedAt: null,
+  adminConfirmedAt: null,
 };
+
+/** A usable administrator, before any Phase 7 hold. */
+const admin = { ...usable, role: 'ADMIN' as const, twoFactorEnabledAt: new Date() };
+const asked = new Date('2026-09-24T10:00:00Z');
 
 describe('mayUseAccount', () => {
   it('allows an active account whose owner chose a password', () => {
@@ -23,6 +34,26 @@ describe('mayUseAccount', () => {
     expect(mayUseAccount({ ...usable, role: 'HR_PAYROLL' })).toBe(false);
     expect(mayUseAccount({ ...usable, role: 'ADMIN', twoFactorEnabledAt: new Date() })).toBe(true);
     expect(mayUseAccount({ ...usable, role: 'GUARD' })).toBe(true);
+  });
+
+  it('refuses an ADMIN waiting for a second administrator, password and two-factor or not', () => {
+    expect(mayUseAccount({ ...admin, adminRequestedAt: asked })).toBe(false);
+    expect(mayUseAccount({ ...admin, adminRequestedAt: asked, adminConfirmedAt: asked })).toBe(
+      true,
+    );
+    // Made in the database (seed, setup script): nothing was asked, so nothing waits.
+    expect(mayUseAccount(admin)).toBe(true);
+  });
+});
+
+describe('awaitsAdminConfirmation', () => {
+  it('holds only an ADMIN with a request and no confirmation', () => {
+    expect(awaitsAdminConfirmation({ ...admin, adminRequestedAt: asked })).toBe(true);
+    expect(
+      awaitsAdminConfirmation({ ...admin, adminRequestedAt: asked, adminConfirmedAt: asked }),
+    ).toBe(false);
+    expect(awaitsAdminConfirmation(admin)).toBe(false);
+    expect(awaitsAdminConfirmation({ ...usable, adminRequestedAt: asked })).toBe(false);
   });
 });
 
@@ -41,10 +72,19 @@ describe('employeeLinkProblem', () => {
 });
 
 describe('accountStatus', () => {
-  it('names the three states the dashboard shows', () => {
-    expect(accountStatus({ isActive: true, passwordHash: 'x' })).toBe('ACTIVE');
-    expect(accountStatus({ isActive: true, passwordHash: null })).toBe('AWAITING_PASSWORD');
-    expect(accountStatus({ isActive: false, passwordHash: 'x' })).toBe('DEACTIVATED');
-    expect(accountStatus({ isActive: false, passwordHash: null })).toBe('DEACTIVATED');
+  it('names the four states the dashboard shows', () => {
+    expect(accountStatus(usable)).toBe('ACTIVE');
+    expect(accountStatus({ ...usable, passwordHash: null })).toBe('AWAITING_PASSWORD');
+    expect(accountStatus({ ...usable, isActive: false })).toBe('DEACTIVATED');
+    expect(accountStatus({ ...usable, isActive: false, passwordHash: null })).toBe('DEACTIVATED');
+  });
+
+  it('puts a held ADMIN before its password: confirming comes next', () => {
+    expect(accountStatus({ ...admin, passwordHash: null, adminRequestedAt: asked })).toBe(
+      'AWAITING_CONFIRMATION',
+    );
+    expect(accountStatus({ ...admin, isActive: false, adminRequestedAt: asked })).toBe(
+      'DEACTIVATED',
+    );
   });
 });

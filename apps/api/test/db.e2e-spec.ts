@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -38,6 +39,32 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
   let app: NestExpressApplication;
   // HR's token appears later: the two-factor walkthrough test signs them in.
   const tokens = { admin: '', supervisor: '', guard: '' };
+
+  /** The company's two seeded administrators, straight from the database. */
+  async function usersOf() {
+    const prisma = openFixtureDb(databaseUrl as string);
+    try {
+      const [admin, admin2] = await Promise.all([
+        prisma.user.findFirstOrThrow({ where: { email: EMAILS.admin } }),
+        prisma.user.findFirstOrThrow({ where: { email: EMAILS.admin2 } }),
+      ]);
+      return { admin, admin2 };
+    } finally {
+      await prisma.$disconnect();
+    }
+  }
+
+  /** A token for the second administrator, who confirms what the first one changed. */
+  async function secondAdminToken(): Promise<string> {
+    const { admin2 } = await usersOf();
+    return app.get(TokensService).signAccessToken({
+      userId: admin2.id,
+      companyId: admin2.companyId,
+      role: 'ADMIN',
+      onKiosk: false,
+      employeeId: null,
+    });
+  }
 
   beforeAll(async () => {
     const prisma = openFixtureDb(databaseUrl as string);
@@ -914,6 +941,18 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       await request(app.getHttpServer()).get('/api/v1/users').expect(401);
     });
 
+    it('refuses a cursor that decodes cleanly but is not an id, with 400 and not 500', async () => {
+      // `aGVsbG8` is the word "hello" in base64url, so it survives the
+      // round-trip check and looks like a real cursor. It then reached a uuid
+      // column, and Prisma refused it with an error carrying no HTTP status —
+      // so a plainly bad request was answered with 500 and logged as a server
+      // fault. Payroll already caught this; users and detection had not.
+      await request(app.getHttpServer())
+        .get('/api/v1/users?cursor=aGVsbG8')
+        .set(...bearer(tokens.admin))
+        .expect(400);
+    });
+
     it('pages through accounts, oldest first, with no personal data in the cursor', async () => {
       const first = await request(app.getHttpServer())
         .get('/api/v1/users?limit=2')
@@ -1001,26 +1040,147 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .expect(200);
     });
 
-    it('a promotion ends every session, and the new ADMIN must set up two-factor', async () => {
+    it('a promotion waits for a second administrator, then demands two-factor', async () => {
       const guard = await signedInGuard('promoted@dbtest.example', 'GHA-955555102-3');
 
-      await request(app.getHttpServer())
+      const promoted = await request(app.getHttpServer())
         .patch(`/api/v1/users/${guard.userId}`)
         .set(...bearer(tokens.admin))
         .send({ role: 'ADMIN', employeeId: null })
         .expect(200);
 
-      // The GUARD token is dead, and sign-in now demands a second factor.
+      // Phase 7: a new administrator is held until a second one confirms.
+      expect(promoted.body.status).toBe('AWAITING_CONFIRMATION');
       await request(app.getHttpServer())
         .get('/api/v1/auth/me')
         .set(...bearer(guard.accessToken))
         .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
+        .send({ email: 'promoted@dbtest.example', password: NEW_PASSWORD })
+        .expect(403);
+
+      const confirmed = await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(await secondAdminToken()))
+        .expect(200);
+      // They already had a password as a guard, so confirming makes it usable.
+      expect(confirmed.body.status).toBe('ACTIVE');
+
+      // Only now: the old session is still dead, and sign-in demands a second factor.
       const login = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
         .set('Origin', DASHBOARD_ORIGIN)
         .send({ email: 'promoted@dbtest.example', password: NEW_PASSWORD })
         .expect(200);
       expect(login.body.status).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    });
+
+    it('refuses the administrator who made the change, and anybody on their own account', async () => {
+      const guard = await signedInGuard('selfconfirm@dbtest.example', 'GHA-955555110-1');
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${guard.userId}`)
+        .set(...bearer(tokens.admin))
+        .send({ role: 'ADMIN', employeeId: null })
+        .expect(200);
+
+      // The one who promoted them cannot also confirm them.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+      // Nor can a held account confirm itself, even holding a token.
+      const ownToken = await app.get(TokensService).signAccessToken({
+        userId: guard.userId,
+        companyId: (await usersOf()).admin.companyId,
+        role: 'ADMIN',
+        onKiosk: false,
+        employeeId: null,
+      });
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(ownToken))
+        // Held accounts are refused every request, so this never reaches the rule.
+        .expect(401);
+
+      // A second administrator settles it, and it cannot be confirmed twice.
+      const second = await secondAdminToken();
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(second))
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(second))
+        .expect(409);
+    });
+
+    it('holds a new ADMIN account, and leaves every other role alone', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(tokens.admin))
+        .send({ email: 'newadmin@dbtest.example', fullName: 'New Admin', role: 'ADMIN' })
+        .expect(201);
+      expect(made.body.user.status).toBe('AWAITING_CONFIRMATION');
+      expect(made.body.user.adminConfirmation).toMatchObject({ confirmedByUserId: null });
+
+      const hr = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(tokens.admin))
+        .send({ email: 'newhr@dbtest.example', fullName: 'New HR', role: 'HR_PAYROLL' })
+        .expect(201);
+      expect(hr.body.user.status).toBe('AWAITING_PASSWORD');
+      expect(hr.body.user.adminConfirmation).toBeNull();
+    });
+
+    it('records who asked and who confirmed, and clears it when the role is taken away', async () => {
+      const guard = await signedInGuard('recorded@dbtest.example', 'GHA-955555111-2');
+      const { admin, admin2 } = await usersOf();
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${guard.userId}`)
+        .set(...bearer(tokens.admin))
+        .send({ role: 'ADMIN', employeeId: null })
+        .expect(200);
+      const confirmed = await request(app.getHttpServer())
+        .post(`/api/v1/users/${guard.userId}/confirm-admin`)
+        .set(...bearer(await secondAdminToken()))
+        .expect(200);
+
+      expect(confirmed.body.adminConfirmation).toMatchObject({
+        requestedByUserId: admin.id,
+        confirmedByUserId: admin2.id,
+      });
+
+      // Taking the role away needs nobody else, and clears the record.
+      const demoted = await request(app.getHttpServer())
+        .patch(`/api/v1/users/${guard.userId}`)
+        .set(...bearer(tokens.admin))
+        .send({ role: 'HR_PAYROLL' })
+        .expect(200);
+      expect(demoted.body.status).toBe('ACTIVE');
+      expect(demoted.body.adminConfirmation).toBeNull();
+    });
+
+    it('a reset administrator waits for a second one, so a stolen link is not enough', async () => {
+      const { admin2 } = await usersOf();
+      const reset = await request(app.getHttpServer())
+        .post(`/api/v1/users/${admin2.id}/reset-sign-in`)
+        .set(...bearer(tokens.admin))
+        .expect(200);
+      expect(reset.body.user.status).toBe('AWAITING_CONFIRMATION');
+
+      // Whoever holds the link cannot use the account until somebody else says so.
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/set-password')
+        .set('Origin', DASHBOARD_ORIGIN)
+        .send({ token: reset.body.passwordSetup.token, newPassword: NEW_PASSWORD })
+        .expect(204);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .set('Origin', DASHBOARD_ORIGIN)
+        .send({ email: EMAILS.admin2, password: NEW_PASSWORD })
+        .expect(403);
     });
 
     it('reset sign-in clears the password AND the authenticator, and issues a new link', async () => {
@@ -1152,6 +1312,273 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         .post(`/api/v1/users/${loserId}/reactivate`)
         .set(...bearer(survivorToken))
         .expect(200);
+    });
+  });
+
+  describe('the two-administrator rule, where one person is the whole company', () => {
+    /**
+     * A company of its own with exactly one administrator, made straight in
+     * the database — which is how a real company starts, through the rescue
+     * script. The shared fixture always has two administrators, so the
+     * bootstrap shortcut can only be reached from here.
+     */
+    async function companyOfOne() {
+      const prisma = openFixtureDb(databaseUrl as string);
+      try {
+        const company = await prisma.company.create({
+          data: { name: `Sole admin ${randomUUID()}` },
+        });
+        const alone = await prisma.user.create({
+          data: {
+            companyId: company.id,
+            email: `alone-${randomUUID()}@dbtest.example`,
+            fullName: 'Only Administrator',
+            role: 'ADMIN',
+            // Usable: a password and two-factor already done. No request
+            // recorded, like every account the rescue script makes.
+            passwordHash: 'scrypt$test-only',
+            twoFactorEnabledAt: new Date(),
+          },
+        });
+        const token = await app.get(TokensService).signAccessToken({
+          userId: alone.id,
+          companyId: company.id,
+          role: 'ADMIN',
+          onKiosk: false,
+          employeeId: null,
+        });
+        return { companyId: company.id, adminId: alone.id, token };
+      } finally {
+        await prisma.$disconnect();
+      }
+    }
+
+    const newAdmin = (token: string, email: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(token))
+        .send({ email, fullName: 'Second Administrator', role: 'ADMIN' });
+
+    it('confirms the second administrator at once: there is nobody else to ask', async () => {
+      const { token } = await companyOfOne();
+
+      const made = await newAdmin(token, `second-${randomUUID()}@dbtest.example`).expect(201);
+
+      // Nobody could have confirmed it, so the company is not deadlocked.
+      expect(made.body.user.status).toBe('AWAITING_PASSWORD');
+      expect(made.body.user.adminConfirmation.confirmedAt).not.toBeNull();
+      expect(made.body.user.adminConfirmation.confirmedByUserId).toBeNull();
+    });
+
+    it('never gives the same person a second free administrator', async () => {
+      const { token } = await companyOfOne();
+      await newAdmin(token, `first-${randomUUID()}@dbtest.example`).expect(201);
+
+      // The one just made has no password yet, so it cannot sign in — but it
+      // exists, and that is the question. Without this the same person could
+      // mint pre-confirmed administrators all afternoon.
+      const third = await newAdmin(token, `third-${randomUUID()}@dbtest.example`).expect(201);
+
+      expect(third.body.user.status).toBe('AWAITING_CONFIRMATION');
+      expect(third.body.user.adminConfirmation.confirmedAt).toBeNull();
+    });
+
+    it('is not re-opened by switching the other administrator off', async () => {
+      const { token } = await companyOfOne();
+      const second = await newAdmin(token, `pair-${randomUUID()}@dbtest.example`).expect(201);
+
+      // Switching an administrator off needs nobody's approval, by design —
+      // so it must not be a way of becoming the only one. Otherwise A could
+      // deactivate B, be counted as the sole administrator, and be handed a
+      // second pre-confirmed account together with its one-time link.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${second.body.user.id}/deactivate`)
+        .set(...bearer(token))
+        .expect(200);
+
+      const third = await newAdmin(token, `after-${randomUUID()}@dbtest.example`).expect(201);
+
+      expect(third.body.user.status).toBe('AWAITING_CONFIRMATION');
+      expect(third.body.user.adminConfirmation.confirmedAt).toBeNull();
+    });
+  });
+
+  describe('a hold keeps the name of whoever put it there', () => {
+    /**
+     * A fresh, usable administrator in the fixture company, made straight in
+     * the database like the rescue script does — so it needs no confirmation
+     * itself. The seeded second administrator cannot be used here: an earlier
+     * test resets its sign-in, which is exactly what leaves it waiting.
+     */
+    async function anotherAdminToken(): Promise<string> {
+      const prisma = openFixtureDb(databaseUrl as string);
+      try {
+        const { admin } = await usersOf();
+        const extra = await prisma.user.create({
+          data: {
+            companyId: admin.companyId,
+            email: `extra-${randomUUID()}@dbtest.example`,
+            fullName: 'Extra Administrator',
+            role: 'ADMIN',
+            passwordHash: 'scrypt$test-only',
+            twoFactorEnabledAt: new Date(),
+          },
+        });
+        return app.get(TokensService).signAccessToken({
+          userId: extra.id,
+          companyId: extra.companyId,
+          role: 'ADMIN',
+          onKiosk: false,
+          employeeId: null,
+        });
+      } finally {
+        await prisma.$disconnect();
+      }
+    }
+
+    /** A held administrator: made by the first administrator, nobody confirmed. */
+    async function heldAccount(email: string) {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set(...bearer(tokens.admin))
+        .send({ email, fullName: 'Waiting Administrator', role: 'ADMIN' })
+        .expect(201);
+      expect(made.body.user.status).toBe('AWAITING_CONFIRMATION');
+      return made.body.user.id as string;
+    }
+
+    it('a second administrator resending the link does not become the one who asked', async () => {
+      const heldId = await heldAccount(`resent-${randomUUID()}@dbtest.example`);
+      const second = await anotherAdminToken();
+
+      // An ordinary favour: "their link expired, please send another".
+      const resent = await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/reset-sign-in`)
+        .set(...bearer(second))
+        .expect(200);
+      expect(resent.body.user.status).toBe('AWAITING_CONFIRMATION');
+
+      // The administrator who created it is still the one who asked, so they
+      // still cannot confirm it. Otherwise that favour would have handed them
+      // a second administrator account of their own.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/confirm-admin`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/confirm-admin`)
+        .set(...bearer(second))
+        .expect(200);
+    });
+
+    it('switching a waiting account off and on again does not hand it to somebody new', async () => {
+      const heldId = await heldAccount(`switched-${randomUUID()}@dbtest.example`);
+      const second = await anotherAdminToken();
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/deactivate`)
+        .set(...bearer(second))
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/reactivate`)
+        .set(...bearer(second))
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${heldId}/confirm-admin`)
+        .set(...bearer(tokens.admin))
+        .expect(409);
+    });
+  });
+
+  describe('the two-administrator rule, in the database itself', () => {
+    /**
+     * The service refuses a self-confirmation with a plain message. These
+     * prove the database refuses it too, so a repair script or a future
+     * change to the service cannot quietly undo the rule (docs/plan/06,
+     * "Two administrators").
+     */
+    it('refuses an administrator confirming their own account, or their own change', async () => {
+      const prisma = openFixtureDb(databaseUrl as string);
+      try {
+        const { admin, admin2 } = await usersOf();
+
+        await expect(
+          prisma.user.update({
+            where: { id: admin2.id },
+            data: {
+              adminRequestedByUserId: admin.id,
+              adminRequestedAt: new Date(),
+              adminConfirmedByUserId: admin2.id, // itself
+              adminConfirmedAt: new Date(),
+            },
+          }),
+        ).rejects.toThrow();
+
+        await expect(
+          prisma.user.update({
+            where: { id: admin2.id },
+            data: {
+              adminRequestedByUserId: admin.id,
+              adminRequestedAt: new Date(),
+              adminConfirmedByUserId: admin.id, // the one who asked
+              adminConfirmedAt: new Date(),
+            },
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.$disconnect();
+      }
+    });
+
+    it('refuses a confirmation with no date, and one dated before the request', async () => {
+      const prisma = openFixtureDb(databaseUrl as string);
+      try {
+        const { admin, admin2 } = await usersOf();
+        const asked = new Date();
+
+        await expect(
+          prisma.user.update({
+            where: { id: admin2.id },
+            data: {
+              adminRequestedByUserId: admin.id,
+              adminRequestedAt: asked,
+              adminConfirmedByUserId: admin.id,
+              adminConfirmedAt: null,
+            },
+          }),
+        ).rejects.toThrow();
+
+        await expect(
+          prisma.user.update({
+            where: { id: admin2.id },
+            data: {
+              adminRequestedByUserId: admin.id,
+              adminRequestedAt: asked,
+              adminConfirmedAt: new Date(asked.getTime() - 1000),
+            },
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.$disconnect();
+      }
+    });
+
+    it('keeps the four columns for administrators only', async () => {
+      const prisma = openFixtureDb(databaseUrl as string);
+      try {
+        const supervisor = await prisma.user.findFirstOrThrow({
+          where: { email: EMAILS.supervisor },
+        });
+        await expect(
+          prisma.user.update({
+            where: { id: supervisor.id },
+            data: { adminRequestedAt: new Date() },
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.$disconnect();
+      }
     });
   });
 

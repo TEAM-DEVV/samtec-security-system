@@ -68,6 +68,10 @@ try {
             twoFactorSecretEncrypted: null,
             twoFactorEnabledAt: null,
             twoFactorLastUsedStep: null,
+            // Database access is a stronger check than a second login, so the
+            // script's account never waits for a second administrator — which
+            // is also how an administrator stuck waiting is rescued.
+            ...scriptConfirmed(),
           },
         })
       : await tx.user.create({
@@ -77,6 +81,7 @@ try {
             fullName: values.name ?? '',
             role: 'ADMIN',
             passwordHash: null,
+            ...scriptConfirmed(),
           },
         });
     await accounts.endAllAccess(user.id, tx);
@@ -104,6 +109,17 @@ try {
   );
 } finally {
   await prisma.$disconnect();
+}
+
+/** Asked for and confirmed at once, by nobody: the script needs database access. */
+function scriptConfirmed() {
+  const now = new Date();
+  return {
+    adminRequestedByUserId: null,
+    adminRequestedAt: now,
+    adminConfirmedByUserId: null,
+    adminConfirmedAt: now,
+  };
 }
 
 /** The only company, or the one named with --company. */

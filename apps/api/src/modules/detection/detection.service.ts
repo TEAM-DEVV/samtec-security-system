@@ -16,7 +16,7 @@ import type {
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { toPage, uuidCursor } from '../../common/pagination.js';
 import { DEFAULT_PRESENCE_TOLERANCE_MINUTES } from '../../common/paid-beyond-presence.js';
 import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -304,17 +304,7 @@ export class DetectionService {
 
   /** The queue, newest first. */
   async list(viewer: SignedInUser, query: ListAlertsQuery): Promise<DetectionAlertList> {
-    const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
-    if (query.cursor !== undefined && cursor === undefined) {
-      throw new BadRequestException({
-        message: [
-          {
-            path: ['cursor'],
-            message: 'The cursor is not valid. Start again from the first page.',
-          },
-        ],
-      });
-    }
+    const cursor = uuidCursor(query.cursor);
     const rows = await this.prisma.detectionAlert.findMany({
       where: {
         companyId: viewer.companyId,
@@ -462,6 +452,12 @@ export class DetectionService {
         companyId: viewer.companyId,
         resolvedAt: null,
         employeeId: { not: null },
+        // **R11 is not about the worker.** It asks whether the right person
+        // settled a two-person decision; the alert carries the worker's name
+        // only so a checker can find the record. Adding it to their score
+        // would let an argument between two administrators make a guard look
+        // risky, which is the opposite of what this rule says about itself.
+        ruleCode: { not: 'R11' },
         // "Times that rule fired for that worker in 90 days" (docs/plan/08
         // §8). Without the window an alert nobody triaged keeps adding to
         // somebody's score for ever.

@@ -33,23 +33,28 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 
 ## Endpoint map
 
+**Status** says what answers a request today, not what the contract holds.
+Every route below is in `packages/contracts/openapi.yaml`; only the ones marked
+**Built** have a controller behind them.
+
 | Area | Endpoints | Status |
 |---|---|---|
 | System | `GET /health`, `GET /system/info` (admin only) | **Built** |
 | Auth | `POST /auth/login`, `POST /auth/2fa/verify`, `POST /auth/2fa/setup`, `POST /auth/2fa/enable`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/set-password` (one-time link), `POST /auth/change-password` | **Built** |
-| Users (ADMIN) | `GET/POST /users`, `GET/PATCH /users/{id}`, `POST /users/{id}/deactivate`, `POST /users/{id}/reactivate`, `POST /users/{id}/reset-sign-in` | **Built** |
+| Users (ADMIN) | `GET/POST /users`, `GET/PATCH /users/{id}`, `POST /users/{id}/deactivate`, `POST /users/{id}/reactivate`, `POST /users/{id}/reset-sign-in`, `POST /users/{id}/confirm-admin` | **Built** |
 | Employees | `GET /employees`, `GET /employees/{id}` | **Built** |
 | Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | **Built** |
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
 | Rosters | `GET/POST /sites/{id}/posts`, `PATCH /posts/{id}`, `GET/POST /shift-patterns`, `PATCH /shift-patterns/{id}`; employee create/update take `postId` and `shiftPatternId` | **Built** |
-| Devices (ADMIN) | `GET/POST /devices`, `GET/PATCH /devices/{id}`, `POST /devices/{id}/rotate-secret` | In the contract (Phase 2) |
-| Ingest (device-signed) | `POST /ingest/punches`, `POST /ingest/heartbeat` | In the contract (Phase 2) |
-| Attendance | `GET /attendance/segments`, `GET /attendance/exceptions`, `GET /attendance/exceptions/{id}`, `POST /attendance/exceptions/{id}/resolve` | In the contract (Phase 2) — see [12 · Attendance design](12-attendance-design.md) |
-| Kiosk (device-signed) | `POST /kiosk/identify`, `/kiosk/confirm`, `/kiosk/not-me`, `/kiosk/fingerprint-options`, `/kiosk/assisted-punches`; ADMIN token **and** signature: `POST /kiosk/consents`, `/kiosk/face-enrollments`, `/kiosk/passkey-options`, `/kiosk/passkeys` | In the contract (Phase 3) — see [13 · Biometrics design](13-biometrics-design.md) |
-| Biometrics | `GET /biometrics/consent-text`, `GET /employees/{id}/biometrics`, `POST /employees/{id}/biometrics/revoke`, `/biometric-exemption`, `/biometric-exemption/review`, `/biometric-consents/withdraw`, `GET /biometric-collisions`, `POST /biometric-collisions/{credentialId}/resolve` | In the contract (Phase 3) |
-| Live attendance | `GET /attendance/punches` (live clock-ins board), `GET /attendance/clock-in-attempts` (ADMIN) | In the contract (Phase 3) |
-| Payroll | periods, runs (calculate, submit, approve, reject, mark paid), lines, payslips and their PDFs, bank export, statutory summary, tax tables, pay terms, payment details | **In the contract** (Phase 4) |
-| Detection | alerts, resolution, rules, sweep | Phase 5 |
+| Devices (ADMIN) | `GET/POST /devices`, `GET/PATCH /devices/{id}`, `POST /devices/{id}/rotate-secret`, `POST /devices/{id}/finger-enrollment-windows` | **Built** |
+| Ingest (device-signed) | `POST /ingest/punches`, `POST /ingest/heartbeat`, `POST /ingest/roster`, `POST /ingest/enrollments` | **Built** |
+| Attendance | `GET /attendance/segments`, `GET /attendance/exceptions`, `GET /attendance/exceptions/{id}`, `POST /attendance/exceptions/{id}/resolve` | **Built** — see [12 · Attendance design](12-attendance-design.md) |
+| Kiosk (device-signed) | `POST /kiosk/identify`, `/kiosk/confirm`, `/kiosk/not-me`, `/kiosk/fingerprint-options`, `/kiosk/assisted-punches`; ADMIN token **and** signature: `POST /kiosk/consents`, `/kiosk/face-enrollments`, `/kiosk/passkey-options`, `/kiosk/passkeys` | **Built** — see [13 · Biometrics design](13-biometrics-design.md) |
+| Biometrics | `GET /biometrics/consent-text`, `GET /employees/{id}/biometrics`, `POST /employees/{id}/biometrics/revoke`, `/biometric-exemption`, `/biometric-exemption/review`, `/biometric-consents/withdraw`, `GET /biometric-collisions`, `POST /biometric-collisions/{credentialId}/resolve` | **Built** |
+| Live attendance | `GET /attendance/punches` (live clock-ins board), `GET /attendance/clock-in-attempts` (ADMIN) | **Built** |
+| Payroll (setup) | periods, tax tables, pay terms, payment details | **Built** |
+| Payroll (runs) | runs (calculate, submit, approve, reject, mark paid), lines, payslips and their PDFs, bank export, statutory summary | In the contract only (Phase 4) — these answer 404 today |
+| Detection | alerts, resolution, rules, sweep, `GET /detection/daily-sweep` (public, the Vercel Cron entry) | **Built** |
 | Reports | attendance and payroll summaries, CSV and PDF export | Phase 6 |
 
 ## Security notes for specific endpoints

@@ -6,6 +6,7 @@ import { type SignedRoute, signRequest } from '../src/modules/attendance/device-
 import { TokensService } from '../src/modules/identity/tokens.service.js';
 import {
   type AttendanceCompany,
+  activateDevice,
   createAttendanceCompany,
   signedPost,
   type TestDevice,
@@ -80,6 +81,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: 'Main gate', siteId: company.siteA, kind: 'ZKTECO' })
         .expect(201);
+      await activateDevice(app, company, registered.body.device.id);
 
       expect(registered.headers['cache-control']).toBe('no-store');
       expect(registered.headers.location).toBe(`/api/v1/devices/${registered.body.device.id}`);
@@ -126,6 +128,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name, siteId: company.siteA, kind })
         .expect(201);
+      await activateDevice(app, company, response.body.device.id);
       return { id: response.body.device.id as string, secret: response.body.secret as string };
     };
     const patch = (deviceId: string, body: Record<string, unknown>) =>
@@ -189,6 +192,79 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
   });
 
   describe('signed ingest', () => {
+    it('a burst of a thousand punches is stored exactly once, however they arrive', async () => {
+      // A terminal that was offline for a day, reconnecting: ten full batches,
+      // arriving together rather than politely in turn. The same shape the
+      // load-test script measures (scripts/load-test.ts); this pins the
+      // promise it checks — nothing lost, nothing counted twice — so a
+      // regression fails in CI rather than in a demo.
+      const run = Date.now();
+      const punches = Array.from({ length: 1_000 }, (_, index) => ({
+        deviceEventId: `burst-${run}-${index}`,
+        deviceUserRef: '70001',
+        deviceTime: new Date(run - (1_000 - index) * 1_000).toISOString(),
+        direction: index % 2 === 0 ? 'IN' : 'OUT',
+        method: 'FINGERPRINT',
+      }));
+      const batches = Array.from({ length: 10 }, (_, index) =>
+        punches.slice(index * 100, (index + 1) * 100),
+      );
+      const send = (these: (typeof punches)[number][][]) =>
+        Promise.all(
+          these.map((batch) =>
+            signed('ingest/punches', {
+              deviceClockAt: new Date().toISOString(),
+              punches: batch,
+            }),
+          ),
+        );
+
+      /**
+       * Sends every batch and keeps trying the ones turned away, as a real
+       * terminal does. A busy answer is allowed — punches are written under
+       * one lock per company — but it must be the only refusal, and it must
+       * say when to come back. Retrying until nobody is busy is what keeps
+       * this test honest rather than lucky: with one retry it would depend on
+       * how fast the machine running it happens to be.
+       */
+      const sendEverything = async () => {
+        const answers = [];
+        let waiting = batches;
+        for (let attempt = 1; waiting.length > 0 && attempt <= 10; attempt += 1) {
+          const round = await send(waiting);
+          const busy = [];
+          for (const [index, answer] of round.entries()) {
+            expect([200, 503]).toContain(answer.status);
+            if (answer.status === 503) {
+              expect(Number(answer.headers['retry-after'])).toBeGreaterThan(0);
+              busy.push(waiting[index] as (typeof punches)[number][]);
+            } else {
+              answers.push(answer);
+            }
+          }
+          waiting = busy;
+        }
+        expect(waiting).toHaveLength(0);
+        return answers;
+      };
+
+      const first = await sendEverything();
+      const accepted = first.reduce((total, answer) => total + answer.body.accepted, 0);
+      expect(accepted).toBe(1_000);
+
+      // Sent again in full: every one a duplicate, none accepted twice.
+      const again = await sendEverything();
+      expect(again.reduce((total, answer) => total + answer.body.accepted, 0)).toBe(0);
+      expect(again.reduce((total, answer) => total + answer.body.duplicates, 0)).toBe(1_000);
+
+      // And the database agrees with the answers.
+      expect(
+        await prisma.punchEvent.count({
+          where: { deviceId: gate.id, deviceEventId: { startsWith: `burst-${run}-` } },
+        }),
+      ).toBe(1_000);
+    }, 60_000);
+
     it('stores a batch sent twice at the same moment exactly once', async () => {
       const batch = {
         punches: [punch({ deviceEventId: 'race-1', deviceTime: '2026-09-15T06:00:00Z' })],
@@ -381,6 +457,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: 'Kiosk at the gate', siteId: company.siteA, kind: 'FACE_KIOSK' })
         .expect(201);
+      await activateDevice(app, company, registered.body.device.id);
       const kiosk = { id: registered.body.device.id, secret: registered.body.secret };
 
       // A correct signature, but a kiosk's punches only ever come from a face match.
@@ -409,6 +486,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: `Simulator ${where}`.slice(0, 60), siteId: company.siteA, kind: 'MOCK' })
         .expect(201);
+      await activateDevice(app, company, registered.body.device.id);
       const simulator = { id: registered.body.device.id, secret: registered.body.secret };
       const refusing = await createDbTestApp(databaseUrl as string, settings);
       try {
@@ -427,6 +505,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: 'Targeted', siteId: company.siteB, kind: 'MOCK' })
         .expect(201);
+      await activateDevice(app, company, fresh.body.device.id);
       const deviceId = fresh.body.device.id;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         await signed('ingest/heartbeat', {}, { id: deviceId, secret: 'still-wrong' }).expect(401);
@@ -434,6 +513,103 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       const after = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
       expect(after.failedSignatureCount).toBe(1);
       expect(after.lastFailedSignatureAt).not.toBeNull();
+    });
+
+    it('a new key is born switched off, and its issuer may not switch it on', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Two-person gate', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+      // A device key can post punches, so one person never both issues one
+      // and puts it to work (docs/plan/06, "Two administrators").
+      expect(made.body.device.status).toBe('INACTIVE');
+      const key = { id: made.body.device.id as string, secret: made.body.secret as string };
+      await signed('ingest/heartbeat', {}, key).expect(401);
+
+      const refused = await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${key.id}`)
+        .set(...bearer(adminToken))
+        .send({ status: 'ACTIVE' })
+        .expect(409);
+      expect(refused.body.detail).toMatch(/another administrator/i);
+
+      // The second administrator has seen the device on the wall.
+      await activateDevice(app, company, key.id);
+      await signed('ingest/heartbeat', {}, key).expect(200);
+    });
+
+    it('records who issued a key and who switched it on, and clears the second on the way off', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Recorded gate', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+      const deviceId = made.body.device.id as string;
+      await activateDevice(app, company, deviceId);
+
+      const on = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
+      expect(on.keyIssuedByUserId).toBe(company.adminUserId);
+      expect(on.activatedByUserId).toBe(company.secondAdminUserId);
+
+      // Switching off is open to anybody: it only takes power away. It also
+      // forgets who vouched, so going back on needs answering for again.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${deviceId}`)
+        .set(...bearer(adminToken))
+        .send({ status: 'INACTIVE' })
+        .expect(200);
+      const off = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
+      expect(off.activatedByUserId).toBeNull();
+      expect(off.keyIssuedByUserId).toBe(company.adminUserId);
+    });
+
+    it('cannot be raced: rotating while switching on never leaves a live unapproved key', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Raced gate', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+      const deviceId = made.body.device.id as string;
+      await activateDevice(app, company, deviceId);
+
+      // The issuer rotates the key and switches it on in the same breath. The
+      // rotate sets the device INACTIVE; without the row lock the switch-on
+      // could read the older ACTIVE status, skip the two-person gate, and
+      // leave a fresh key working that nobody approved.
+      await Promise.allSettled([
+        request(app.getHttpServer())
+          .post(`/api/v1/devices/${deviceId}/rotate-secret`)
+          .set(...bearer(adminToken)),
+        request(app.getHttpServer())
+          .patch(`/api/v1/devices/${deviceId}`)
+          .set(...bearer(adminToken))
+          .send({ status: 'ACTIVE' }),
+      ]);
+
+      const after = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
+      // Whichever order they landed in: a live device was switched on by
+      // somebody, and never by the person who issued its key.
+      if (after.status === 'ACTIVE') {
+        expect(after.activatedAt).not.toBeNull();
+        expect(after.activatedByUserId).not.toBe(after.keyIssuedByUserId);
+      }
+    });
+
+    it('refuses in the database too: a key issuer can never be its activator', async () => {
+      const made = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Database rule gate', siteId: company.siteB, kind: 'MOCK' })
+        .expect(201);
+
+      // Straight past the service, as a repair script would go.
+      await expect(
+        prisma.device.update({
+          where: { id: made.body.device.id },
+          data: { status: 'ACTIVE', activatedByUserId: company.adminUserId },
+        }),
+      ).rejects.toThrow();
     });
 
     it('rotating the secret kills the old one at once', async () => {
@@ -446,6 +622,14 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       gate.secret = rotated.body.secret;
 
       await signed('ingest/heartbeat', {}, old).expect(401);
+      // And the new one does nothing yet: a rotated key is a new key, so the
+      // device waits for a second administrator to switch it back on
+      // (docs/plan/06, 'Two administrators'). Rotating is how a stolen device
+      // is dealt with; it must not be how one person gets a working key.
+      expect(rotated.body.device.status).toBe('INACTIVE');
+      await signed('ingest/heartbeat', {}).expect(401);
+
+      await activateDevice(app, company, gate.id);
       await signed('ingest/heartbeat', {}).expect(200);
     });
 
@@ -455,6 +639,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: 'Spare', siteId: company.siteB, kind: 'MOCK' })
         .expect(201);
+      await activateDevice(app, company, spare.body.device.id);
       const device = { id: spare.body.device.id, secret: spare.body.secret };
       await signed('ingest/heartbeat', {}, device).expect(200);
       await request(app.getHttpServer())
@@ -471,6 +656,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .set(...bearer(adminToken))
         .send({ name: 'Chatty', siteId: company.siteB, kind: 'MOCK' })
         .expect(201);
+      await activateDevice(app, company, spare.body.device.id);
       const device = { id: spare.body.device.id, secret: spare.body.secret };
       const statuses: number[] = [];
       for (let attempt = 0; attempt < 61; attempt += 1) {
