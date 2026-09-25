@@ -140,6 +140,33 @@ describe.skipIf(!databaseUrl)('Calculating a payroll run (e2e)', () => {
     });
   };
 
+  /**
+   * A shift pattern, as minutes from midnight. A night shift ends with a
+   * smaller number than it starts with.
+   */
+  const pattern = (name: string, startMinutes: number, endMinutes: number) =>
+    prisma.shiftPattern.create({
+      data: { companyId: company.companyId, name, startMinutes, endMinutes },
+    });
+
+  /** Posts a worker to a site on a pattern, for part or all of the month. */
+  const postTo = (
+    employeeId: string,
+    shiftPatternId: string | null,
+    startsOn: string,
+    endsOn: string | null = null,
+  ) =>
+    prisma.siteAssignment.create({
+      data: {
+        companyId: company.companyId,
+        employeeId,
+        siteId: company.siteA,
+        shiftPatternId,
+        startsOn: new Date(`${startsOn}T00:00:00Z`),
+        endsOn: endsOn === null ? null : new Date(`${endsOn}T00:00:00Z`),
+      },
+    });
+
   let monthsUsed = 0;
   /** An open month of this test's own, with a tax table covering it. */
   const monthWithRates = async () => {
@@ -266,6 +293,91 @@ describe.skipIf(!databaseUrl)('Calculating a payroll run (e2e)', () => {
       // Four hours at GHS 9.00.
       expect(line.overtimePesewas).toBe(3_600);
       expect(line.grossPesewas).toBe(line.basicPesewas + 3_600);
+    });
+
+    it('measures overtime against the shift the worker was actually posted to', async () => {
+      // Without a posting the engine falls back to a standard eight-hour shift,
+      // which would make a twelve-hour guard look like four hours of overtime
+      // every single day. This is the path that decides real overtime pay.
+      const period = await monthWithRates();
+      const twelveHours = await pattern('Long day', 6 * 60, 18 * 60);
+      const posted = await worker({ basicMonthlyPesewas: 150_000, overtimeHourlyPesewas: 900 });
+      await postTo(posted.id, twelveHours.id, period.startDate);
+
+      // Twelve hours worked against a twelve-hour shift is no overtime at all.
+      await shift(posted.id, `${period.startDate.slice(0, 8)}02`, 720);
+      // Thirteen hours is one hour of overtime, not five.
+      await shift(posted.id, `${period.startDate.slice(0, 8)}03`, 780);
+
+      const run = await calculate(period.id).expect(201);
+      const lines = await api()
+        .get(`/api/v1/payroll/runs/${run.body.id}/lines?employeeId=${posted.id}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+
+      const line = lines.body.items[0];
+      expect(line.scheduledMinutes).toBe(1_440);
+      expect(line.punchedMinutes).toBe(1_500);
+      expect(line.overtimeMinutes).toBe(60);
+      expect(line.overtimePesewas).toBe(900);
+    });
+
+    it('handles a night shift that ends after midnight as its real length', async () => {
+      // 22:00 to 06:00 is eight hours. Subtracting the two numbers gives minus
+      // sixteen, which would make every night shift look like a day of overtime.
+      const period = await monthWithRates();
+      const night = await pattern('Night', 22 * 60, 6 * 60);
+      const owl = await worker({ basicMonthlyPesewas: 150_000, overtimeHourlyPesewas: 900 });
+      await postTo(owl.id, night.id, period.startDate);
+      await shift(owl.id, `${period.startDate.slice(0, 8)}05`, 480);
+
+      const run = await calculate(period.id).expect(201);
+      const lines = await api()
+        .get(`/api/v1/payroll/runs/${run.body.id}/lines?employeeId=${owl.id}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(lines.body.items[0].scheduledMinutes).toBe(480);
+      expect(lines.body.items[0].overtimeMinutes).toBe(0);
+    });
+
+    it('follows a posting that changes partway through the month', async () => {
+      const period = await monthWithRates();
+      const short = await pattern('Six hours', 8 * 60, 14 * 60);
+      const long = await pattern('Ten hours', 8 * 60, 18 * 60);
+      const moved = await worker({ basicMonthlyPesewas: 150_000, overtimeHourlyPesewas: 900 });
+      const month = period.startDate.slice(0, 8);
+      await postTo(moved.id, short.id, period.startDate, `${month}14`);
+      await postTo(moved.id, long.id, `${month}15`);
+
+      // Eight hours on a six-hour posting: two hours of overtime.
+      await shift(moved.id, `${month}10`, 480);
+      // Eight hours on a ten-hour posting: none.
+      await shift(moved.id, `${month}20`, 480);
+
+      const run = await calculate(period.id).expect(201);
+      const lines = await api()
+        .get(`/api/v1/payroll/runs/${run.body.id}/lines?employeeId=${moved.id}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(lines.body.items[0].overtimeMinutes).toBe(120);
+      expect(lines.body.items[0].overtimePesewas).toBe(1_800);
+    });
+
+    it('falls back to the standard shift on a day with no pattern posted', async () => {
+      const period = await monthWithRates();
+      const unposted = await worker({ basicMonthlyPesewas: 150_000, overtimeHourlyPesewas: 900 });
+      // Posted, but to no pattern at all, which is allowed.
+      await postTo(unposted.id, null, period.startDate);
+      await shift(unposted.id, `${period.startDate.slice(0, 8)}07`, 600);
+
+      const run = await calculate(period.id).expect(201);
+      const lines = await api()
+        .get(`/api/v1/payroll/runs/${run.body.id}/lines?employeeId=${unposted.id}`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      // Ten hours against the standard eight.
+      expect(lines.body.items[0].scheduledMinutes).toBe(480);
+      expect(lines.body.items[0].overtimeMinutes).toBe(120);
     });
 
     it('counts a disputed or voided shift as no hours at all', async () => {
