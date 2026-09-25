@@ -57,6 +57,8 @@ const { values } = parseArgs({
     spread: { type: 'string', default: String(DEFAULT_SHAPE.spread) },
     /** Pairs of people placed deliberately close, so the lead rule is exercised. */
     lookalikes: { type: 'string', default: String(DEFAULT_SHAPE.lookalikePairs) },
+    /** How closely a look-alike pair scores. The lead rule's hardest test. */
+    'lookalike-score': { type: 'string', default: String(DEFAULT_SHAPE.lookalikeScore) },
     seed: { type: 'string', default: String(DEFAULT_SHAPE.seed) },
   },
 });
@@ -175,7 +177,7 @@ function printMatchTuning(): void {
 function printLeadTuning(): void {
   heading('6. What moving `lead` would do');
   console.log('  lead    matched  wrong  not sure  not recognised');
-  for (const lead of [0, 0.02, 0.05, 0.1, 0.2]) {
+  for (const lead of [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25]) {
     const counts = countVerdicts(attempts, FACE_THRESHOLDS.match, lead);
     const mark = lead === FACE_THRESHOLDS.lead ? ' <- shipped' : '';
     console.log(
@@ -209,7 +211,7 @@ function printLeadTuning(): void {
 function printEnrollment(): void {
   heading('7. Enrollment: catching a second enrollment of the same person');
   console.log('  duplicate  ghosts caught  strangers wrongly queried');
-  for (const duplicate of [0.4, 0.45, 0.5, 0.55, 0.6, 0.7]) {
+  for (const duplicate of [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7]) {
     const counts = countDuplicates(people, duplicate);
     const mark = duplicate === FACE_THRESHOLDS.duplicate ? ' <- shipped' : '';
     console.log(
@@ -280,13 +282,13 @@ async function loadPeople(): Promise<{ people: StudyPerson[]; source: string }> 
     differentScore: fraction(values.different, 'different'),
     frameScore: DEFAULT_SHAPE.frameScore,
     lookalikePairs: whole(values.lookalikes, 'lookalikes', 0, 100),
-    lookalikeScore: DEFAULT_SHAPE.lookalikeScore,
+    lookalikeScore: fraction(values['lookalike-score'], 'lookalike-score'),
     spread: fraction(values.spread, 'spread'),
     seed: whole(values.seed, 'seed', 1, Number.MAX_SAFE_INTEGER),
   };
   return {
     people: makeStudySet(shape),
-    source: `STAND-IN faces (same ${shape.sameScore}, different ${shape.differentScore}, spread ${shape.spread}, ${shape.lookalikePairs} look-alike pairs at ${shape.lookalikeScore}, seed ${shape.seed})`,
+    source: `STAND-IN faces (targets: same ${shape.sameScore}, different ${shape.differentScore}, spread ${shape.spread}, ${shape.lookalikePairs} look-alike pairs at ${shape.lookalikeScore}, seed ${shape.seed})`,
   };
 }
 

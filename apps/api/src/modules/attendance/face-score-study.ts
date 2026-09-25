@@ -54,16 +54,31 @@ export interface StudyPerson {
   frames: number[][];
 }
 
-/** How a stand-in study set is shaped. Every score is a mean; real faces spread. */
+/**
+ * How a stand-in study set is shaped.
+ *
+ * The three scores are **targets**, not promises. They are hit exactly when
+ * `spread` is 0; above that they come out a little low, and the
+ * different-person target comes out lowest of all. The reason is worth knowing,
+ * because a reader of the report will ask: `spread` varies the *distance*
+ * between templates, and a score is a square root of that distance, so an even
+ * spread of distances gives a lop-sided spread of scores. The low tail is then
+ * cut off at 0, which is the formula's floor, and the average of what is left
+ * sits below the target. At `spread` 0.28 the different-person average lands
+ * around 0.19 for a target of 0.30.
+ *
+ * So the report quotes **what a run measured**, never these targets, and the
+ * test beside this file pins the gap at the spreads the report actually uses.
+ */
 export interface StudyShape {
   people: number;
   /** Captures per person, after the one they enrolled with. */
   capturesEach: number;
-  /** Mean score between two captures of the same person. */
+  /** Target mean score between two captures of the same person. */
   sameScore: number;
-  /** Mean score between captures of two different people. */
+  /** Target mean score between captures of two different people. */
   differentScore: number;
-  /** Mean score between two frames of one capture (moments apart, so closer). */
+  /** Target mean score between two frames of one capture (moments apart, so closer). */
   frameScore: number;
   /**
    * How widely capture quality and facial likeness vary, 0 to 1. This is what

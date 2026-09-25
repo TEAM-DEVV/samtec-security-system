@@ -112,7 +112,7 @@ we must now trust the terminal, which is why every device signs its requests wit
 a secret, a device key is born switched off, and a second administrator must
 switch it on.
 
-### The five roles
+### The four roles
 
 | Role | Sees and does |
 |---|---|
@@ -205,11 +205,11 @@ Two conventions worth stating at the defence:
 |---|---|---|
 | `payroll_periods` | One calendar month of pay. | Moves OPEN → CLOSED and never back. |
 | `tax_tables` | A frozen version of the statutory rates (SSNIT percentages, in basis points). | A rate change is a **new row, never an edit** — a trigger refuses to change one a run has used. It also records where the rate came from and when that was checked. |
-| `tax_bands` | One step of the graduated PAYE table. | The last band has no width because it has no upper limit, and a CHECK insists on exactly that. |
+| `tax_bands` | One step of the graduated PAYE table. | The last band has no width because it has no upper limit, and a deferred constraint trigger insists on exactly that — it has to be a trigger rather than a CHECK, because it looks at every band of the table at once. |
 | `employee_pay_terms` | What an employee is paid: basic, overtime rate, allowances, deductions. | Effective-dated and **never edited**: a change is a new row. A run reads the row in force on the period's last day and **copies every value into the line**. |
 | `employee_payment_details` | Where the money is sent: bank, account, mobile money. | **Personal data.** Never logged, never in an error message, never on a list a supervisor can read. Its `updatedAt` is compared with the run's `approvedAt`, so a destination that moved *after* approval is shown in the bank export instead of quietly paid. |
-| `payroll_runs` | One calculation of one period's pay, with who calculated, submitted, approved, rejected and paid it. | Once `LOCKED`, a trigger rejects every UPDATE and DELETE — on the run **and** on its lines. |
-| `payroll_lines` | One employee's pay for one run, with **every input copied in**. | So a locked run can be re-checked years later without reading another table. Totals are the sums of the parts printed beside them and net is their difference — a CHECK proves it. |
+| `payroll_runs` | One calculation of one period's pay, with who calculated, submitted, approved, rejected and paid it. | A trigger refuses every DELETE outright, and once `LOCKED` it refuses every change to the figures. Exactly one change is still allowed: recording that the money went out (`LOCKED` → `PAID`), and that record is itself final once written. Be precise about this at a defence — "nothing can change" is nearly true, and "the figures can never change, only the note that it was paid" is true. |
+| `payroll_lines` | One employee's pay for one run, with **every input copied in**. | So a locked run can be re-checked years later without reading another table. Totals are the sums of the parts printed beside them and net is their difference — a CHECK proves it. The lines freeze the moment the run is **submitted**, before anybody approves it, so the approver and the auditor are looking at the very same figures. |
 | `payslips` | The payslip PDF, as bytes. | Made once, **inside the transaction that locks the run**, so what was sent is exactly what exists. |
 
 > **GAP — payroll is Samuel's, and it is part-built.** The eight tables, the
@@ -378,9 +378,12 @@ ask for and decide an exemption, and the duplicate queue
   guess.
 - Three camera frames must agree with each other (0.70), and an anti-spoofing
   score must pass (0.60) — a photo held up to the camera fails.
-- At enrollment a stricter check (0.50) looks for a face that is already
-  somebody else's. If it finds one, this is a **possible duplicate**, and a
-  second administrator decides.
+- At enrollment a **more suspicious** check looks for a face that is already
+  somebody else's. Its number is **lower** — 0.50, not 0.60 — and that makes it
+  catch *more*, not less: anything reaching 0.50 is held as a **possible
+  duplicate** for a second administrator to decide. Being asked about a stranger
+  costs a minute; a ghost getting in costs a salary every month, so this is the
+  one place the system deliberately errs towards asking.
 - **The scores never leave the server.**
 
 **Fingerprints, and the honest limit.** On a phone or laptop kiosk the
@@ -624,7 +627,8 @@ The face is matched 1:N against everyone enrolled, needing both a similarity of
 0.60 and a clear lead of 0.05 over the runner-up, with three frames agreeing and
 an anti-spoofing check that a held-up photo fails. If a fingerprint is used it is
 never alone — it is tied to the face or to a typed staff number, and the method
-is stamped on the punch.
+is stamped on the punch. The one case it does not settle is two nearly identical
+faces; see the twins question below.
 
 **"Where did 0.60 come from? Why not 0.5 or 0.8?"**
 They start as the Human library's suggested working points, and they are named
@@ -636,6 +640,21 @@ in two hundred to the *wrong person*, and 0.05 turns all four into a second try;
 raising `match` above 0.65 only starts refusing honest guards. The honest part of
 that answer is that the study uses generated faces, so the pilot with real
 volunteers is still owed before a paying client.
+
+**"What about identical twins?"** — and expect this one, because it is the
+sharpest question available about any face system.
+Twins beat it, and the report says so in numbers: two faces scoring 0.75 against
+each other, where the same person scores 0.78, give five wrong matches in two
+hundred, and no setting of the two clock-in numbers fixes that at a price worth
+paying. Thresholds cannot separate two nearly identical faces, and that is a
+property of face recognition rather than a bug in this build. What the system does
+do is *notice*: enrollment holds such a pair for a second administrator — in the
+study all eight of the near-twins were held — so a human has looked at both
+records and decided they are two people. The right fix, which is written up as a
+recommendation and is not built yet, is to require the second factor for exactly
+that pair afterwards: the face narrows it to two people and the fingerprint or the
+staff number settles which. Say that plainly; do not claim the face alone is
+enough.
 
 **"What if the face fails — a scar, bad light, a wet camera?"**
 Three failed attempts allow a staff-number-plus-finger fallback, and the punch is

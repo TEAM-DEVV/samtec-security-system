@@ -57,6 +57,36 @@ describe('makeStudySet', () => {
     expect(summarise(spread.frames).mean).toBeCloseTo(DEFAULT_SHAPE.frameScore, 1);
   });
 
+  it('comes out a little under its targets once it spreads, and by how much', () => {
+    // The targets are hit exactly at spread 0 (the test above). Above that a
+    // score is a square root of a spread-out distance, so the spread of scores
+    // is lop-sided and its low tail is cut off at 0 — the different-person
+    // average lands under its target, and further under as the spread grows.
+    // The report quotes measured means, never the targets; this pins the gap so
+    // it cannot grow quietly, at the two spreads the report actually uses.
+    const measured = (spread: number) => {
+      const scores = collectScores(makeStudySet({ ...DEFAULT_SHAPE, spread }));
+      return {
+        same: summarise(scores.samePerson).mean,
+        different: summarise(scores.differentPerson).mean,
+      };
+    };
+
+    const typical = measured(0.15);
+    expect(typical.same).toBeGreaterThan(DEFAULT_SHAPE.sameScore - 0.03);
+    expect(typical.different).toBeGreaterThan(DEFAULT_SHAPE.differentScore - 0.08);
+
+    const hard = measured(0.28);
+    expect(hard.same).toBeGreaterThan(DEFAULT_SHAPE.sameScore - 0.05);
+    expect(hard.different).toBeGreaterThan(DEFAULT_SHAPE.differentScore - 0.14);
+
+    // The same-person target survives the spread far better than the
+    // different-person one, because it sits far from the floor at 0.
+    expect(DEFAULT_SHAPE.sameScore - hard.same).toBeLessThan(
+      DEFAULT_SHAPE.differentScore - hard.different,
+    );
+  });
+
   it('refuses a set where different people would score higher than the same person', () => {
     expect(() => makeStudySet({ ...DEFAULT_SHAPE, sameScore: 0.4, differentScore: 0.6 })).toThrow(
       /nothing to separate/,
