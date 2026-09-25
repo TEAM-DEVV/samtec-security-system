@@ -105,6 +105,37 @@ export const createPeriodSchema = z.strictObject({
 export type CreatePeriodBody = z.infer<typeof createPeriodSchema>;
 
 // ---------------------------------------------------------------------------
+// Runs and their lines
+// ---------------------------------------------------------------------------
+
+/** Contract: the query of `listPayrollRuns`. */
+export const listRunsQuerySchema = z.strictObject({
+  periodId: idSchema.optional(),
+  status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'LOCKED', 'PAID', 'REJECTED']).optional(),
+  cursor: cursor.optional(),
+  limit,
+});
+export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>;
+
+/**
+ * Contract: `CreatePayrollRunRequest`. Only the period is sent: everything else
+ * is read from the company's own records, because a run that took its figures
+ * from the request would be a run somebody could dictate.
+ */
+export const createRunSchema = z.strictObject({
+  periodId: idSchema,
+});
+export type CreateRunBody = z.infer<typeof createRunSchema>;
+
+/** Contract: the query of `listPayrollLines`. */
+export const listLinesQuerySchema = z.strictObject({
+  employeeId: idSchema.optional(),
+  cursor: cursor.optional(),
+  limit,
+});
+export type ListLinesQuery = z.infer<typeof listLinesQuerySchema>;
+
+// ---------------------------------------------------------------------------
 // Tax tables
 // ---------------------------------------------------------------------------
 

@@ -44,7 +44,8 @@ export function pageBefore(cursor: string | undefined): Date | undefined {
   return date;
 }
 
-function badCursor(): BadRequestException {
+/** The one refusal every payroll list gives for a cursor it cannot use. */
+export function badCursor(): BadRequestException {
   return new BadRequestException({
     message: [
       { path: ['cursor'], message: 'The cursor is not valid. Start again from the first page.' },

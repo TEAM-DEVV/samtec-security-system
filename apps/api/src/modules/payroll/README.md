@@ -49,17 +49,21 @@ about confirmed shifts.
 | File | What it is for |
 |---|---|
 | `payroll.module.ts` | The wiring: which controllers, which services, what it imports |
-| `payroll.controller.ts` | `/payroll/periods` and `/payroll/tax-tables`. HTTP only, one method per contract operation |
+| `payroll.controller.ts` | Every `/payroll/*` route. HTTP only, one method per contract operation |
 | `employee-pay.controller.ts` | `/employees/{id}/pay-terms` and `/payment-details`. They hang off a person, but the data is payroll's |
 | `payroll.schemas.ts` | Every Zod input rule for the module, in one file. Always `strictObject` |
 | `payroll-periods.service.ts` | Opening a month, listing months, closing one for good |
+| `payroll-runs.service.ts` | Calculating a draft run from the company's own records, and reading one back |
 | `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
 | `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
+| `run-mapping.ts` | The same for runs and lines, including the totals, which are the exact sums of the lines |
 | `payroll-facts.service.ts` | The read seam for ghost detection: minutes and identifiers, never money |
 | `pay-calculation.ts` | The money, as a pure function: pro-rating, SSNIT, the graduated PAYE bands, net pay. No database, no `this` |
 | `worked-minutes.ts` | Which shifts belong to the period, which minutes are overtime, and how many days somebody was employed. Also pure |
 | `tax-band-shape.ts` | Whether a set of PAYE bands covers every income, so a bad one is a clear 400 and not a trigger error |
+| `payroll-cursor.ts` | The one cursor every payroll list pages by, checked so a bad one is a 400 |
+| `already-exists.ts` | Turns a duplicate row into the 409 the contract promises instead of a 500 |
 | `*.spec.ts` | The unit tests beside each one, including the eight hand-calculated payslips from the design page |
 
 The rules the **database** enforces live in the migration
@@ -108,9 +112,9 @@ payroll touches the tables. It sits in
 services, exported and otherwise left alone.
 
 **Submitting a run must refuse one that pays for hours nobody worked**
-(rule R3, docs/plan/08 §1). This is owed, not built — the run endpoints are
-still to come. When they land, payroll does it itself, from its own data, with
-the shared function in
+(rule R3, docs/plan/08 §1). This is owed, not built: a run can be calculated
+and read back, but the submit endpoint is still to come. When it lands,
+payroll does this itself, from its own data, with the shared function in
 [`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts):
 
 ```ts
@@ -136,10 +140,27 @@ Never import anything from `modules/detection`. Detection reads payroll;
 payroll never learns detection exists, and that is what keeps the two from
 importing each other.
 
+## What a run reads, and from where
+
+Payroll owns no people and no punches, so calculating a month means asking:
+
+| Question | Who answers it |
+|---|---|
+| Who is on the books, when were they employed, what were they scheduled? | `workforce/employees.service.ts`, `payrollFactsFor` |
+| Which shifts were confirmed, on which dates? | `attendance/attendance-facts.service.ts`, `payableSegmentsByEmployee` |
+| What is each person paid, and at what rates? | this module's own `employee_pay_terms` and `tax_tables` |
+
+Both read seams are per **date**, not per month, because overtime is decided
+day by day against that day's shift pattern. A month's total cannot tell you
+whether somebody worked four short days and one very long one.
+
 ## Still to build
 
-The runs themselves — calculating a draft, submitting, approving, rejecting and
-marking paid — the payslip PDF (`pdfkit`), the bank export, the statutory
-summary, and the dashboard screens. The contract for all of them is already
-merged, inside the `# --- Payroll (Phase 4) ---` banners of
+Submitting a run, approving it, rejecting it and marking it paid; the payslip
+PDF; and the bank export. Then the dashboard screens. The contract for all of
+them is already merged, inside the `# --- Payroll (Phase 4) ---` banners of
 `packages/contracts/openapi.yaml`.
+
+**Submitting must refuse a run that pays for hours nobody worked** — rule R3,
+through `src/common/paid-beyond-presence.ts` with the fixed sixty-minute
+floor, never by importing detection. The section below says why.

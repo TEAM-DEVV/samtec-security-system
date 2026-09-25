@@ -91,7 +91,8 @@ the house style for a backend module is in
 - [x] The calculation as pure functions with the eight hand-calculated payslips as tests, and a second implementation written differently that has to agree with it on every field of all eight and of 5,000 generated lines; PAYE bands and SSNIT rates read from the versioned tables, never from the code
 - [x] The 2026 rates seeded with their source recorded, and pay terms for every seeded employee
 - [x] The setup endpoints: payroll months, the statutory rate versions, each worker's pay history and where their salary is sent — with the refusals that matter tested, including a set of tax bands that would leave the highest earners untaxed and a bank name a spreadsheet would run as a formula
-- Calculate a draft run, copying every input into its lines
+- [x] Calculating a draft run, copying every input into its lines, with the hand-calculated figures checked through the real HTTP stack against a real database; who was left out is named rather than forgotten
+- [x] Reading a run back: its lines by staff number, and the statutory summary with the rates it was worked out at
 - Maker–checker approval endpoints, payslip PDFs, bank CSV export
 - **Exit demo:** close a month, approve it as a second user, and open a payslip whose numbers can be checked by hand
 
