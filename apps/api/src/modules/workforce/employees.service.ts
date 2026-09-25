@@ -917,4 +917,126 @@ export class EmployeesService {
       },
     } satisfies Prisma.EmployeeInclude;
   }
+  /**
+   * What payroll needs to know about people before it can work out a month.
+   *
+   * Three facts, all of them the workforce module's to answer, gathered in one
+   * place so payroll never reaches into `employees`, `employment_periods` or
+   * `site_assignments` itself:
+   *
+   * - **Who to pay.** Everybody in the company who is not already terminated
+   *   before the month began. A `SUSPENDED` worker comes back too, because the
+   *   run has to list them as left out rather than silently forget them.
+   * - **When they were on the books**, as employment spells. Basic pay is
+   *   pro-rated by calendar days employed and nothing else (decision 4), and a
+   *   worker who left and came back inside one month is not paid for the gap.
+   * - **What they were scheduled**, by date. Overtime is anything worked past
+   *   that day's shift pattern (decision 3), so this is per date and not per
+   *   month. A day with no pattern assigned falls back to the standard shift,
+   *   which is payroll's constant, not this module's.
+   *
+   * Dates come back as `YYYY-MM-DD`, never as timestamps: payroll compares
+   * them as text and refuses a timestamp outright.
+   */
+  async payrollFactsFor(
+    companyId: string,
+    period: { startsOn: Date; endsOn: Date },
+  ): Promise<
+    {
+      id: string;
+      staffNumber: string;
+      fullName: string;
+      status: EmployeeStatus;
+      employment: { startsOn: string; endsOn: string | null }[];
+      scheduledMinutesOnDate: Map<string, number>;
+    }[]
+  > {
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        companyId,
+        // Somebody who left before the month started is nobody's business
+        // here. Everybody else is, including a suspended worker, so the run
+        // can say out loud that they were left out.
+        periods: { some: { startsOn: { lte: period.endsOn } } },
+      },
+      select: {
+        id: true,
+        staffNumber: true,
+        firstName: true,
+        otherNames: true,
+        lastName: true,
+        status: true,
+        periods: {
+          where: { OR: [{ endsOn: null }, { endsOn: { gte: period.startsOn } }] },
+          select: { startsOn: true, endsOn: true },
+          orderBy: { startsOn: 'asc' },
+        },
+        assignments: {
+          where: {
+            startsOn: { lte: period.endsOn },
+            OR: [{ endsOn: null }, { endsOn: { gte: period.startsOn } }],
+          },
+          select: {
+            startsOn: true,
+            endsOn: true,
+            shiftPattern: { select: { startMinutes: true, endMinutes: true } },
+          },
+          orderBy: { startsOn: 'asc' },
+        },
+      },
+      orderBy: { staffNumber: 'asc' },
+    });
+
+    return employees
+      .filter((employee) => employee.periods.length > 0)
+      .map((employee) => ({
+        id: employee.id,
+        staffNumber: employee.staffNumber,
+        fullName: fullNameOf(employee),
+        status: employee.status,
+        employment: employee.periods.map((spell) => ({
+          startsOn: toIsoDate(spell.startsOn),
+          endsOn: spell.endsOn === null ? null : toIsoDate(spell.endsOn),
+        })),
+        scheduledMinutesOnDate: scheduledMinutesByDate(employee.assignments, period),
+      }));
+  }
+}
+
+/**
+ * Which shift pattern covered each date of the period, as minutes.
+ *
+ * A later assignment wins on a day two cover, because a posting that starts
+ * today replaces the one it follows. A date with no assignment, or one whose
+ * assignment has no pattern, is simply absent from the map — payroll then
+ * uses its own standard shift, so the fallback lives in one place instead of
+ * two modules disagreeing about it.
+ */
+function scheduledMinutesByDate(
+  assignments: readonly {
+    startsOn: Date;
+    endsOn: Date | null;
+    shiftPattern: { startMinutes: number; endMinutes: number } | null;
+  }[],
+  period: { startsOn: Date; endsOn: Date },
+): Map<string, number> {
+  const minutesOn = new Map<string, number>();
+  for (const assignment of assignments) {
+    if (assignment.shiftPattern === null) {
+      continue;
+    }
+    // The same arithmetic payroll uses, so a night shift that ends after
+    // midnight is its real length and not a negative number.
+    const length =
+      (assignment.shiftPattern.endMinutes - assignment.shiftPattern.startMinutes + 1440) % 1440;
+    const from = assignment.startsOn > period.startsOn ? assignment.startsOn : period.startsOn;
+    const to =
+      assignment.endsOn !== null && assignment.endsOn < period.endsOn
+        ? assignment.endsOn
+        : period.endsOn;
+    for (let at = from.getTime(); at <= to.getTime(); at += 86_400_000) {
+      minutesOn.set(toIsoDate(new Date(at)), length);
+    }
+  }
+  return minutesOn;
 }

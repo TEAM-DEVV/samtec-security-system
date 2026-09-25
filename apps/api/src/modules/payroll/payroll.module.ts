@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AttendanceModule } from '../attendance/attendance.module.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import { WorkforceModule } from '../workforce/workforce.module.js';
 import { EmployeePayController } from './employee-pay.controller.js';
@@ -6,6 +7,7 @@ import { EmployeePayService } from './employee-pay.service.js';
 import { PayrollController } from './payroll.controller.js';
 import { PayrollFactsService } from './payroll-facts.service.js';
 import { PayrollPeriodsService } from './payroll-periods.service.js';
+import { PayrollRunsService } from './payroll-runs.service.js';
 import { TaxTablesService } from './tax-tables.service.js';
 
 /**
@@ -28,9 +30,21 @@ import { TaxTablesService } from './tax-tables.service.js';
  * `src/common/paid-beyond-presence.ts`, not by calling detection.
  */
 @Module({
-  imports: [IdentityModule, WorkforceModule],
+  imports: [IdentityModule, WorkforceModule, AttendanceModule],
   controllers: [PayrollController, EmployeePayController],
-  providers: [PayrollPeriodsService, TaxTablesService, EmployeePayService, PayrollFactsService],
-  exports: [PayrollPeriodsService, TaxTablesService, EmployeePayService, PayrollFactsService],
+  providers: [
+    PayrollPeriodsService,
+    TaxTablesService,
+    EmployeePayService,
+    PayrollRunsService,
+    PayrollFactsService,
+  ],
+  exports: [
+    PayrollPeriodsService,
+    TaxTablesService,
+    EmployeePayService,
+    PayrollRunsService,
+    PayrollFactsService,
+  ],
 })
 export class PayrollModule {}

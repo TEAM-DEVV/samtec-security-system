@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { toAccraDate } from '../../common/dates.js';
+import { toAccraDate, toIsoDate } from '../../common/dates.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -643,5 +643,59 @@ export class AttendanceFactsService {
       after.set(row.employeeId, { punches: row._count._all, lastPunchOn: toAccraDate(last) });
     }
     return after;
+  }
+  /**
+   * Every confirmed shift of a period, one row per employee per work date, for
+   * payroll to turn into hours.
+   *
+   * Detection already asks `presentMinutesPerPeriod` for a single total per
+   * worker, and that is the wrong shape here: overtime is decided **day by
+   * day**, against what that date's shift pattern scheduled, so a month's
+   * total cannot tell you whether somebody worked four short days and one very
+   * long one. This returns the days themselves and lets payroll do that.
+   *
+   * Only `CONFIRMED` counts — a disputed shift is still being argued about and a
+   * voided one did not happen (decision 6) — and a segment belongs to the
+   * period its `workDate` falls in, whatever time it ended, which is what makes
+   * a night shift across the month end land on one side only (decision 5).
+   *
+   * The map is keyed by employee id. A worker with no confirmed shifts is
+   * simply absent from it, which is not the same as a worker who was not
+   * employed: payroll decides pay from calendar days, not from hours.
+   */
+  async payableSegmentsByEmployee(
+    companyId: string,
+    period: { startsOn: Date; endsOn: Date },
+    employeeIds: readonly string[],
+  ): Promise<Map<string, { workDate: string; workedMinutes: number; status: 'CONFIRMED' }[]>> {
+    const byEmployee = new Map<
+      string,
+      { workDate: string; workedMinutes: number; status: 'CONFIRMED' }[]
+    >();
+    if (employeeIds.length === 0) {
+      return byEmployee;
+    }
+    const rows = await this.prisma.workSegment.findMany({
+      where: {
+        companyId,
+        status: 'CONFIRMED',
+        employeeId: { in: [...new Set(employeeIds)] },
+        workDate: { gte: period.startsOn, lte: period.endsOn },
+      },
+      select: { employeeId: true, workDate: true, workedMinutes: true },
+      orderBy: [{ employeeId: 'asc' }, { workDate: 'asc' }],
+    });
+    for (const row of rows) {
+      const days = byEmployee.get(row.employeeId) ?? [];
+      days.push({
+        // A `@db.Date` column, so it goes out as a calendar date. Payroll
+        // compares these as text and refuses a timestamp outright.
+        workDate: toIsoDate(row.workDate),
+        workedMinutes: row.workedMinutes,
+        status: 'CONFIRMED',
+      });
+      byEmployee.set(row.employeeId, days);
+    }
+    return byEmployee;
   }
 }
