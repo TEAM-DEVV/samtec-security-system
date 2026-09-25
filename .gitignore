@@ -35,3 +35,8 @@ Thumbs.db
 .claude/settings.local.json
 # Personal dev-server launch config for the Claude Code browser pane
 .claude/launch.json
+
+# Database backups: the whole company in one file. The backup script refuses
+# to write inside the repository, and this is the second lock on that door.
+*.ndjson
+samtec-backups/

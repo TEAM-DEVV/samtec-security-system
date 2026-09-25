@@ -226,7 +226,15 @@ not a cryptographic signature.
 
 **21. The database dump before every lock** that
 [Security and review gates](06-security-and-review-gates.md) asks for is a
-Phase 7 task for Francis, not part of this build.
+Phase 7 task for Francis, not part of this build. **Done, as an operator
+step, not an API one**: take one with `pnpm --filter @samtec/api db:backup`
+before locking and keep it with that month's records
+([Backup and restore](../guides/11-backup-and-restore.md)). The API cannot do
+it for itself — it runs as a serverless function with no PostgreSQL tools and
+no writable storage, and copying everybody's pay into another table inside
+the same database would add a second copy of personal data without adding any
+safety, because the payroll tables already refuse every edit and every
+delete.
 
 ---
 
