@@ -81,6 +81,14 @@ tags:
     description: >-
       Ghost detection: the rules that find workers who are paid but never
       there, and the queue a person reviews them in. Built in Phase 5.
+  # --- Reports (Phase 6) --- Samuel adds report tags here, and nowhere else.
+  - name: Reports
+    description: >-
+      The figures a manager reads at a glance, and the files they take away:
+      who is present, how much absence there is, what payroll is costing, and
+      CSV downloads of the numbers behind each. Every figure is counted from
+      the same tables the screens read, so a report can never disagree with the
+      page beside it. Built in Phase 6.
 
 security:
   - bearerAuth: []
@@ -4296,6 +4304,148 @@ paths:
           $ref: "#/components/responses/Forbidden"
 
 
+  # --- Reports (Phase 6) --- Samuel adds /reports paths here, and nowhere else.
+  /reports/overview:
+    get:
+      operationId: getReportsOverview
+      tags: [Reports]
+      summary: The key figures for the dashboard
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. A GUARD sees only their own
+        payslips and never a company figure (`403`).
+
+        Three questions a manager asks every morning: how many people are at
+        work right now, how much of the expected attendance was actually worked
+        over the last thirty days, and what payroll has cost month by month.
+
+        A supervisor sees the whole company's figures, the same as the
+        attendance board they already read. Nothing here names a person, so
+        there is nothing to scope narrower.
+
+        Every figure is counted from the same tables the screens read, so a
+        report can never disagree with the page beside it.
+      responses:
+        "200":
+          description: The figures, as of now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportsOverview" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reports/attendance.csv:
+    get:
+      operationId: downloadAttendanceReport
+      tags: [Reports]
+      summary: Worked shifts over a date range, as a CSV
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. A GUARD may never download a
+        company report (`403`).
+
+        One row per confirmed shift: the worker, the date, the site, the minutes
+        worked and how they clocked in. At most 92 days at a time, so one
+        request can never ask for a decade.
+
+        Every cell is quoted, and a cell that a spreadsheet would read as a
+        formula is prefixed with an apostrophe — the same rule as the payroll
+        bank file, for the same reason.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: The first day to include.
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: The last day to include. At most 92 days after `from`.
+        - name: siteId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: Only shifts at this site.
+      responses:
+        "200":
+          description: The report.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: >-
+                Always `attachment`, with the file name
+                `attendance-<from>-to-<to>.csv`.
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            text/csv:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /reports/payroll-cost.csv:
+    get:
+      operationId: downloadPayrollCostReport
+      tags: [Reports]
+      summary: What payroll cost each month, as a CSV
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll figures
+        (`403`), and neither does a GUARD.
+
+        One row per month that has an approved run, with the gross, the
+        deductions, the net paid, and what the company owed the state on top.
+        Only approved runs count: a draft is not a cost, it is a proposal.
+      responses:
+        "200":
+          description: The report.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: Always `attachment`, with the file name `payroll-cost.csv`.
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /payroll/runs/{runId}/summary.pdf:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      operationId: downloadPayrollRunSummaryPdf
+      tags: [Reports]
+      summary: A one-page summary of a payroll run, as a PDF
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR and a GUARD may never read a
+        run (`403`).
+
+        The page a payroll officer prints and files: the month, the totals, what
+        was owed to SSNIT and to the GRA at the rates the run used, how many
+        people were paid, and who was left out. It names no individual's pay —
+        that is what a payslip is for — so it can be filed and shared without
+        handling anybody's salary.
+
+        Built when it is asked for, from the run's frozen figures, so it is the
+        same page every time.
+      responses:
+        "200":
+          description: The summary.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: >-
+                Always `attachment`, with the file name
+                `payroll-summary-<YYYY-MM>.pdf`.
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -7177,6 +7327,106 @@ components:
           type: [string, "null"]
           description: Pass this as `cursor` to get the next page. It is `null` on the last page.
 
+    # --- Reports (Phase 6) --- Samuel adds report schemas here, and nowhere else.
+    ReportsOverview:
+      type: object
+      description: >-
+        The three figures the dashboard shows, each with enough beside it to be
+        understood without asking what it means.
+      required: [present, absence, payrollCost, generatedAt]
+      properties:
+        present:
+          $ref: "#/components/schemas/PresentNow"
+        absence:
+          $ref: "#/components/schemas/AbsenceRate"
+        payrollCost:
+          type: array
+          description: >-
+            Newest month first, at most the last twelve that have an approved
+            run. Empty until a run has been approved.
+          items: { $ref: "#/components/schemas/PayrollCostMonth" }
+        generatedAt:
+          type: string
+          format: date-time
+
+    PresentNow:
+      type: object
+      description: >-
+        Who is at work at this moment: a worker with a confirmed shift today
+        that has begun and has not ended.
+      required: [onShift, activeEmployees, asOf]
+      properties:
+        onShift:
+          type: integer
+          minimum: 0
+          description: How many people are on a shift right now.
+        activeEmployees:
+          type: integer
+          minimum: 0
+          description: >-
+            How many `ACTIVE` workers the company has, so `onShift` can be read
+            as a share rather than a bare number.
+        asOf:
+          type: string
+          format: date-time
+
+    AbsenceRate:
+      type: object
+      description: >-
+        How much of the expected attendance was actually worked, over the days
+        named. Expected minutes come from each worker's shift pattern, so a
+        company with no patterns assigned has nothing to compare against and
+        `basisPoints` is then `null` rather than a misleading zero.
+      required: [fromDate, toDate, scheduledMinutes, workedMinutes, basisPoints]
+      properties:
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+        scheduledMinutes:
+          type: integer
+          minimum: 0
+        workedMinutes:
+          type: integer
+          minimum: 0
+        basisPoints:
+          type: [integer, "null"]
+          description: >-
+            The share of expected minutes **not** worked, in hundredths of a
+            percent: 250 is 2.5% absence. `null` when nothing was scheduled, so
+            a screen can say "nothing to compare" instead of "no absence".
+
+    PayrollCostMonth:
+      type: object
+      description: >-
+        What one month's approved payroll cost. Only an approved run counts: a
+        draft is a proposal, not a cost.
+      required:
+        [
+          periodId,
+          year,
+          month,
+          runId,
+          employeeCount,
+          grossPesewas,
+          netPayPesewas,
+          employerSsnitPesewas,
+          statutoryPesewas,
+        ]
+      properties:
+        periodId: { type: string, format: uuid }
+        year: { type: integer, minimum: 2020, maximum: 2100 }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        runId: { type: string, format: uuid }
+        employeeCount: { type: integer, minimum: 0 }
+        grossPesewas: { type: integer }
+        netPayPesewas: { type: integer }
+        employerSsnitPesewas:
+          type: integer
+          description: The company's own SSNIT share, which is a cost on top of gross.
+        statutoryPesewas:
+          type: integer
+          description: >-
+            Everything owed to the state for the month: both SSNIT shares and
+            the income tax deducted.
     # --- Payroll (Phase 4) --- Samuel adds payroll schemas here, and nowhere
     # else. Every name carries its module: PayrollPeriod, PayrollRun,
     # PayrollLine, TaxTable, Payslip; operationIds listPayrollRuns,

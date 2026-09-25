@@ -84,6 +84,14 @@ function freshCopies() {
 }
 
 let state = freshCopies();
+
+/**
+ * The same state the reports mock reads, so the dashboard's figures and its
+ * payroll pages can never disagree — the rule the real API follows too.
+ */
+export function payrollMockState() {
+  return state;
+}
 /** Counts up so every new record gets its own ID, the way a database would. */
 let nextId = 1;
 
