@@ -17,10 +17,10 @@ Eight phases. Five are finished or nearly so.
 | 1 | Sign in, staff, sites, shifts, users | **Done** — API and screens |
 | 2 | Attendance: punches paired into shifts, the exception queue | **Done** — API and screens |
 | 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done**, gateway endpoints included. Left: the kiosk app and the gateway, both Samuel's |
-| 4 | Payroll: Ghana tax, payslips, bank file | **Not started — Samuel owns it, see Job A** |
-| 5 | Ghost detection: the rules that catch fake workers | **Done — Francis.** All eleven rules, the queue, the sweep, and the three dashboard screens. Left: the owner's daily cron |
-| 6 | Reports and the final visual pass | Not started |
-| 7 | Security hardening | Not started — Francis |
+| 4 | Payroll: Ghana tax, payslips, bank file | **Most of the way — Samuel, see Job A.** Tables, calculation, setup endpoints, calculating a run and reading it back are all merged or in review. Left: submit, approve, reject and mark paid; the payslip PDF; the bank export; the screens |
+| 5 | Ghost detection: the rules that catch fake workers | **Done — Francis.** All eleven rules, the queue, the sweep, the three dashboard screens, and the daily run as a Vercel Cron entry |
+| 6 | Reports and the final visual pass | Not started. Reports: Samuel. The final visual pass: Francis, and it is the last build step of the whole project |
+| 7 | Security hardening | **Done — Francis.** Two-administrator rules for accounts and device keys, the load test, backup and restore with a daily schedule, the threat model, the whole-system four-lens review (20 findings, 3 blockers, all fixed) and the drafted security chapter |
 | 8 | Deploy, defence pack, presentation | Not started — both |
 
 ## The split, from here to the end
@@ -40,13 +40,20 @@ phases, backend included** — not just the screens.
 
 **Order matters in one place only.** Ghost detection reads payroll data
 (rules R3 and R6 in [Ghost detection engine](08-ghost-detection-engine.md)),
-so **payroll must reach `main` before detection does.** That is why Samuel
-starts payroll now and Francis finishes the Phase 3 endpoints first. Neither
-of us waits for the other.
+so **payroll must reach `main` before detection does.** That ordering has been
+kept: detection reads payroll only through `PayrollFactsService`, and the three
+Phase 3 gateway endpoints are merged. Neither of us waits for the other.
 
 ---
 
-## Job A · Phase 4, the payroll engine — Samuel starts here
+## Job A · Phase 4, the payroll engine — Samuel
+
+**Where it stands.** The contract and mocks, the eight tables, the
+calculation, the 2026 rates, the setup endpoints, and calculating a run and
+reading it back are done. **Left: submit, approve, reject and mark paid; the
+payslip PDF; the bank export; and the screens.** Rule R3's gate belongs on the
+submit endpoint — that is the second of R3's two controls, and until it lands
+the detection sweep is doing the work alone.
 
 **Everything you need is written down.** Do not design it yourself:
 
