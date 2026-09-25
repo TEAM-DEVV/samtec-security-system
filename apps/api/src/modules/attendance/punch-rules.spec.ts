@@ -127,6 +127,19 @@ describe('judgePunchTime', () => {
       clockSuspect: true,
     });
   });
+
+  it('never lets a device buy itself future hours by claiming a fast clock', () => {
+    // The drift comes from the device's own request body, so an uncapped
+    // allowance meant a terminal could say "my clock runs nine hours fast"
+    // and have tonight's punches paired into a shift that has not happened.
+    const nineHours = 9 * 3600;
+    expect(judgePunchTime(new Date('2026-09-22T14:00:00Z'), server, nineHours)).toEqual({
+      pairable: false,
+      clockSuspect: true,
+    });
+    // The honest case is unchanged: the allowance is still five minutes.
+    expect(judgePunchTime(new Date('2026-09-22T06:04:00Z'), server, nineHours).pairable).toBe(true);
+  });
 });
 
 describe('mayClockIn', () => {

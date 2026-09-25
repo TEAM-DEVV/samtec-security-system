@@ -605,6 +605,13 @@ paths:
         (`/set-password#token=…`) for the admin to hand over in person or by
         private message, and the person chooses their own password with
         `POST /auth/set-password`.
+
+        **An ADMIN account needs a second administrator** (docs/plan/06,
+        "Two administrators"): when the result is an ADMIN account, it comes
+        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
+        confirms it with `POST /users/{userId}/confirm-admin`. The one
+        exception is the company's only administrator, whose change is
+        confirmed at once and recorded as such.
       requestBody:
         required: true
         content:
@@ -678,6 +685,14 @@ paths:
         (and a new ADMIN or HR_PAYROLL sets up two-factor authentication).
         **On your own account only `fullName` may change** (`409` otherwise),
         so nobody can lock themselves out. A switched-off account answers `409`.
+
+        **An ADMIN account needs a second administrator** (docs/plan/06,
+        "Two administrators"): when the result is an ADMIN account, it comes
+        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
+        confirms it with `POST /users/{userId}/confirm-admin`. The one
+        exception is the company's only administrator, whose change is
+        confirmed at once and recorded as such.
+        Taking the ADMIN role away needs nobody else.
       requestBody:
         required: true
         content:
@@ -744,6 +759,13 @@ paths:
         **Roles:** ADMIN, never on your own account. Old sessions stay ended.
         An account whose linked employee has left the company cannot be
         switched back on (`409`).
+
+        **An ADMIN account needs a second administrator** (docs/plan/06,
+        "Two administrators"): when the result is an ADMIN account, it comes
+        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
+        confirms it with `POST /users/{userId}/confirm-admin`. The one
+        exception is the company's only administrator, whose change is
+        confirmed at once and recorded as such.
       responses:
         "200":
           description: The account, now `ACTIVE` (or `AWAITING_PASSWORD` if no password was ever set).
@@ -777,9 +799,16 @@ paths:
         then set up a new authenticator at their next sign-in. Clearing both
         together stops a caller who knows the password from simply asking for
         "a new phone". A switched-off account answers `409`.
+
+        **An ADMIN account needs a second administrator** (docs/plan/06,
+        "Two administrators"): when the result is an ADMIN account, it comes
+        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
+        confirms it with `POST /users/{userId}/confirm-admin`. The one
+        exception is the company's only administrator, whose change is
+        confirmed at once and recorded as such.
       responses:
         "200":
-          description: The account, now `AWAITING_PASSWORD`, with its new link.
+          description: The account, now `AWAITING_PASSWORD` (or `AWAITING_CONFIRMATION` for an ADMIN), with its new link.
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"
@@ -789,6 +818,36 @@ paths:
                 $ref: "#/components/schemas/UserAccountWithPasswordSetup"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}/confirm-admin:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Users]
+      operationId: confirmAdminAccount
+      summary: Confirm an administrator account another ADMIN made or changed
+      description: >-
+        **Roles:** ADMIN. The second half of every ADMIN account change
+        (docs/plan/06, "Two administrators"). Refused (`409`) to the
+        administrator who made the change, on your own account, and for an
+        account that is not waiting for confirmation. The confirmer should
+        check in person that the account belongs to the person it names —
+        that check is the whole point.
+      responses:
+        "200":
+          description: The account, confirmed. It can be used once it has a password and two-factor sign-in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAccount"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1374,9 +1433,14 @@ paths:
         terminal, register it again. The response carries the device's secret,
         shown **only this once**: it goes into the device (or its gateway) and
         signs every request the device sends. From a kiosk sign-in (Phase 3)
-        only a `FACE_KIOSK` can be registered, and it starts `INACTIVE` until an
-        ADMIN switches it on from the dashboard, so a kiosk session alone can
-        never make a working key.
+        only a `FACE_KIOSK` can be registered.
+
+
+        **The device starts `INACTIVE`, and its key signs nothing until a
+        *different* administrator switches it on** (docs/plan/06, "Two
+        administrators"): a device key can post punches, so one person never
+        both issues one and puts it to work. The second administrator is the
+        one who checks the device is really on the wall at that site.
       requestBody:
         required: true
         content:
@@ -1447,6 +1511,14 @@ paths:
         Phase 3 adds `serialNumber` (a ZKTeco terminal's serial, which its
         gateway uses) and `passkeysEnabled` (switches on the device's own
         fingerprint sensor; only a `FACE_KIOSK` can have it).
+
+
+        **Switching a device on is refused (`409`) to whoever issued its key** —
+        registered the device, or last rotated its secret — unless they are the
+        company's only administrator (docs/plan/06, "Two administrators").
+        Switching one **off** is open to any administrator, at once, and
+        forgets who switched it on, so going back on has to be answered for
+        again.
       requestBody:
         required: true
         content:
@@ -1483,9 +1555,14 @@ paths:
         overlap. The device keeps any batch that was not acknowledged and sends
         it again once it has the new secret, so no punch is lost. The new
         secret is shown only this once. From a kiosk sign-in (Phase 3) only a
-        `FACE_KIOSK` can be rotated (for a kiosk that lost its storage), and it
-        becomes `INACTIVE` until an ADMIN switches it on again from the
-        dashboard. Its fingerprint keys stay, because the device ID stays.
+        `FACE_KIOSK` can be rotated (for a kiosk that lost its storage). Its
+        fingerprint keys stay, because the device ID stays.
+
+
+        **A new key is a new key:** the device becomes `INACTIVE` and a
+        *different* administrator must switch it on (docs/plan/06, "Two
+        administrators"). Rotating is how a stolen device is dealt with, so it
+        must not be the way one person quietly gets a working key.
       responses:
         "200":
           description: The device and its new one-time secret.
@@ -4697,14 +4774,18 @@ components:
         - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
           account sets up two-factor authentication at its first sign-in;
           `twoFactorEnabled` shows whether that has happened yet.
+        - `AWAITING_CONFIRMATION` — an ADMIN account made, promoted, reset
+          or switched back on by one administrator, waiting for a second to
+          confirm it. Cannot be used at all until then, password or not.
         - `DEACTIVATED` — switched off by an administrator, or because the
           linked employee left. Cannot sign in. Kept for history.
-      enum: [AWAITING_PASSWORD, ACTIVE, DEACTIVATED]
+      enum: [AWAITING_PASSWORD, AWAITING_CONFIRMATION, ACTIVE, DEACTIVATED]
 
     UserAccount:
       type: object
       description: A sign-in account as administrators see it. Never contains a password or secret.
-      required: [id, email, fullName, role, status, twoFactorEnabled, employeeId, createdAt, updatedAt]
+      required:
+        [id, email, fullName, role, status, twoFactorEnabled, employeeId, adminConfirmation, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4724,12 +4805,37 @@ components:
           type: [string, "null"]
           format: uuid
           description: The linked employee for SUPERVISOR and GUARD accounts; `null` for ADMIN and HR_PAYROLL.
+        adminConfirmation:
+          description: Who asked for this ADMIN account and who confirmed it. `null` for every other role, and for an ADMIN made directly in the database (the seed or the setup script).
+          oneOf:
+            - $ref: "#/components/schemas/AdminConfirmation"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
         updatedAt:
           type: string
           format: date-time
+
+    AdminConfirmation:
+      type: object
+      required: [requestedByUserId, requestedAt, confirmedByUserId, confirmedAt]
+      properties:
+        requestedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The administrator who made the change. `null` for the setup script, and for accounts older than the rule.
+        requestedAt:
+          type: string
+          format: date-time
+        confirmedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The second administrator. `null` while waiting, and when nobody else was needed (the company's only administrator, the setup script, or an account older than the rule).
+        confirmedAt:
+          type: [string, "null"]
+          format: date-time
+          description: Empty (`null`) while the account waits for confirmation.
 
     UserAccountList:
       type: object

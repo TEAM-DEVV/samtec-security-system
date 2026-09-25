@@ -167,6 +167,18 @@ model User {
   /// is refused, so an overheard code cannot be replayed.
   twoFactorLastUsedStep    BigInt?   @map("two_factor_last_used_step")
 
+  /// Phase 7: an ADMIN account made, promoted, reset or switched back on by one
+  /// administrator waits for a second to confirm it, and cannot be used until
+  /// then (docs/plan/06, "Two administrators"). All four are empty for every
+  /// other role (a database CHECK). A confirmer is never the requester and
+  /// never the account itself (another CHECK). Empty `adminConfirmedByUserId`
+  /// with a date means nobody else was needed: the company's only
+  /// administrator, the setup script, or an account older than the rule.
+  adminRequestedByUserId String?   @map("admin_requested_by_user_id") @db.Uuid
+  adminRequestedAt       DateTime? @map("admin_requested_at") @db.Timestamptz(3)
+  adminConfirmedByUserId String?   @map("admin_confirmed_by_user_id") @db.Uuid
+  adminConfirmedAt       DateTime? @map("admin_confirmed_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -174,6 +186,12 @@ model User {
   employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   sessions   UserSession[]
   challenges AuthChallenge[]
+  adminRequestedBy User?  @relation("AdminRequestedBy", fields: [adminRequestedByUserId], references: [id], onDelete: Restrict)
+  adminConfirmedBy User?  @relation("AdminConfirmedBy", fields: [adminConfirmedByUserId], references: [id], onDelete: Restrict)
+  adminsRequested  User[] @relation("AdminRequestedBy")
+  adminsConfirmed  User[] @relation("AdminConfirmedBy")
+  devicesKeyed     Device[] @relation("DeviceKeyIssuedBy")
+  devicesActivated Device[] @relation("DeviceActivatedBy")
 
   @@unique([companyId, email])
   @@map("users")
@@ -538,6 +556,19 @@ model Device {
   kind                  DeviceKind
   status                DeviceStatus @default(ACTIVE)
   secretEncrypted       String       @map("secret_encrypted")
+  /// Phase 7: a device key can post punches, so one person never issues one
+  /// and switches it on. Whoever registered the device or last rotated its
+  /// secret is recorded here, and somebody else must switch it on (a database
+  /// CHECK, and docs/plan/06, "Two administrators"). Empty on devices made
+  /// before the rule and by the seed, which any administrator may switch on.
+  keyIssuedByUserId     String?      @map("key_issued_by_user_id") @db.Uuid
+  /// Who switched it on. Empty when nobody else was needed: the company had
+  /// one administrator, or the device predates the rule.
+  activatedByUserId     String?      @map("activated_by_user_id") @db.Uuid
+  /// When it was switched on. Set whenever a device with a recorded issuer is
+  /// ACTIVE, so a write that flips the status without going through the rule is
+  /// refused by a database CHECK rather than quietly trusted.
+  activatedAt           DateTime?    @map("activated_at") @db.Timestamptz(3)
   lastSeenAt            DateTime?    @map("last_seen_at") @db.Timestamptz(3)
   /// The device clock minus the server clock at its last report (positive = fast).
   lastClockDriftSeconds Int?         @map("last_clock_drift_seconds")
@@ -556,6 +587,8 @@ model Device {
 
   company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
   site                      Site                       @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  keyIssuedBy               User?                      @relation("DeviceKeyIssuedBy", fields: [keyIssuedByUserId], references: [id], onDelete: Restrict)
+  activatedBy               User?                      @relation("DeviceActivatedBy", fields: [activatedByUserId], references: [id], onDelete: Restrict)
   punches                   PunchEvent[]
   consents                  BiometricConsent[]
   credentials               BiometricCredential[]

@@ -68,6 +68,7 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Transport | HTTPS only, with HSTS, on the hosted demo | Phase 8 |
 | Passwords | scrypt hashes (settings recorded per hash). 5 wrong passwords for one email lock it for 15 minutes with a `429`, whether or not the account exists, and a stand-in hash keeps the timing identical for unknown emails. The counter is one atomic SQL statement, so parallel guesses cannot slip past it, and the throttle table stores only keyed hashes (HMAC), never emails. | **Phase 1 (built)** |
 | Two-factor authentication | TOTP required for ADMIN and HR_PAYROLL, set up at first sign-in. Challenge and setup tokens expire (5 and 10 minutes), work once and belong to one account; 5 wrong codes cancel a challenge; an accepted code cannot be used again. Wrong codes are **also counted per account**, so signing in again never grants fresh guesses — a leaked password cannot brute-force the 6-digit code. Authenticator secrets are stored AES-256-GCM-encrypted. A lost authenticator is reset by another ADMIN with **reset sign-in**, which clears the password too, so someone holding a stolen password cannot simply ask for "a new phone". Refresh also refuses an ADMIN or HR_PAYROLL account without two-factor, so a promotion can never skip it. | **Phase 1 (built)** |
+| Two administrators | Creating, promoting, resetting or switching on an ADMIN account holds it (`AWAITING_CONFIRMATION`) until a different administrator confirms it; the service and a database CHECK both refuse the requester and the account itself. A device key is born switched off and its issuer may not switch it on, by the same pair of rules. See "Two administrators" below | **Phase 7 (built)** |
 | Accounts | Only ADMIN manages sign-in accounts. **Nobody ever sees another person's password:** a new or reset account gets a one-time link (72 hours, single use, stored as a SHA-256 hash, sent with `Cache-Control: no-store`) and the person chooses their own password (12–128 characters). An administrator can never change, switch off or reset their own account (only their name), and every change to an existing account first locks the administrator's and the target's rows and re-checks the administrator — so two admins switching each other off at the same instant can never leave the company with none. SUPERVISOR and GUARD accounts must be linked to an employee and office accounts never are (a database CHECK); terminating an employee switches their account off in the same transaction. Every account change is audited with field names only. The recovery path for a sole locked-out admin is `pnpm --filter @samtec/api account:admin`, which needs database access and is audited. | **Phase 1 (built)** |
 | Sessions | 15-minute access tokens kept in memory only. A 7-day refresh cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`) rotates on every use with an atomic claim, so even two simultaneous replays cannot both mint sessions; a reused refresh token revokes all of that user's sessions; the database stores only token hashes. `Origin` is checked on refresh and logout, the only two endpoints that act on the cookie alone. Phase 3 also checks it on the sign-in steps, to tell a dashboard sign-in from a kiosk sign-in (`CORS_ORIGINS`, `KIOSK_ORIGINS`). Revocation on logout. **The access-token guard also checks the account on every request** (one lookup by ID), so switching an account off, changing its role or employee link, or resetting its sign-in takes effect on the very next request rather than when the token expires. A session that was simply ended (sign-out, admin action) answers `401` without the stolen-token alarm; only a token that was already swapped for a newer one raises it. Accepted risk: after a *self-service* password change, another device's access token lives out its remaining minutes (at most 15), though it can no longer refresh. | **Phase 1 (built)** |
 | Object-level access | Every route needs a token unless marked public; roles checked per route; supervisors scoped to their sites, guards to themselves; hidden records answer 404. Proven by tests against a real database. | **Phase 1 (built)** |
@@ -75,7 +76,108 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Devices | A 32-byte secret per device, shown once and stored encrypted (AES-256-GCM, its own key derived from `AUTH_SECRET`). Every request is signed with HMAC-SHA256 over a version, the timestamp, the route name and the raw body; timestamps older or newer than 5 minutes are refused; every failure answers the same `401`. Rotating a secret kills the old one at once. Punches are append-only (database trigger), unique per device and event ID, and a changed resend is refused and audited | **Phase 2 (built)** |
 | Audit | Append-only audit log — a database trigger rejects every change and delete (built, recording sign-in events). Attendance exception resolutions are audited without their free-text note (built, Phase 2). Payroll approvals always audited | Phases 2–5 |
 | Biometric data | Templates only, AES-256-GCM at rest, key outside the database, deleted on termination according to the retention policy | Phase 3 |
-| Backups | Supabase daily backups plus a database dump before every payroll lock | Phase 4 |
+| Backups | **The hosted database has no backups**: it is on Supabase's free plan, where scheduled backups and point-in-time recovery are both paid. Ours is `pnpm --filter @samtec/api db:backup`, which needs no PostgreSQL tools, and a restore is rehearsed and measured in [Backup and restore](../guides/11-backup-and-restore.md) — against a local PostgreSQL 17, not yet end to end against the hosted one. Nothing takes a backup automatically yet; that guide says what it would cost to fix | **Phase 7 (restore rehearsed locally, scheduling owed)** |
+
+## Two administrators (Phase 7)
+
+Every biometric decision already takes two ADMIN accounts (Phase 3). That is
+only as strong as the guarantee that two accounts are two people. This closes
+the gap, and each decision below is settled — build to it.
+
+**1. Four changes put an ADMIN account on hold:** creating one, promoting an
+account to ADMIN, resetting an ADMIN's sign-in, and switching an ADMIN back
+on. Until a second administrator confirms it, the account cannot be used at
+all — sign-in, refresh and every request refuse it, password or no password.
+The contract shows it as `AWAITING_CONFIRMATION`.
+
+**2. Who may confirm:** any other usable ADMIN, through
+`POST /users/{id}/confirm-admin`, audited. Never the administrator who made
+the change, never the account itself. A database CHECK refuses both, whatever
+the service does, so a repair script cannot quietly undo the rule.
+
+**3. Changes that take power away need nobody else.** Demoting an ADMIN,
+switching one off, or editing a name happen at once, as before — otherwise a
+company could be stuck with an administrator it wants rid of.
+
+**4. The one shortcut: a company gaining its first second administrator.**
+While **no other administrator account exists**, *creating* or *promoting* an
+administrator is confirmed on the spot and audited as
+`adminConfirmation: SOLE_ADMINISTRATOR`. Without it a one-administrator
+company could never get its second one except through the rescue script.
+
+It asks whether another administrator **account** exists, not whether one
+could sign in today. That distinction is the rule: a brand-new administrator
+has no password yet, so counting only those who can sign in would have let
+one person create a second pre-confirmed account, then a third, and so on,
+with nobody else ever appearing.
+
+It **never** applies to an account that is already an administrator.
+Resetting one, or switching one back on, is exactly the move this rule
+exists to catch: in a company of two, the other administrator is the one
+being changed, so counting only the requester would wave through precisely
+the case where one person ends up holding both accounts. In a company of two
+those changes therefore wait for a third administrator who does not exist —
+the honest escape is `pnpm --filter @samtec/api account:admin`, which needs
+database access and is audited. A company with three administrators never
+meets this.
+
+**5. What is recorded:** who asked and when, who confirmed and when, on the
+account itself. An ADMIN made directly in the database (the seed, the rescue
+script) has no request recorded and does not wait — database access is a
+stronger check than a second login. Administrators that existed before this
+rule were recorded as confirmed when they were created, naming nobody.
+
+### Devices
+
+**6. Every new device key is born switched off.** Registering a device, or
+rotating its secret, always leaves the device `INACTIVE`. The key signs
+nothing until somebody switches the device on. This was already true of a
+kiosk setting itself up (Phase 3); now it is true of every device, however it
+was made.
+
+**7. Somebody else switches it on.** Setting a device to `ACTIVE` is
+refused to the administrator who registered it or last rotated its key
+(`devices.key_issued_by_user_id`). The second administrator is the one who
+checks that the device is really on the wall at that site — that check is the
+point, not the click. A database CHECK refuses an activator who is the
+issuer, the same shape as payroll's maker-is-not-checker rule.
+
+Switching a device **off** stays open to any administrator, at once: it only
+ever takes power away. It also forgets who switched it on, so going back on
+has to be answered for again.
+
+**8. The same exception as rule 4:** a company with one administrator may
+switch on a device they issued, audited as `SOLE_ADMINISTRATOR`, because
+there is nobody to ask. Devices made before this rule, and by the seed, have
+no issuer recorded, so any administrator may switch them on.
+
+**What it still does not stop, stated plainly.** A company with genuinely one
+administrator has nobody to ask, so that person can give themselves a second
+account. No rule can change that while only one person exists. What is
+bounded is the rest: the shortcut fires only while no other administrator
+account exists, so it cannot be used twice in a row, and every use is audited
+as `SOLE_ADMINISTRATOR`. A determined sole administrator could still
+switch off the account they just made and repeat, and each of those steps is
+in the audit log under their name.
+
+**No rule watches this, and that was decided rather than overlooked.**
+Ghost detection's R11 flags a two-person *biometric* decision made by
+somebody with a hand in it. Feeding it these four columns — "the decider's
+own account was made by the person who handled this worker" — was built and
+then **rejected**, because in a company with two administrators it describes
+the required flow rather than a fraud: the second administrator's account is
+necessarily made by the first, and the direct rule already forces that second
+administrator to be the one who decides. Every honest decision would have
+raised a permanent alert, which is how a queue becomes wallpaper. Narrowing
+it to accounts made under the sole-administrator shortcut does not help: in a
+two-administrator company that is exactly how the second account was made.
+
+The available data cannot tell one person with two accounts from two people
+who made each other's accounts. So this risk is watched by **reading the
+audit log** — every use of the shortcut is recorded as
+`SOLE_ADMINISTRATOR` under the name of whoever used it — and a third
+administrator removes it entirely, because then somebody unconnected can
+confirm. A company that can manage three administrators should have three.
 
 ## Law: Ghana Data Protection Act, 2012 (Act 843)
 
@@ -93,19 +195,24 @@ This section belongs in Samuel's report and in the client presentation.
 |---|---|---|
 | Buddy punching: a friend clocks in for an absent guard | Guard | Biometric-only clock-in; PIN fallback flagged and co-signed by a supervisor |
 | Editing payroll after approval | HR user | Locked runs, maker–checker, audit log, database trigger |
-| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); each signed route accepts only some device kinds, so a kiosk key never posts raw punches (built, Phase 3); volume anomaly detection (Phase 5); registering a device or rotating its secret needs a second ADMIN (Phase 7) |
+| A fake device sending punches | Outsider or insider | Per-device HMAC secret and device registry, clock-drift measurement (built, Phase 2); each signed route accepts only some device kinds, so a kiosk key never posts raw punches (built, Phase 3); volume anomaly detection (built, Phase 5); **a new or rotated key is born switched off and its issuer may not switch it on** — the second administrator checks the device is really at the site, refused by the service and by a database CHECK (built, Phase 7) |
 | Stealing biometric templates | Outsider | Encryption at rest, bound to each row; no images stored; templates never leave the server or reach a log. Face templates can be turned back into a rough face, so they are treated as sensitive data (Phase 3) |
 | Replaying captured punches | Network attacker | Idempotency key and payload hash, plus a signed timestamp that expires after 5 minutes (built, Phase 2) |
 | Holding a photo up to the face kiosk | Guard | Anti-spoofing and liveness scores, checked on the kiosk and again on the server, plus a random head-turn challenge; documented as a version 1 limitation, because a replayed video or a mask can still pass (Phase 3) |
 | A stolen kiosk, or a copied kiosk key | Outsider or insider | The key works only on `/kiosk` routes, never for raw punches; enrollment also needs an ADMIN's token with two-factor, and a kiosk sign-in gets no refresh cookie and a kiosk-only token; attempts record their network address for Phase 5; the ADMIN rotates the secret. **Accepted for version 1:** the kiosk measures its own face scores, so a copied key can clock in a worker who has no fingerprint key on that kiosk, and make flagged co-signed punches for anyone posted to that site (Phase 3) |
 | One insider activating a ghost without a face | Insider (ADMIN) | Every exemption takes two ADMIN accounts (a withdrawal, recorded by an ADMIN, only files one), and every collision decision needs a second ADMIN who did not act on the worker; hours of a worker waiting for that decision are paid only after it; one open question at a time; a revoke cannot wipe away an open review; withdrawing never activates anyone; a record blocked as a duplicate can only be terminated; rule R11 flags decisions with indirect links (Phases 3 and 5) |
-| One person using two ADMIN accounts | Insider (ADMIN) | Audited user changes; rule R11 flags decisions by an account a handler created or reset. **Accepted until Phase 7**, when creating or resetting an ADMIN account needs a second ADMIN |
+| One person using two ADMIN accounts | Insider (ADMIN) | Creating, promoting, resetting or switching on an ADMIN account leaves it unusable until a **second** administrator confirms it, refused to the requester and the account itself by the service and by a database CHECK; a waiting account keeps the name of whoever put it there, so an innocent "please resend their link" cannot hand the confirmation to somebody new ("Two administrators", built, Phase 7); audited user changes. What remains: a company with genuinely one administrator, audited as `SOLE_ADMINISTRATOR` — the rule cannot ask for a second person who does not exist. Teaching **R11 an extra clause** that read these columns was tried and then **rejected**: in a two-administrator company the second account is necessarily made by the first, so the clause flagged the very flow the direct rule forces. R11 itself is built and runs on every sweep ([Ghost detection engine](08-ghost-detection-engine.md) §9) |
 | Probing the face matcher to learn who is enrolled | Insider | Answers never contain a score; every attempt is recorded; per-device rate limit (Phase 3) |
 | A malicious package version | Supply chain | 1-day release age rule, install-script approval, lockfile, `pnpm audit`, code owner review of dependency changes |
 | Stealing a refresh token | Outsider | `HttpOnly` cookie, rotation with reuse detection, `SameSite=Strict`, `Origin` check |
 | Guessing passwords or two-factor codes | Outsider | scrypt, per-email lockout with atomic counting, per-account two-factor lockout across fresh challenges, answers that never reveal whether an email has an account |
 | Reading tables directly through Supabase | Outsider | Data API switched off, row-level security, no privileges for the Data API roles |
 | Personal data leaking into logs | Insider or outsider with log access | Logging rules in `ProblemDetailsFilter` and `PrismaService`, tested in CI |
+| A ghost kept on the payroll | Insider (ADMIN or HR) | All eleven detection rules run on a sweep and look for the shapes a ghost makes: never seen (R5), paid more hours than the shifts support (R3), punches or pay after the leaving date (R6), one worker at two sites at once (R4), and the rest. A sweep runs once a day on its own (below) instead of waiting for somebody to press a button. R11 is the one exception to how they are used: it asks who settled a two-person decision, so its alerts are shown but never weigh on a worker's risk score (built, Phases 5 to 7). **Open:** R3 is meant to be two controls, not one — the sweep alert, and payroll refusing a run that pays beyond presence from its own copy of the shared comparison. Only the alert exists. Payroll has no run endpoints yet (Phase 4), so today one control is doing the work of two |
+| Losing the database | Accident, a mistaken delete, or an outsider with database access | `db:backup` reads every table at one instant and writes one file; `db:restore` puts it back, and refuses a file that was cut short, a database that is not empty, and a different migration. Rehearsed end to end and written up with its numbers in [Backup and restore](../guides/11-backup-and-restore.md). **Open, and the honest position:** the hosted database is on Supabase's free plan, which has no scheduled backups and no point-in-time recovery, and nothing takes ours automatically yet — so today the loss is however old the last hand-made backup is |
+| A stolen backup file | Whoever gets hold of the file | A backup is the whole company in one file: names, Ghana Card numbers, pay, bank details and the encrypted biometric templates. The templates stay encrypted in it, the rest does not. The script refuses to write anywhere inside the repository, so no careless `git add` can publish one, and it writes outside the project by default. **Accepted for version 1:** the file is not itself encrypted — it is treated like printed payslips, and where it is kept is a person's responsibility |
+| Calling the daily sweep from outside | Anybody on the internet | The sweep route is deliberately open, because a shared secret in the hosting dashboard would protect nothing it could not already reach. What bounds it instead is the work: a company is swept at most once every 20 hours, the bookmark is rolled back if a company fails so nothing is skipped, and an instance that has just found nothing due answers from memory for a minute. So calling it a thousand times does a thousand cheap reads and no more work than calling it once ([Ghost detection engine](08-ghost-detection-engine.md)) |
+| Reading or changing the deployment's secrets | Whoever can sign in to Vercel or Supabase | Those dashboards are the real keys to the system: the database password and `AUTH_SECRET` live there, and anyone who can edit them can read everything. The account sign-in and its two-factor are therefore part of the system's security, not outside it. TEST and production never share an `AUTH_SECRET` or a database (Phase 8), so a leak of one does not open the other |
 
 ## Phase exit gate (for every roadmap phase)
 

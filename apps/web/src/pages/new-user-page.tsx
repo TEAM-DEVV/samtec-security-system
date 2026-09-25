@@ -6,9 +6,11 @@ import { Link } from 'react-router';
 import { routes } from '@/app/routes';
 import { PageHeader } from '@/components/page-header';
 import { PasswordLinkPanel } from '@/components/password-link-panel';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { UserAccountForm, type UserAccountValues } from '@/components/user-account-form';
+import { userStatusDescriptions } from '@/components/user-status-badge';
 import { $api } from '@/lib/api';
 import { usePageTitle } from '@/lib/page-title';
 import { roleLabels } from '@/lib/roles';
@@ -66,6 +68,15 @@ export function NewUserPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
+              {created.user.status === 'AWAITING_CONFIRMATION' ? (
+                <Alert>
+                  <AlertTitle>The link is not enough on its own</AlertTitle>
+                  <AlertDescription>
+                    {userStatusDescriptions.AWAITING_CONFIRMATION} Open the account and use “Confirm
+                    this administrator” — and it cannot be you.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <PasswordLinkPanel passwordSetup={created.passwordSetup} email={created.user.email} />
               <div className="flex flex-wrap gap-2">
                 <Button asChild>

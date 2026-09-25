@@ -69,8 +69,9 @@ on the line it is judging: it counts the confirmed shifts again from the
 attendance tables, which is the only way it can see a line that was edited or
 a shift that was voided after the money went out. The comparison itself is
 [`paidBeyondPresence`](../../common/paid-beyond-presence.ts), in `common` and
-not here, so payroll can refuse a run at submission with the same arithmetic
-without importing detection.
+not here, so payroll will be able to refuse a run at submission with the same
+arithmetic without importing detection. **That half is not built:** payroll
+has no run endpoints yet, so this sweep is R3's only control today.
 
 R11 reads two ways at once, so it is worth being plain about both.
 

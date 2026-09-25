@@ -8,6 +8,8 @@
  * fast no matter how deep the caller pages.
  */
 
+import { BadRequestException } from '@nestjs/common';
+
 const MAX_CURSOR_LENGTH = 200;
 
 /** Turns the last row's sort value into the cursor for the next page. */
@@ -34,6 +36,41 @@ export function decodeCursor(cursor: string): string | undefined {
     return undefined;
   }
   return decoded;
+}
+
+/** The shape every id in this database has: a UUID, written out in full. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True for a full UUID, and false for anything else — including free text. */
+export function isUuid(value: string): boolean {
+  return UUID.test(value);
+}
+
+/**
+ * The id a cursor points at, for every list sorted by id, or `undefined` when
+ * there is no cursor.
+ *
+ * `decodeCursor` only proves a value is one of our base64 cursors, never that
+ * what came out of it means anything: `aGVsbG8` decodes cleanly to `hello`,
+ * which then reaches a uuid column, and Prisma refuses it with an error that
+ * carries no HTTP status — so the caller got a 500 for what was plainly a bad
+ * request. Checking the shape here is what turns that back into a 400 naming
+ * the field. Payroll's lists page by a calendar date instead and keep their
+ * own check in `payroll-cursor.ts`.
+ */
+export function uuidCursor(cursor: string | undefined): string | undefined {
+  if (cursor === undefined) {
+    return undefined;
+  }
+  const value = decodeCursor(cursor);
+  if (value === undefined || !isUuid(value)) {
+    throw new BadRequestException({
+      message: [
+        { path: ['cursor'], message: 'The cursor is not valid. Start again from the first page.' },
+      ],
+    });
+  }
+  return value;
 }
 
 /**

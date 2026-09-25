@@ -112,8 +112,9 @@ payroll touches the tables. It sits in
 services, exported and otherwise left alone.
 
 **Submitting a run must refuse one that pays for hours nobody worked**
-(rule R3, docs/plan/08 §1). Payroll does that itself, from its own data, with
-the shared function in
+(rule R3, docs/plan/08 §1). This is owed, not built: a run can be calculated
+and read back, but the submit endpoint is still to come. When it lands,
+payroll does this itself, from its own data, with the shared function in
 [`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts):
 
 ```ts

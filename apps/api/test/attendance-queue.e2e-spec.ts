@@ -43,8 +43,8 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
     company = await createAttendanceCompany(prisma);
     app = await createDbTestApp(databaseUrl as string);
     tokens = await tokensFor(app, company);
-    gateA = await registerDevice(app, tokens.admin, company.siteA, 'Queue gate A');
-    gateB = await registerDevice(app, tokens.admin, company.siteB, 'Queue gate B');
+    gateA = await registerDevice(app, company, company.siteA, 'Queue gate A');
+    gateB = await registerDevice(app, company, company.siteB, 'Queue gate B');
 
     const punch = (ref: string, deviceTime: string, direction: 'IN' | 'OUT') => {
       events += 1;
@@ -178,6 +178,22 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
       expect(second.body.items[0].id).not.toBe(first.body.items[0].id);
       expect(second.body.items[0].occurredAt <= first.body.items[0].occurredAt).toBe(true);
       await get(tokens.admin, '/attendance/exceptions', { cursor: 'nonsense!' }).expect(400);
+    });
+
+    it('filters by every type the contract has, including the sixth', async () => {
+      // UNEXPECTED_DEVICE_ENROLLMENT was missing from the filter, so the one
+      // choice that isolates a terminal enrolling fingers nobody asked for
+      // answered 400 — on the real API and in the mock alike.
+      for (const type of [
+        'MISSING_CLOCK_OUT',
+        'MISSING_CLOCK_IN',
+        'UNKNOWN_EMPLOYEE',
+        'INACTIVE_EMPLOYEE',
+        'OVERLAP',
+        'UNEXPECTED_DEVICE_ENROLLMENT',
+      ]) {
+        await get(tokens.admin, '/attendance/exceptions', { type }).expect(200);
+      }
     });
 
     it('refuses the queue to a guard', async () => {
