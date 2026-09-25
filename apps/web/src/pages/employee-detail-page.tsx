@@ -1,5 +1,5 @@
 import type { Employee } from '@samtec/contracts';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Pencil, UserMinus } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { routes } from '@/app/routes';
 import { BiometricsPanel } from '@/components/biometrics-panel';
@@ -8,6 +8,7 @@ import { EmployeeStatusBadge } from '@/components/employee-status-badge';
 import { LoadErrorAlert } from '@/components/load-error-alert';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
@@ -96,7 +97,10 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
             </p>
           </div>
         </div>
-        <EmployeeStatusBadge status={employee.status} />
+        <div className="flex flex-wrap items-center gap-3">
+          <EmployeeStatusBadge status={employee.status} />
+          <RecordActions employee={employee} />
+        </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -173,6 +177,37 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
         {formatDateTime(employee.updatedAt)} (Ghana time).
       </p>
     </>
+  );
+}
+
+/**
+ * Edit and "End employment", for the roles that may change a record.
+ *
+ * Neither is offered once somebody has left: their record is history from that
+ * point on, and the API refuses both. Showing a button that can only fail
+ * teaches people to ignore buttons.
+ */
+function RecordActions({ employee }: { employee: Employee }) {
+  const session = useSession();
+  const mayChange = session !== null && roleAllowed(pageRoles.employeeChanges, session.user.role);
+  if (!mayChange || employee.status === 'TERMINATED') {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button asChild variant="outline" size="sm">
+        <Link to={routes.editEmployee(employee.id)}>
+          <Pencil aria-hidden="true" />
+          Edit
+        </Link>
+      </Button>
+      <Button asChild variant="outline" size="sm">
+        <Link to={routes.terminateEmployee(employee.id)}>
+          <UserMinus aria-hidden="true" />
+          End employment
+        </Link>
+      </Button>
+    </div>
   );
 }
 

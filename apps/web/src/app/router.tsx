@@ -12,6 +12,7 @@ import { DetectionRulesPage } from '@/pages/detection-rules-page';
 import { DeviceDetailPage } from '@/pages/device-detail-page';
 import { DevicesPage } from '@/pages/devices-page';
 import { DuplicateFacesPage } from '@/pages/duplicate-faces-page';
+import { EditEmployeePage } from '@/pages/edit-employee-page';
 import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { ExceptionDetailPage } from '@/pages/exception-detail-page';
@@ -22,6 +23,7 @@ import { LoginPage } from '@/pages/login-page';
 import { MyAttendancePage } from '@/pages/my-attendance-page';
 import { MyPayslipsPage } from '@/pages/my-payslips-page';
 import { NewDevicePage } from '@/pages/new-device-page';
+import { NewEmployeePage } from '@/pages/new-employee-page';
 import { NewUserPage } from '@/pages/new-user-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
@@ -32,6 +34,7 @@ import { RouteErrorPage } from '@/pages/route-error-page';
 import { SetPasswordPage } from '@/pages/set-password-page';
 import { SitesPage } from '@/pages/sites-page';
 import { SystemStatusPage } from '@/pages/system-status-page';
+import { TerminateEmployeePage } from '@/pages/terminate-employee-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
 import { TwoFactorVerifyPage } from '@/pages/two-factor-verify-page';
 import { UserDetailPage } from '@/pages/user-detail-page';
@@ -87,10 +90,35 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        // Before `employees/:employeeId`, so "new" is never read as an ID.
+        path: 'employees/new',
+        element: (
+          <RequireRole roles={pageRoles.employeeChanges}>
+            <NewEmployeePage />
+          </RequireRole>
+        ),
+      },
+      {
         // No RequireRole: any signed-in user may ask, and the API decides
         // record by record (a guard sees only their own).
         path: 'employees/:employeeId',
         element: <EmployeeDetailPage />,
+      },
+      {
+        path: 'employees/:employeeId/edit',
+        element: (
+          <RequireRole roles={pageRoles.employeeChanges}>
+            <EditEmployeePage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'employees/:employeeId/terminate',
+        element: (
+          <RequireRole roles={pageRoles.employeeChanges}>
+            <TerminateEmployeePage />
+          </RequireRole>
+        ),
       },
       {
         path: 'users',

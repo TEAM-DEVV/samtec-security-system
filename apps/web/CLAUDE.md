@@ -31,7 +31,7 @@ Each task ended with a working demo in mock mode, a test, and a pull request. Ke
 
 12. **Phase 5 ghost detection** (`src/lib/detection.ts` holds every label, the question each rule asks, and the plain words for every threshold and piece of evidence): the alert queue (`detection-page.tsx`, open ones first, with the "Highest risk" panel from `GET /detection/risk-scores` and, for an ADMIN, the "Run the rules now" button), one alert (`detection-alert-page.tsx`; the evidence is whatever the rule cited, shown in plain words, and the decision form closes it as resolved or confirmed fraud with a note that is audited), and the rules (`detection-rules-page.tsx`; an ADMIN switches a rule off or moves its numbers, HR reads them). A supervisor never sees any of it: they are themselves a subject of rule R7.
 
-What Samuel picks up next is in `docs/plan/14-work-split.md`: the kiosk app (`apps/kiosk`, a separate Vite app with plain CSS), then the fake ZKTeco terminal and the gateway (`apps/gateway`). On the dashboard itself, Phase 1's employee create/edit/terminate forms are still open (the API endpoints are merged; `openapi.yaml` has the request shapes), and Phases 4 and 5 add their screens once each contract lands.
+What Samuel picks up next is in `docs/plan/14-work-split.md`: the kiosk app (`apps/kiosk`, a separate Vite app with plain CSS), then the fake ZKTeco terminal and the gateway (`apps/gateway`). Phase 1's employee forms are now done (`new-employee-page.tsx`, `edit-employee-page.tsx`, `terminate-employee-page.tsx`, sharing `components/employee-form.tsx` and `components/posting-fields.tsx`), so every dashboard screen in Phases 1 to 6 is built.
 
 ## Traps to avoid
 
