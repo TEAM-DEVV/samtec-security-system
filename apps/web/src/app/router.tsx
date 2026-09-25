@@ -27,6 +27,7 @@ import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { PayrollPage } from '@/pages/payroll-page';
 import { PayrollRunPage } from '@/pages/payroll-run-page';
+import { ReportsPage } from '@/pages/reports-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SetPasswordPage } from '@/pages/set-password-page';
 import { SitesPage } from '@/pages/sites-page';
@@ -211,6 +212,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.payslips}>
             <MyPayslipsPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'reports',
+        element: (
+          <RequireRole roles={pageRoles.reports}>
+            <ReportsPage />
           </RequireRole>
         ),
       },

@@ -27,7 +27,6 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import {
-  type Attempt,
   collectScores,
   countDuplicates,
   countVerdicts,
@@ -109,8 +108,8 @@ function printSpread(): void {
   printSummary('same person', summarise(spread.samePerson));
   printSummary('other people', summarise(spread.differentPerson));
   console.log();
-  console.log('  same person      ' + histogram(spread.samePerson));
-  console.log('  other people     ' + histogram(spread.differentPerson));
+  console.log(`  same person      ${histogram(spread.samePerson)}`);
+  console.log(`  other people     ${histogram(spread.differentPerson)}`);
   console.log('                   0.0      0.2      0.4      0.6      0.8      1.0');
   console.log();
 }

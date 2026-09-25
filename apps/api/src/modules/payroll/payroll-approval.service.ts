@@ -40,7 +40,8 @@ import type {
   SubmitRunBody,
 } from './payroll.schemas.js';
 import { buildPayslipPdf } from './payslip-pdf.js';
-import { toApiRun } from './run-mapping.js';
+import { exclusionsOf, toApiRun } from './run-mapping.js';
+import { buildRunSummaryPdf, runSummaryFileName } from './run-summary-pdf.js';
 
 @Injectable()
 export class PayrollApprovalService {
@@ -239,6 +240,52 @@ export class PayrollApprovalService {
     });
 
     return { csv, fileName: `payroll-run-${runId}.csv` };
+  }
+
+  /**
+   * A one-page summary of the run, for filing.
+   *
+   * It names no individual's pay, so unlike the bank file it can be shared
+   * without handling anybody's salary — and unlike a payslip, it is built when
+   * it is asked for rather than frozen, because it is a picture of the run
+   * rather than evidence given to a worker.
+   */
+  async summaryPdf(
+    viewer: SignedInUser,
+    runId: string,
+  ): Promise<{ bytes: Uint8Array; fileName: string }> {
+    const run = await this.byId(viewer, runId);
+    const lines = await this.prisma.payrollLine.findMany({
+      where: { companyId: viewer.companyId, runId },
+    });
+    const sum = (pick: (line: (typeof lines)[number]) => number) =>
+      lines.reduce((total, line) => total + pick(line), 0);
+
+    const built = buildRunSummaryPdf({
+      periodStartDate: toIsoDate(run.period.startsOn),
+      periodEndDate: toIsoDate(run.period.endsOn),
+      status: run.status,
+      employeeCount: new Set(lines.map((line) => line.employeeId)).size,
+      lineCount: lines.length,
+      grossPesewas: sum((line) => line.grossPesewas),
+      ssnitEmployeePesewas: sum((line) => line.ssnitEmployeePesewas),
+      payePesewas: sum((line) => line.payePesewas),
+      otherDeductionsPesewas: sum((line) => line.otherDeductionsPesewas),
+      netPayPesewas: sum((line) => line.netPayPesewas),
+      ssnitEmployerPesewas: sum((line) => line.ssnitEmployerPesewas),
+      ssnitEmployeeBasisPoints: run.taxTable.ssnitEmployeeBasisPoints,
+      ssnitEmployerBasisPoints: run.taxTable.ssnitEmployerBasisPoints,
+      taxYear: run.taxTable.taxYear,
+      approvedAt: run.approvedAt?.toISOString() ?? null,
+      paidOn: run.paidOn === null ? null : toIsoDate(run.paidOn),
+      excluded: exclusionsOf(run.excludedEmployees).map((left) => ({
+        staffNumber: left.employee.staffNumber,
+        fullName: left.employee.fullName,
+        reason: left.reason === 'SUSPENDED' ? 'suspended' : 'no pay terms on file',
+      })),
+    });
+
+    return { bytes: built.bytes, fileName: runSummaryFileName(toIsoDate(run.period.endsOn)) };
   }
 
   // ---------------------------------------------------------------------------

@@ -212,6 +212,21 @@ export class PayrollController {
     });
   }
 
+  /** A one-page summary for filing. It names nobody's pay. */
+  @Get('runs/:runId/summary.pdf')
+  async runSummaryPdf(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.approval.summaryPdf(caller, runId);
+    response.setHeader('Cache-Control', 'no-store');
+    return new StreamableFile(Buffer.from(file.bytes), {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${file.fileName}"`,
+    });
+  }
+
   @Get('tax-tables')
   @Roles('ADMIN')
   listTaxTables(

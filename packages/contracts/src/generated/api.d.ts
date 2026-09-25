@@ -2050,6 +2050,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reports/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The key figures for the dashboard
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. A GUARD sees only their own payslips and never a company figure (`403`).
+         *     Three questions a manager asks every morning: how many people are at work right now, how much of the expected attendance was actually worked over the last thirty days, and what payroll has cost month by month.
+         *     A supervisor sees the whole company's figures, the same as the attendance board they already read. Nothing here names a person, so there is nothing to scope narrower.
+         *     Every figure is counted from the same tables the screens read, so a report can never disagree with the page beside it.
+         */
+        get: operations["getReportsOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/attendance.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Worked shifts over a date range, as a CSV
+         * @description **Roles:** ADMIN, HR_PAYROLL, SUPERVISOR. A GUARD may never download a company report (`403`).
+         *     One row per confirmed shift: the worker, the date, the site, the minutes worked and how they clocked in. At most 92 days at a time, so one request can never ask for a decade.
+         *     Every cell is quoted, and a cell that a spreadsheet would read as a formula is prefixed with an apostrophe — the same rule as the payroll bank file, for the same reason.
+         */
+        get: operations["downloadAttendanceReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/payroll-cost.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What payroll cost each month, as a CSV
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll figures (`403`), and neither does a GUARD.
+         *     One row per month that has an approved run, with the gross, the deductions, the net paid, and what the company owed the state on top. Only approved runs count: a draft is not a cost, it is a proposal.
+         */
+        get: operations["downloadPayrollCostReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/summary.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A one-page summary of a payroll run, as a PDF
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR and a GUARD may never read a run (`403`).
+         *     The page a payroll officer prints and files: the month, the totals, what was owed to SSNIT and to the GRA at the rates the run used, how many people were paid, and who was left out. It names no individual's pay — that is what a payslip is for — so it can be filed and shared without handling anybody's salary.
+         *     Built when it is asked for, from the run's frozen figures, so it is the same page every time.
+         */
+        get: operations["downloadPayrollRunSummaryPdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3460,6 +3551,51 @@ export interface components {
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
         };
+        /** @description The three figures the dashboard shows, each with enough beside it to be understood without asking what it means. */
+        ReportsOverview: {
+            present: components["schemas"]["PresentNow"];
+            absence: components["schemas"]["AbsenceRate"];
+            /** @description Newest month first, at most the last twelve that have an approved run. Empty until a run has been approved. */
+            payrollCost: components["schemas"]["PayrollCostMonth"][];
+            /** Format: date-time */
+            generatedAt: string;
+        };
+        /** @description Who is at work at this moment: a worker with a confirmed shift today that has begun and has not ended. */
+        PresentNow: {
+            /** @description How many people are on a shift right now. */
+            onShift: number;
+            /** @description How many `ACTIVE` workers the company has, so `onShift` can be read as a share rather than a bare number. */
+            activeEmployees: number;
+            /** Format: date-time */
+            asOf: string;
+        };
+        /** @description How much of the expected attendance was actually worked, over the days named. Expected minutes come from each worker's shift pattern, so a company with no patterns assigned has nothing to compare against and `basisPoints` is then `null` rather than a misleading zero. */
+        AbsenceRate: {
+            /** Format: date */
+            fromDate: string;
+            /** Format: date */
+            toDate: string;
+            scheduledMinutes: number;
+            workedMinutes: number;
+            /** @description The share of expected minutes **not** worked, in hundredths of a percent: 250 is 2.5% absence. `null` when nothing was scheduled, so a screen can say "nothing to compare" instead of "no absence". */
+            basisPoints: number | null;
+        };
+        /** @description What one month's approved payroll cost. Only an approved run counts: a draft is a proposal, not a cost. */
+        PayrollCostMonth: {
+            /** Format: uuid */
+            periodId: string;
+            year: number;
+            month: number;
+            /** Format: uuid */
+            runId: string;
+            employeeCount: number;
+            grossPesewas: number;
+            netPayPesewas: number;
+            /** @description The company's own SSNIT share, which is a cost on top of gross. */
+            employerSsnitPesewas: number;
+            /** @description Everything owed to the state for the month: both SSNIT shares and the income tax deducted. */
+            statutoryPesewas: number;
+        };
         /**
          * @description Where a payroll month is in its life. There are only two values, and it
          *     never moves backwards.
@@ -4654,6 +4790,10 @@ export type PunchFeedItem = components['schemas']['PunchFeedItem'];
 export type PunchFeedList = components['schemas']['PunchFeedList'];
 export type ClockInAttempt = components['schemas']['ClockInAttempt'];
 export type ClockInAttemptList = components['schemas']['ClockInAttemptList'];
+export type ReportsOverview = components['schemas']['ReportsOverview'];
+export type PresentNow = components['schemas']['PresentNow'];
+export type AbsenceRate = components['schemas']['AbsenceRate'];
+export type PayrollCostMonth = components['schemas']['PayrollCostMonth'];
 export type PayrollPeriodStatus = components['schemas']['PayrollPeriodStatus'];
 export type PayrollPeriod = components['schemas']['PayrollPeriod'];
 export type PayrollPeriodList = components['schemas']['PayrollPeriodList'];
@@ -7761,6 +7901,117 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getReportsOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures, as of now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportsOverview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    downloadAttendanceReport: {
+        parameters: {
+            query: {
+                /** @description The first day to include. */
+                from: string;
+                /** @description The last day to include. At most 92 days after `from`. */
+                to: string;
+                /** @description Only shifts at this site. */
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `attendance-<from>-to-<to>.csv`. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadPayrollCostReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `payroll-cost.csv`. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    downloadPayrollRunSummaryPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The summary. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `payroll-summary-<YYYY-MM>.pdf`. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

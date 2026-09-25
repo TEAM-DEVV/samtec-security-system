@@ -34,6 +34,20 @@ const RATES = {
   sourceCheckedOn: new Date('2026-01-05T00:00:00Z'),
 };
 
+/**
+ * Fictional payment details for the fixture's workers.
+ *
+ * The audit test below needs a real account number to look for. Without one it
+ * could only search for "any long run of digits", and a `uuid(7)` sometimes
+ * happens to contain one — which made the test fail at random.
+ */
+const PAY_TO = {
+  bankName: 'Fictional Bank of Accra',
+  accountName: 'A Paid Worker',
+  accountNumber: '9876500011',
+  momoNumber: '+233209876500',
+};
+
 const BANDS = [
   { ordinal: 1, widthPesewas: 49_000, rateBasisPoints: 0 },
   { ordinal: 2, widthPesewas: 10_000, rateBasisPoints: 500 },
@@ -85,6 +99,16 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         basicMonthlyPesewas,
         overtimeHourlyPesewas: 0,
         createdByUserId: company.adminUserId,
+      },
+    });
+    await prisma.employeePaymentDetails.create({
+      data: {
+        companyId: company.companyId,
+        employeeId: created.id,
+        ...PAY_TO,
+        // A unique number per worker, so nothing collides.
+        accountNumber: `${PAY_TO.accountNumber.slice(0, -3)}${n}`,
+        updatedByUserId: company.adminUserId,
       },
     });
     return { id: created.id, staffNumber: created.staffNumber };
@@ -585,7 +609,22 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
       expect(entries.length).toBeGreaterThan(0);
       const written = JSON.stringify(entries);
       expect(written).toMatch(/rowCount/);
-      expect(written).not.toMatch(/\d{10}/);
+
+      // The worker's own account and MoMo number went into the file. Neither
+      // may appear in the log, nor may any leading part long enough to narrow
+      // it down (decision 25: an account number is short and structured, so a
+      // hash of it is the number).
+      for (const workerN of ['001', '002']) {
+        expect(written).not.toContain(`${PAY_TO.accountNumber.slice(0, -3)}${workerN}`);
+      }
+      expect(written).not.toContain(PAY_TO.accountNumber.slice(0, 7));
+      expect(written).not.toContain(PAY_TO.momoNumber);
+      expect(written).not.toContain(PAY_TO.accountName);
+
+      // Only these two keys, so a later change cannot quietly widen it.
+      for (const entry of entries) {
+        expect(Object.keys(entry.detail as object).sort()).toEqual(['periodId', 'rowCount']);
+      }
     });
 
     it('refuses a supervisor and a guard, who must never see account numbers', async () => {

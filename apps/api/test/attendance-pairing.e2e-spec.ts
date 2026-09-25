@@ -40,7 +40,7 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
     prisma = openFixtureDb(databaseUrl as string);
     company = await createAttendanceCompany(prisma);
     app = await createDbTestApp(databaseUrl as string);
-    const adminToken = await app.get(TokensService).signAccessToken({
+    await app.get(TokensService).signAccessToken({
       userId: company.adminUserId,
       companyId: company.companyId,
       role: 'ADMIN',

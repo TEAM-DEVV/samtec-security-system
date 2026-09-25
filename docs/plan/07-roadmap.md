@@ -117,8 +117,8 @@ rules read payroll data.
 Reports, the payslip downloads and the guard's own payslip: **Samuel**. The
 final visual pass: **Francis**.
 
-- Live attendance board and key figures: headcount present, absence rate, payroll cost trend
-- CSV and PDF reports; guards can view their own payslips
+- [x] Live attendance board (built in Phase 3) and the key figures beside it: how many people are at work now, how much absence over the last thirty days, and what payroll has cost month by month (`reports-page.tsx`, `GET /reports/overview`)
+- [x] CSV reports for attendance and payroll cost, a one-page payroll summary PDF for filing, and a worker’s own payslips with the PDF download
 - **Final visual pass (Francis) — the last build step of the whole project.** The design foundation (heading font, motion, boot screen, sign-in stage, shell) is in place since Phase 1; once every feature works end to end, biometrics included, one pass checks every screen built since against it. After it, only fixes.
 - **Exit demo:** a full dry run of the 15-minute client walkthrough
 

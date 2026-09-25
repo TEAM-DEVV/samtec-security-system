@@ -84,7 +84,7 @@ describe.skipIf(!databaseUrl)('the simulator against the real API (e2e)', () => 
     prisma = openFixtureDb(databaseUrl as string);
     company = await createAttendanceCompany(prisma);
     app = await createDbTestApp(databaseUrl as string);
-    const tokens = await tokensFor(app, company);
+    await tokensFor(app, company);
     const registered = await registerDevice(app, company, company.siteA, 'Simulated gate');
     device = { apiUrl: `${await app.getUrl()}/api/v1`, ...registered };
   }, 120_000);

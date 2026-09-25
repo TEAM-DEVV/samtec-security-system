@@ -41,6 +41,8 @@ export const routes = {
   payrollRun: (runId: string) => `/payroll/runs/${encodeURIComponent(runId)}`,
   /** A guard's own payslips. The one payroll page a guard may open. */
   myPayslips: '/payroll/payslips/me',
+  /** The figures and the CSV downloads (Phase 6). */
+  reports: '/reports',
   /** The ghost-detection queue (Phase 5): ADMIN and HR_PAYROLL. */
   detection: '/detection',
   /** One alert, with its evidence and the way to answer it. */
