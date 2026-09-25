@@ -111,14 +111,74 @@ restore is one long transaction on one connection.
 since the last backup, and nothing else. **What it does not prove:** that
 anybody is taking backups. Nothing schedules this yet — see below.
 
+## Taking one every day, without anybody remembering
+
+```bash
+pnpm --filter @samtec/api db:backup:scheduled
+```
+
+That is the command a scheduler runs. It takes a backup, keeps the newest 14
+and deletes the rest, and appends one line to `samtec-backups/backup-log.txt`
+so a person can see at a glance that it is still happening:
+
+```
+2026-09-25T09:41:25.643Z  OK  63314 rows from localhost:54329/samtec_dev into C:\Users\…\samtec-2026-09-25T09-41-21.ndjson
+```
+
+**Which database it backs up** is the one named in
+`<your home folder>/.samtec/backup-database-url.txt` — one line, the whole
+connection string. That file is outside this repository on purpose, so no
+careless `git add` can ever reach it. `SAMTEC_BACKUP_DATABASE_URL` overrides it
+for one run. With neither, it backs up whatever database the API uses on that
+computer — the local one — and says so in the log rather than pretending.
+
+The log never contains the password: it records the host and the database
+name only.
+
+Two more switches, both optional: `SAMTEC_BACKUP_DIR` (where the files go,
+default `samtec-backups` in your home folder) and `SAMTEC_BACKUP_KEEP` (how many
+to keep, default 14).
+
+### The schedule on Windows
+
+`apps/api/scripts/scheduled-backup.cmd` finds the repository from its own
+location, so the task needs no paths of its own:
+
+```bash
+schtasks /Create /TN "SAMTEC daily backup" /TR "<repo>\apps\api\scripts\scheduled-backup.cmd" /SC DAILY /ST 13:00 /F
+```
+
+Set it to start when available, so a day the computer was switched off at
+13:00 is caught up at the next opportunity instead of being missed silently:
+
+```bash
+powershell -Command "Set-ScheduledTask -TaskName 'SAMTEC daily backup' -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1))"
+```
+
+Check on it with `schtasks /Query /TN "SAMTEC daily backup" /FO LIST`, or just
+read `backup-log.txt`.
+
+**On this project's computer it is installed and proven**: it ran on 25
+September 2026 at 09:41, finished with result 0, took 63,314 rows, kept the
+newest and deleted the older ones, and is next due at 13:00.
+
+### Why not GitHub Actions
+
+It is the obvious answer and it is the wrong one here. **This repository is
+public**, and a workflow artifact on a public repository can be downloaded by
+anybody who can see the repository — so a nightly job that uploaded the
+backup would publish every Ghana Card number, bank account and sealed
+biometric template in the company. A backup belongs on a machine somebody
+owns, or in a private store bought for the purpose. Not in CI.
+
 ## What is still owed
 
-- **Nobody takes a backup automatically.** Running the command is a person's
-  job today. The honest fixes, in order of cost: pay for Supabase's daily
-  backups (they also bring point-in-time recovery, which is what you actually
-  want after a mistaken delete); or run `db:backup` on a schedule from a
-  computer that is always on. Until one of those happens, the position is
-  "restore works, and the last backup is however old the last person made it".
+- **The schedule is only as reliable as the computer it runs on.** A daily
+  task on a developer's laptop is a real improvement on nobody at all, but it
+  is not a backup service: if the laptop is away for a week, so is the backup.
+  Before real client data exists, buy Supabase's daily backups — they also
+  bring point-in-time recovery, which is what you actually want after a
+  mistaken delete, and which no file-by-file backup can give you.
 - **Before a payroll run is locked**, [Payroll engine (Ghana)](../plan/09-payroll-engine-ghana.md)
   decision 21 asks for a dump. Take one with `db:backup` before locking, and
   keep it with that month's records. The API cannot do this for itself: it
