@@ -209,9 +209,9 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       const batches = Array.from({ length: 10 }, (_, index) =>
         punches.slice(index * 100, (index + 1) * 100),
       );
-      const send = () =>
+      const send = (these: (typeof punches)[number][][]) =>
         Promise.all(
-          batches.map((batch) =>
+          these.map((batch) =>
             signed('ingest/punches', {
               deviceClockAt: new Date().toISOString(),
               punches: batch,
@@ -219,34 +219,43 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
           ),
         );
 
-      const first = await send();
-      // A busy answer is allowed — punches are written under one lock per
-      // company — but it must be the only refusal, and it must say when to
-      // come back.
-      for (const answer of first) {
-        expect([200, 503]).toContain(answer.status);
-        if (answer.status === 503) {
-          expect(Number(answer.headers['retry-after'])).toBeGreaterThan(0);
+      /**
+       * Sends every batch and keeps trying the ones turned away, as a real
+       * terminal does. A busy answer is allowed — punches are written under
+       * one lock per company — but it must be the only refusal, and it must
+       * say when to come back. Retrying until nobody is busy is what keeps
+       * this test honest rather than lucky: with one retry it would depend on
+       * how fast the machine running it happens to be.
+       */
+      const sendEverything = async () => {
+        const answers = [];
+        let waiting = batches;
+        for (let attempt = 1; waiting.length > 0 && attempt <= 10; attempt += 1) {
+          const round = await send(waiting);
+          const busy = [];
+          for (const [index, answer] of round.entries()) {
+            expect([200, 503]).toContain(answer.status);
+            if (answer.status === 503) {
+              expect(Number(answer.headers['retry-after'])).toBeGreaterThan(0);
+              busy.push(waiting[index] as (typeof punches)[number][]);
+            } else {
+              answers.push(answer);
+            }
+          }
+          waiting = busy;
         }
-      }
-      const busy = first.filter((answer) => answer.status === 503).length;
-      // Whoever was turned away tries again, as a real terminal does.
-      const retried = busy === 0 ? [] : await send();
-      const accepted = [...first, ...retried]
-        .filter((answer) => answer.status === 200)
-        .reduce((total, answer) => total + answer.body.accepted, 0);
+        expect(waiting).toHaveLength(0);
+        return answers;
+      };
+
+      const first = await sendEverything();
+      const accepted = first.reduce((total, answer) => total + answer.body.accepted, 0);
       expect(accepted).toBe(1_000);
 
       // Sent again in full: every one a duplicate, none accepted twice.
-      const again = await send();
-      const duplicates = again
-        .filter((answer) => answer.status === 200)
-        .reduce((total, answer) => total + answer.body.duplicates, 0);
-      const acceptedAgain = again
-        .filter((answer) => answer.status === 200)
-        .reduce((total, answer) => total + answer.body.accepted, 0);
-      expect(acceptedAgain).toBe(0);
-      expect(duplicates).toBeGreaterThan(0);
+      const again = await sendEverything();
+      expect(again.reduce((total, answer) => total + answer.body.accepted, 0)).toBe(0);
+      expect(again.reduce((total, answer) => total + answer.body.duplicates, 0)).toBe(1_000);
 
       // And the database agrees with the answers.
       expect(

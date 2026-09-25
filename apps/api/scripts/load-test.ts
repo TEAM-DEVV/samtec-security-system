@@ -101,8 +101,14 @@ interface BurstResult {
   conflicts: number;
   /** Answers that said "busy" or "too many", and were retried. */
   waited: number;
-  /** How long each batch took, in milliseconds. */
+  /**
+   * How long each batch took, in milliseconds — **the request that worked**,
+   * not the waiting before it. Counting the wait would put this script's own
+   * deliberate sleep into a number the report presents as server speed.
+   */
   batchMs: number[];
+  /** Time spent waiting after a "busy" answer, which is the shedding, not the work. */
+  waitedMs: number;
   totalMs: number;
 }
 
@@ -122,6 +128,7 @@ async function burst(
     conflicts: 0,
     waited: 0,
     batchMs: [],
+    waitedMs: 0,
     totalMs: 0,
   };
   const startedAt = Date.now();
@@ -132,9 +139,8 @@ async function burst(
       if (!batch) {
         return;
       }
-      const at = Date.now();
       const answer = await sendBatch(target, batch, result);
-      result.batchMs.push(Date.now() - at);
+      result.batchMs.push(answer.tookMs);
       result.accepted += answer.accepted;
       result.duplicates += answer.duplicates;
       result.conflicts += answer.conflicts;
@@ -151,15 +157,19 @@ interface IngestAnswer {
   conflicts: number;
 }
 
+/** What the API answered, and how long that one request took. */
+type BatchOutcome = IngestAnswer & { tookMs: number };
+
 /** One signed batch, retried after a busy or rate-limited answer. */
 async function sendBatch(
   target: SimulatedDevice,
   batch: SimulatedPunch[],
   result: BurstResult,
-): Promise<IngestAnswer> {
+): Promise<BatchOutcome> {
   const text = JSON.stringify({ deviceClockAt: new Date().toISOString(), punches: batch });
   for (let attempt = 1; ; attempt += 1) {
     const timestamp = String(Math.floor(Date.now() / 1000));
+    const startedAt = Date.now();
     const response = await fetch(`${target.apiUrl}/ingest/punches`, {
       method: 'POST',
       headers: {
@@ -173,13 +183,16 @@ async function sendBatch(
     if ((response.status === 503 || response.status === 429) && attempt < MAX_ATTEMPTS) {
       result.waited += 1;
       const seconds = Number(response.headers.get('retry-after') ?? '1');
+      const waitFrom = Date.now();
       await new Promise((resolve) => setTimeout(resolve, Math.max(seconds, 1) * 1000));
+      result.waitedMs += Date.now() - waitFrom;
       continue;
     }
     if (!response.ok) {
       throw new Error(`ingest/punches answered ${response.status}: ${await response.text()}`);
     }
-    return (await response.json()) as IngestAnswer;
+    const tookMs = Date.now() - startedAt;
+    return { ...((await response.json()) as IngestAnswer), tookMs };
   }
 }
 
@@ -199,9 +212,11 @@ function report(title: string, result: BurstResult): void {
     `  took ${(result.totalMs / 1000).toFixed(1)}s — about ${perSecond} punches a second`,
   );
   console.log(
-    `  a batch of ${BATCH_SIZE}: fastest ${sorted[0] ?? 0}ms, middle ${at(0.5)}ms, slowest ${sorted.at(-1) ?? 0}ms`,
+    `  the request that worked, for a batch of ${BATCH_SIZE}: fastest ${sorted[0] ?? 0}ms, middle ${at(0.5)}ms, slowest ${sorted.at(-1) ?? 0}ms`,
   );
-  console.log(`  answered "busy, try again" ${result.waited} time(s)\n`);
+  console.log(
+    `  answered "busy, try again" ${result.waited} time(s), spent ${(result.waitedMs / 1000).toFixed(1)}s waiting after those\n`,
+  );
 }
 
 /** One punch per event, spread over the last day, all for the same worker. */
