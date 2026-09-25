@@ -23,9 +23,10 @@ import { TaxTablesService } from './tax-tables.service.js';
  * what was paid, through the module that owns the answer. It is exported and
  * nothing here changes it.
  *
- * Payroll imports nothing from detection, and never will: rule R3 refuses a
- * run at submission through the shared function in
- * `src/common/paid-beyond-presence.ts`, not by calling detection.
+ * Payroll imports nothing from detection, and never will: when the run
+ * endpoints land, rule R3 will refuse a run at submission through the shared
+ * function in `src/common/paid-beyond-presence.ts`, not by calling detection.
+ * Nothing here calls it yet.
  */
 @Module({
   imports: [IdentityModule, WorkforceModule],

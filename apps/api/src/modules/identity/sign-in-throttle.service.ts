@@ -116,7 +116,8 @@ export class SignInThrottleService {
    * `assertNotLocked` then `recordFailure` pair allows.
    *
    * Use this where the thing being guessed is short (the last 4 digits of a
-   * Ghana Card); `recordSuccess` still wipes the slate on a right answer.
+   * Ghana Card, a 6-digit authenticator code); `recordSuccess` still wipes the
+   * slate on a right answer.
    */
   async claimAttempt(kind: ThrottleKind, value: string): Promise<void> {
     const keyHash = this.hashKey(kind, value);
@@ -159,6 +160,9 @@ export class SignInThrottleService {
     throw new RateLimitException(
       `Too many attempts. Try again in ${waitSeconds} seconds.`,
       waitSeconds,
+      // The first attempt over the allowance is the one that started the
+      // lockout; every later one keeps counting up.
+      row.failed_count === MAX_FAILURES + 1,
     );
   }
 

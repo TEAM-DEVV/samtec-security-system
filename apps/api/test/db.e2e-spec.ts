@@ -941,6 +941,18 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       await request(app.getHttpServer()).get('/api/v1/users').expect(401);
     });
 
+    it('refuses a cursor that decodes cleanly but is not an id, with 400 and not 500', async () => {
+      // `aGVsbG8` is the word "hello" in base64url, so it survives the
+      // round-trip check and looks like a real cursor. It then reached a uuid
+      // column, and Prisma refused it with an error carrying no HTTP status —
+      // so a plainly bad request was answered with 500 and logged as a server
+      // fault. Payroll already caught this; users and detection had not.
+      await request(app.getHttpServer())
+        .get('/api/v1/users?cursor=aGVsbG8')
+        .set(...bearer(tokens.admin))
+        .expect(400);
+    });
+
     it('pages through accounts, oldest first, with no personal data in the cursor', async () => {
       const first = await request(app.getHttpServer())
         .get('/api/v1/users?limit=2')
@@ -1366,6 +1378,25 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       // exists, and that is the question. Without this the same person could
       // mint pre-confirmed administrators all afternoon.
       const third = await newAdmin(token, `third-${randomUUID()}@dbtest.example`).expect(201);
+
+      expect(third.body.user.status).toBe('AWAITING_CONFIRMATION');
+      expect(third.body.user.adminConfirmation.confirmedAt).toBeNull();
+    });
+
+    it('is not re-opened by switching the other administrator off', async () => {
+      const { token } = await companyOfOne();
+      const second = await newAdmin(token, `pair-${randomUUID()}@dbtest.example`).expect(201);
+
+      // Switching an administrator off needs nobody's approval, by design —
+      // so it must not be a way of becoming the only one. Otherwise A could
+      // deactivate B, be counted as the sole administrator, and be handed a
+      // second pre-confirmed account together with its one-time link.
+      await request(app.getHttpServer())
+        .post(`/api/v1/users/${second.body.user.id}/deactivate`)
+        .set(...bearer(token))
+        .expect(200);
+
+      const third = await newAdmin(token, `after-${randomUUID()}@dbtest.example`).expect(201);
 
       expect(third.body.user.status).toBe('AWAITING_CONFIRMATION');
       expect(third.body.user.adminConfirmation.confirmedAt).toBeNull();

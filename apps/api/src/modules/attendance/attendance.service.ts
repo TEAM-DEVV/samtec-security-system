@@ -17,7 +17,7 @@ import type {
 } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { fromIsoDate, toAccraDate, toIsoDate } from '../../common/dates.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { decodeCursor, isUuid, toPage } from '../../common/pagination.js';
 import { hasDatabaseCode } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, WorkSegment } from '../../generated/prisma/client.js';
@@ -508,7 +508,7 @@ function readCursor(cursor: string | undefined): { at: Date; id: string } | unde
   }
   const [at = '', id = ''] = (decodeCursor(cursor) ?? '').split('|');
   const moment = new Date(at);
-  if (Number.isNaN(moment.getTime()) || !/^[0-9a-f-]{36}$/.test(id)) {
+  if (Number.isNaN(moment.getTime()) || !isUuid(id)) {
     throw fieldProblem('cursor', 'The cursor is not valid. Start again from the first page.');
   }
   return { at: moment, id };
