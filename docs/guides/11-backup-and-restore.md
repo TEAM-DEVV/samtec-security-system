@@ -123,7 +123,18 @@ history — and appends one line to `samtec-backups/backup-log.txt`, so a person
 can see at a glance that it is still happening:
 
 ```
-2026-09-25T09:41:25.643Z  OK  63314 rows from localhost:54329/samtec_dev into C:\Users\…\samtec-2026-09-25T09-41-21.ndjson
+2026-09-27T13:00:12.004Z  OK  17535 rows from db.<project>.supabase.co:5432/postgres into C:\Users\…\samtec-2026-09-27T13-00-08.ndjson
+```
+
+**`REHEARSAL` instead of `OK`** means the database it backed up lives on this
+same computer. The work is identical and the file is real, but it protects
+nothing that is not already on this machine. It is marked every single time,
+because a log that said `OK` for a local database would read like a working
+backup for months:
+
+```
+2026-09-25T09:41:25.643Z  REHEARSAL  63314 rows from localhost:54329/samtec_dev into C:\Users\…
+2026-09-25T09:41:25.644Z  REHEARSAL: that database lives on this computer, so this backup protects nothing that is not already here. Name the real one in the file above to make it count.
 ```
 
 **Which database it backs up** is the one named in
