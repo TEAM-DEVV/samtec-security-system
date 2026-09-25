@@ -111,14 +111,98 @@ restore is one long transaction on one connection.
 since the last backup, and nothing else. **What it does not prove:** that
 anybody is taking backups. Nothing schedules this yet — see below.
 
+## Taking one every week, without anybody remembering
+
+```bash
+pnpm --filter @samtec/api db:backup:scheduled
+```
+
+That is the command a scheduler runs. It takes a backup, keeps the newest 14
+and deletes the rest — at the weekly cadence below, about three months of
+history — and appends one line to `samtec-backups/backup-log.txt`, so a person
+can see at a glance that it is still happening:
+
+```
+2026-09-27T13:00:12.004Z  OK  17535 rows from db.<project>.supabase.co:5432/postgres into C:\Users\…\samtec-2026-09-27T13-00-08.ndjson
+```
+
+**`REHEARSAL` instead of `OK`** means the database it backed up lives on this
+same computer. The work is identical and the file is real, but it protects
+nothing that is not already on this machine. It is marked every single time,
+because a log that said `OK` for a local database would read like a working
+backup for months:
+
+```
+2026-09-25T09:41:25.643Z  REHEARSAL  63314 rows from localhost:54329/samtec_dev into C:\Users\…
+2026-09-25T09:41:25.644Z  REHEARSAL: that database lives on this computer, so this backup protects nothing that is not already here. Name the real one in the file above to make it count.
+```
+
+**Which database it backs up** is the one named in
+`<your home folder>/.samtec/backup-database-url.txt` — one line, the whole
+connection string. That file is outside this repository on purpose, so no
+careless `git add` can ever reach it. `SAMTEC_BACKUP_DATABASE_URL` overrides it
+for one run. With neither, it backs up whatever database the API uses on that
+computer — the local one — and says so in the log rather than pretending.
+
+The log never contains the password: it records the host and the database
+name only.
+
+Two more switches, both optional: `SAMTEC_BACKUP_DIR` (where the files go,
+default `samtec-backups` in your home folder) and `SAMTEC_BACKUP_KEEP` (how many
+to keep, default 14).
+
+### The schedule on Windows
+
+`apps/api/scripts/scheduled-backup.cmd` finds the repository from its own
+location, so the task needs no paths of its own:
+
+```bash
+schtasks /Create /TN "SAMTEC weekly backup" /TR "<repo>\apps\api\scripts\scheduled-backup.cmd" /SC WEEKLY /D SUN /ST 13:00 /F
+```
+
+**A fixed weekday on purpose.** Every six days, or every ten, drifts across
+the calendar, so nobody can ever say what the log should contain. "There is a
+Sunday line every week" is a thing a person can check in two seconds, and a
+missing one is obvious.
+
+Set it to start when available, so a day the computer was switched off at
+13:00 is caught up at the next opportunity instead of being missed silently:
+
+```bash
+powershell -Command "Set-ScheduledTask -TaskName 'SAMTEC weekly backup' -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1))"
+```
+
+Check on it with `schtasks /Query /TN "SAMTEC weekly backup" /FO LIST`, or
+just read `backup-log.txt`.
+
+**On this project's computer it is installed and proven**: it ran on 25
+September 2026 with result 0, took 63,314 rows, kept the newest and deleted
+the older ones, and is next due on Sunday at 13:00.
+
+### Why not GitHub Actions
+
+It is the obvious answer and it is the wrong one here. **This repository is
+public**, and a workflow artifact on a public repository can be downloaded by
+anybody who can see the repository — so a nightly job that uploaded the
+backup would publish every Ghana Card number, bank account and sealed
+biometric template in the company. A backup belongs on a machine somebody
+owns, or in a private store bought for the purpose. Not in CI.
+
 ## What is still owed
 
-- **Nobody takes a backup automatically.** Running the command is a person's
-  job today. The honest fixes, in order of cost: pay for Supabase's daily
-  backups (they also bring point-in-time recovery, which is what you actually
-  want after a mistaken delete); or run `db:backup` on a schedule from a
-  computer that is always on. Until one of those happens, the position is
-  "restore works, and the last backup is however old the last person made it".
+- **A week is the most this can lose, and a week is too much for real pay.**
+  Weekly is the right cadence for TEST, whose data is invented and whose worst
+  case is reseeding it. It is the wrong cadence for a company's actual
+  payroll: losing a week there means a week of punches, corrections and
+  approvals gone. **Before real client data exists, buy Supabase's daily
+  backups** — they also bring point-in-time recovery, which is what you
+  actually want after a mistaken delete, and which no file-by-file backup can
+  give you at any cadence.
+- **The schedule is only as reliable as the computer it runs on.** A weekly
+  task on a developer's laptop is a real improvement on nobody at all, but it
+  is not a backup service: if the laptop is away, so is the backup. It catches
+  up at the next opportunity rather than skipping, which is the most a laptop
+  can promise.
 - **Before a payroll run is locked**, [Payroll engine (Ghana)](../plan/09-payroll-engine-ghana.md)
   decision 21 asks for a dump. Take one with `db:backup` before locking, and
   keep it with that month's records. The API cannot do this for itself: it
