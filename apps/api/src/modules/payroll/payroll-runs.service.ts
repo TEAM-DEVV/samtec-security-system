@@ -20,7 +20,6 @@
  * people, their employment spells and what they were scheduled, and the
  * attendance module for confirmed shifts.
  */
-import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   PayrollRun as ApiPayrollRun,
@@ -41,7 +40,15 @@ import { calculatePay, type TaxRates } from './pay-calculation.js';
 import type { CreateRunBody, ListLinesQuery, ListRunsQuery } from './payroll.schemas.js';
 import { badCursor } from './payroll-cursor.js';
 import { PayrollPeriodsService } from './payroll-periods.service.js';
-import { type LineWithEmployee, toApiLine, toApiRun, toStatutorySummary } from './run-mapping.js';
+import {
+  emptyRunSummary,
+  type LineWithEmployee,
+  type RunSummaryTotals,
+  toApiLine,
+  toApiRun,
+  toApiRunFromSummary,
+  toStatutorySummary,
+} from './run-mapping.js';
 import {
   DEFAULT_SCHEDULED_MINUTES,
   daysEmployedIn,
@@ -65,15 +72,30 @@ export class PayrollRunsService {
 
   /** The company's runs, newest first. No bank details appear here. */
   async list(viewer: SignedInUser, query: ListRunsQuery): Promise<PayrollRunList> {
-    const after = this.calculatedBefore(query.cursor);
+    // A period filter that names nothing answers 404, as the contract says,
+    // rather than an empty page that looks like "this month has no runs".
+    if (query.periodId !== undefined) {
+      await this.periods.byId(viewer, query.periodId);
+    }
+    const after = this.runCursor(query.cursor);
     const rows = await this.prisma.payrollRun.findMany({
       where: {
         companyId: viewer.companyId,
         ...(query.periodId === undefined ? {} : { periodId: query.periodId }),
         ...(query.status === undefined ? {} : { status: query.status }),
-        ...(after === undefined ? {} : { calculatedAt: { lt: after } }),
+        ...(after === undefined
+          ? {}
+          : {
+              OR: [
+                { calculatedAt: { lt: after.calculatedAt } },
+                { calculatedAt: after.calculatedAt, id: { gt: after.id } },
+              ],
+            }),
       },
-      orderBy: { calculatedAt: 'desc' },
+      // The moment plus the id. Two runs calculated in the same millisecond are
+      // rare but not impossible, and on a timestamp alone the second one would
+      // disappear from the list for ever.
+      orderBy: [{ calculatedAt: 'desc' }, { id: 'asc' }],
       take: query.limit + 1,
       include: {
         period: { select: { startsOn: true, endsOn: true } },
@@ -81,22 +103,22 @@ export class PayrollRunsService {
       },
     });
 
-    const page = toPage(rows, query.limit, (row) => row.calculatedAt.toISOString());
-    // One query for the whole page's lines, not one per run.
-    const lines = await this.prisma.payrollLine.findMany({
-      where: { companyId: viewer.companyId, runId: { in: page.pageRows.map((row) => row.id) } },
-    });
-    const byRun = new Map<string, typeof lines>();
-    for (const line of lines) {
-      byRun.set(line.runId, [...(byRun.get(line.runId) ?? []), line]);
-    }
+    const page = toPage(rows, query.limit, (row) => `${row.calculatedAt.toISOString()}|${row.id}`);
+
+    // The totals are the sums of the lines, so the database adds them up rather
+    // than this code loading every line of every run on the page to do it. A
+    // list of twenty runs for fifty guards is a thousand rows nobody reads.
+    const summaries = await this.summariesFor(
+      viewer.companyId,
+      page.pageRows.map((row) => row.id),
+    );
 
     return {
       items: page.pageRows.map((row) =>
-        toApiRun(row, {
+        toApiRunFromSummary(row, {
           period: row.period,
           taxYear: row.taxTable.taxYear,
-          lines: byRun.get(row.id) ?? [],
+          summary: summaries.get(row.id) ?? emptyRunSummary(),
         }),
       ),
       nextCursor: page.nextCursor,
@@ -122,6 +144,11 @@ export class PayrollRunsService {
     query: ListLinesQuery,
   ): Promise<PayrollLineList> {
     await this.byId(viewer, runId);
+    // A worker nobody has answers 404, like everywhere else, rather than an
+    // empty page that reads as "this person was paid nothing".
+    if (query.employeeId !== undefined) {
+      await this.employees.statusOf(viewer.companyId, query.employeeId, this.prisma);
+    }
     const after = query.cursor === undefined ? undefined : this.lineCursor(query.cursor);
     const rows = await this.prisma.payrollLine.findMany({
       where: {
@@ -190,7 +217,11 @@ export class PayrollRunsService {
     }
 
     const people = await this.employees.payrollFactsFor(viewer.companyId, period);
-    const payTerms = await this.termsEffectiveOn(viewer.companyId, period.endsOn);
+    const payTerms = await this.termsEffectiveOn(
+      viewer.companyId,
+      period.endsOn,
+      people.map((person) => person.id),
+    );
     const segments = await this.attendance.payableSegmentsByEmployee(
       viewer.companyId,
       period,
@@ -214,8 +245,11 @@ export class PayrollRunsService {
     const totalDays = daysInPeriod(inPeriod);
 
     const excluded: PayrollRunExclusion[] = [];
-    const lines: Prisma.PayrollLineCreateManyInput[] = [];
-    const runId = randomUUID();
+    // The run's id is not known yet, on purpose. Every id in this system is a
+    // uuid(7), which sorts by the moment it was made, and the lines list pages
+    // on that property — so the database assigns it rather than this code
+    // inventing a version 4 that does not sort.
+    const lines: Omit<Prisma.PayrollLineCreateManyInput, 'runId'>[] = [];
 
     for (const person of people) {
       const ref = { id: person.id, staffNumber: person.staffNumber, fullName: person.fullName };
@@ -232,13 +266,20 @@ export class PayrollRunsService {
         continue;
       }
 
+      const daysEmployed = daysEmployedIn(person.employment, inPeriod);
+      // Nobody is paid for a month they were not employed in for a single day.
+      // The workforce filter should never hand one over, but a line is a row
+      // that can never be deleted, so this refuses to write one regardless.
+      if (daysEmployed < 1) {
+        continue;
+      }
+
       const days = workedDaysIn(
         segments.get(person.id) ?? [],
         inPeriod,
         (workDate) => person.scheduledMinutesOnDate.get(workDate) ?? DEFAULT_SCHEDULED_MINUTES,
       );
       const minutes = minutesForPeriod(days);
-      const daysEmployed = daysEmployedIn(person.employment, inPeriod);
       const pay = calculatePay(
         {
           basicMonthlyPesewas: terms.basicMonthlyPesewas,
@@ -253,7 +294,6 @@ export class PayrollRunsService {
 
       lines.push({
         companyId: viewer.companyId,
-        runId,
         employeeId: person.id,
         staffNumber: person.staffNumber,
         fullName: person.fullName,
@@ -275,9 +315,23 @@ export class PayrollRunsService {
     }
 
     const run = await this.prisma.$transaction(async (tx) => {
+      // Read the month again inside the transaction. Everything above took
+      // several queries, and somebody may have closed it in the meantime — in
+      // which case a database trigger refuses the insert, and a trigger error
+      // is not an HTTP exception, so the caller would get a 500 for what is
+      // plainly a 409.
+      const stillOpen = await tx.payrollPeriod.findFirst({
+        where: { id: period.id, companyId: viewer.companyId, status: 'OPEN' },
+        select: { id: true },
+      });
+      if (stillOpen === null) {
+        throw new ConflictException(
+          'This month was closed while the run was being worked out. Nothing was saved.',
+        );
+      }
+
       const created = await tx.payrollRun.create({
         data: {
-          id: runId,
           companyId: viewer.companyId,
           periodId: period.id,
           taxTableId: taxTable.id,
@@ -291,7 +345,9 @@ export class PayrollRunsService {
         },
       });
       if (lines.length > 0) {
-        await tx.payrollLine.createMany({ data: lines });
+        await tx.payrollLine.createMany({
+          data: lines.map((line) => ({ ...line, runId: created.id })),
+        });
       }
       await this.audit.record(
         {
@@ -346,9 +402,15 @@ export class PayrollRunsService {
    * One query for the whole company rather than one per person, because a run
    * of fifty guards should not be fifty round trips.
    */
-  private async termsEffectiveOn(companyId: string, on: Date) {
+  private async termsEffectiveOn(companyId: string, on: Date, employeeIds: string[]) {
+    if (employeeIds.length === 0) {
+      return new Map<string, never>();
+    }
     const rows = await this.prisma.employeePayTerms.findMany({
-      where: { companyId, effectiveFrom: { lte: on } },
+      // Only the people this run is about. Pay terms are history and never
+      // deleted, so a company running for a decade has many rows per person and
+      // most of them belong to months this run is not paying.
+      where: { companyId, employeeId: { in: employeeIds }, effectiveFrom: { lte: on } },
       orderBy: [{ employeeId: 'asc' }, { effectiveFrom: 'desc' }],
     });
     const latest = new Map<string, (typeof rows)[number]>();
@@ -361,26 +423,110 @@ export class PayrollRunsService {
     return latest;
   }
 
-  /** The moment a runs cursor points just past, or a clear 400. */
-  private calculatedBefore(cursor: string | undefined): Date | undefined {
+  /**
+   * The moment and id a runs cursor points just past, or a clear 400.
+   *
+   * Both halves are checked. A cursor that decodes to something without an id,
+   * or with a moment that is not a date, is a bad request and not a 500 from
+   * the query layer — which is what happens if either half reaches Prisma.
+   */
+  private runCursor(cursor: string | undefined): { calculatedAt: Date; id: string } | undefined {
     if (cursor === undefined) {
       return undefined;
     }
     const value = decodeCursor(cursor);
-    const at = value === undefined ? undefined : new Date(value);
-    if (at === undefined || Number.isNaN(at.getTime())) {
+    const [moment, id] = (value ?? '').split('|');
+    if (moment === undefined || id === undefined || id.length === 0) {
       throw badCursor();
     }
-    return at;
+    const calculatedAt = new Date(moment);
+    if (Number.isNaN(calculatedAt.getTime())) {
+      throw badCursor();
+    }
+    return { calculatedAt, id };
   }
 
   /** The staff number and id a lines cursor points just past, or a clear 400. */
   private lineCursor(cursor: string): { staffNumber: string; id: string } {
     const value = decodeCursor(cursor);
     const [staffNumber, id] = (value ?? '').split('|');
-    if (staffNumber === undefined || id === undefined || id.length === 0) {
+    if (
+      staffNumber === undefined ||
+      staffNumber.length === 0 ||
+      id === undefined ||
+      id.length === 0
+    ) {
       throw badCursor();
     }
     return { staffNumber, id };
+  }
+
+  /**
+   * The totals and counts of several runs at once, added up by the database.
+   *
+   * Two grouped queries rather than one row per payroll line: the totals are
+   * sums, and `employeeCount` is a count of distinct people, which a sum cannot
+   * give — so that one is its own grouping.
+   */
+  private async summariesFor(companyId: string, runIds: string[]) {
+    const summaries = new Map<string, RunSummaryTotals>();
+    if (runIds.length === 0) {
+      return summaries;
+    }
+    const sums = await this.prisma.payrollLine.groupBy({
+      by: ['runId'],
+      where: { companyId, runId: { in: runIds } },
+      _count: { _all: true },
+      _sum: {
+        basicPesewas: true,
+        overtimePesewas: true,
+        taxableAllowancePesewas: true,
+        nonTaxableAllowancePesewas: true,
+        grossPesewas: true,
+        ssnitEmployeePesewas: true,
+        ssnitEmployerPesewas: true,
+        payePesewas: true,
+        otherDeductionsPesewas: true,
+        netPayPesewas: true,
+      },
+    });
+    const people = await this.prisma.payrollLine.groupBy({
+      by: ['runId', 'employeeId'],
+      where: { companyId, runId: { in: runIds } },
+    });
+    const adjustments = await this.prisma.payrollLine.groupBy({
+      by: ['runId'],
+      where: { companyId, runId: { in: runIds }, adjustsLineId: { not: null } },
+      _count: { _all: true },
+    });
+
+    const peopleByRun = new Map<string, number>();
+    for (const row of people) {
+      peopleByRun.set(row.runId, (peopleByRun.get(row.runId) ?? 0) + 1);
+    }
+    const adjustmentsByRun = new Map(
+      adjustments.map((row) => [row.runId, row._count._all] as const),
+    );
+
+    for (const row of sums) {
+      summaries.set(row.runId, {
+        lineCount: row._count._all,
+        employeeCount: peopleByRun.get(row.runId) ?? 0,
+        adjustmentLineCount: adjustmentsByRun.get(row.runId) ?? 0,
+        totals: {
+          totalBasicPesewas: row._sum.basicPesewas ?? 0,
+          totalOvertimePesewas: row._sum.overtimePesewas ?? 0,
+          totalTaxableAllowancePesewas: row._sum.taxableAllowancePesewas ?? 0,
+          totalNonTaxableAllowancePesewas: row._sum.nonTaxableAllowancePesewas ?? 0,
+          totalGrossPesewas: row._sum.grossPesewas ?? 0,
+          totalSsnitEmployeePesewas: row._sum.ssnitEmployeePesewas ?? 0,
+          totalPayePesewas: row._sum.payePesewas ?? 0,
+          totalOtherDeductionsPesewas: row._sum.otherDeductionsPesewas ?? 0,
+          totalNetPayPesewas: row._sum.netPayPesewas ?? 0,
+          totalSsnitEmployerPesewas: row._sum.ssnitEmployerPesewas ?? 0,
+        },
+      });
+    }
+    return summaries;
   }
 }

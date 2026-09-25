@@ -135,6 +135,49 @@ export const listLinesQuerySchema = z.strictObject({
 });
 export type ListLinesQuery = z.infer<typeof listLinesQuerySchema>;
 
+/**
+ * Contract: `ResolutionNote`. A short explanation of a decision.
+ *
+ * It is never copied into the audit log. The log records that somebody decided
+ * and when, and the note stays on the run where the people involved can read
+ * it — a note may well name a worker or a mistake, and the log is append-only
+ * evidence that nobody can ever edit.
+ */
+const note = z.string().trim().min(3).max(500);
+
+/** Contract: `SubmitPayrollRunRequest`. An empty body is valid. */
+export const submitRunSchema = z.strictObject({ note: note.optional() });
+export type SubmitRunBody = z.infer<typeof submitRunSchema>;
+
+/** Contract: `ApprovePayrollRunRequest`. An empty body is valid. */
+export const approveRunSchema = z.strictObject({ note: note.optional() });
+export type ApproveRunBody = z.infer<typeof approveRunSchema>;
+
+/**
+ * Contract: `RejectPayrollRunRequest`. The reason is required, because a
+ * rejection is final and whoever calculated the run has to know what to change.
+ */
+export const rejectRunSchema = z.strictObject({ reason: note });
+export type RejectRunBody = z.infer<typeof rejectRunSchema>;
+
+/** Contract: `MarkPayrollRunPaidRequest`. */
+export const markPaidSchema = z.strictObject({
+  paidOn: notInTheFuture('The day the money left'),
+  paymentReference: z.string().trim().min(1).max(100).optional(),
+  note: note.optional(),
+});
+export type MarkPaidBody = z.infer<typeof markPaidSchema>;
+
+/** Contract: the query of `listPayslips`. */
+export const listPayslipsQuerySchema = z.strictObject({
+  employeeId: idSchema.optional(),
+  periodId: idSchema.optional(),
+  runId: idSchema.optional(),
+  cursor: cursor.optional(),
+  limit,
+});
+export type ListPayslipsQuery = z.infer<typeof listPayslipsQuerySchema>;
+
 // ---------------------------------------------------------------------------
 // Tax tables
 // ---------------------------------------------------------------------------
