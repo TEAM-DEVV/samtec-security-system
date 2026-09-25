@@ -128,6 +128,16 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         .expect(403);
     });
 
+    it('refuses a cursor that decodes cleanly but is not an id, with 400 and not 500', async () => {
+      // "hello" in base64url: a real-looking cursor that is not an id. It
+      // reached a uuid column and came back as a 500; see the same test on
+      // /users and on payroll's lists.
+      await api()
+        .get('/api/v1/detection/alerts?cursor=aGVsbG8')
+        .set(...bearer(adminToken))
+        .expect(400);
+    });
+
     it('lets HR read the queue but never change a rule', async () => {
       await api()
         .get('/api/v1/detection/alerts')
@@ -451,6 +461,54 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
         .coSignsPerSupervisor(company.companyId, new Date(Date.now() - 30 * DAY_MS));
 
       expect(counted.find((row) => row.employeeId === supervisor.id)?.coSigns).toBe(1);
+    });
+
+    it('survives a terminal whose own event id is not an id at all', async () => {
+      // A device event id is free text the terminal chooses, and PIN_FALLBACK
+      // is a method any terminal may send — the shipped simulator sends
+      // "SMT-00042-2026-09-23-in". Handing that to a uuid column threw, the
+      // sweep caught it and skipped the rule, and R7 was silently off for that
+      // company from its first fallback punch onwards.
+      await prisma.punchEvent.create({
+        data: {
+          companyId: company.companyId,
+          deviceId: coSignKiosk,
+          siteId: company.siteA,
+          deviceEventId: 'SMT-00042-2026-09-23-in',
+          deviceUserRef: 'SMT-00042',
+          employeeId: company.active.id,
+          deviceTime: new Date(),
+          serverTime: new Date(),
+          direction: 'IN',
+          method: 'PIN_FALLBACK',
+          payloadHash: createHash('sha256').update(`plain-${Date.now()}`).digest('hex'),
+        },
+      });
+
+      await expect(
+        app
+          .get(AttendanceFactsService)
+          .coSignsPerSupervisor(company.companyId, new Date(Date.now() - 30 * DAY_MS)),
+      ).resolves.toBeInstanceOf(Array);
+    });
+
+    it('judges a device on its last finished day, never on a few hours of today', async () => {
+      // R9 compares the last day in this list with the median of the ones
+      // before it, and the daily run happens at 02:00. Including today handed
+      // the rule two hours of a guard company's quietest time: the comparison
+      // came out false every night, while yesterday's real spike sat in the
+      // median instead of being reported.
+      const now = new Date();
+      const activity = await app
+        .get(AttendanceFactsService)
+        .deviceActivity(company.companyId, new Date(now.getTime() - 3 * DAY_MS), now);
+
+      // Four calendar days are in the window; only the three finished ones
+      // are counted, so the last entry is yesterday.
+      expect(activity.length).toBeGreaterThan(0);
+      for (const device of activity) {
+        expect(device.dailyCounts).toHaveLength(3);
+      }
     });
   });
 

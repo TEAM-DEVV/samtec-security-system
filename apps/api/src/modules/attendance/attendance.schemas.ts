@@ -130,6 +130,7 @@ export const listExceptionsQuerySchema = z.strictObject({
       'UNKNOWN_EMPLOYEE',
       'INACTIVE_EMPLOYEE',
       'OVERLAP',
+      'UNEXPECTED_DEVICE_ENROLLMENT',
     ])
     .optional(),
   siteId: z.uuid().optional(),

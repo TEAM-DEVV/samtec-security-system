@@ -8,7 +8,7 @@ import {
 import type { UserAccount, UserAccountList, UserAccountWithPasswordSetup } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { normalizeEmail } from '../../common/emails.js';
-import { decodeCursor, toPage } from '../../common/pagination.js';
+import { toPage, uuidCursor } from '../../common/pagination.js';
 import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, User } from '../../generated/prisma/client.js';
@@ -55,10 +55,7 @@ export class UsersService {
   ) {}
 
   async list(viewer: SignedInUser, query: ListUsersQuery): Promise<UserAccountList> {
-    const afterId = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
-    if (query.cursor !== undefined && afterId === undefined) {
-      throw fieldProblem('cursor', 'The cursor is not valid. Start again from the first page.');
-    }
+    const afterId = uuidCursor(query.cursor);
     // IDs are UUIDv7, which sort by creation time: oldest accounts first, and
     // the cursor carries no personal data.
     const rows = await this.prisma.user.findMany({
@@ -394,16 +391,22 @@ export class UsersService {
       where: {
         companyId: viewer.companyId,
         role: 'ADMIN',
-        isActive: true,
         ...(targetId ? { id: { not: targetId } } : {}),
       },
       select: { id: true },
     });
-    // **Does another administrator exist**, not "can another one sign in right
-    // now". Asking about sign-in readiness let the shortcut fire twice over: a
-    // brand-new administrator has no password yet, so they would not count,
-    // and the same person could mint a second pre-confirmed account, and a
-    // third, without anybody else ever appearing.
+    // **Does another administrator's row exist**, not "can another one sign
+    // in right now" — and not "is another one switched on" either. Asking
+    // about sign-in readiness let the shortcut fire twice over: a brand-new
+    // administrator has no password yet, so they would not count, and the
+    // same person could mint a second pre-confirmed account, and a third,
+    // without anybody else ever appearing. Counting only the switched-on ones
+    // left the same hole one step further back: switching an administrator
+    // off needs nobody's approval, so A could deactivate B, be counted as the
+    // only administrator, and hand themselves a second pre-confirmed account
+    // together with its one-time link. A deactivated administrator still
+    // blocks the shortcut; the honest way out of a company with genuinely one
+    // administrator is the `account:admin` script, which needs the database.
     const soleAdministrator =
       !alreadyAnAdministrator &&
       administrators.length === 1 &&

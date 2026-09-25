@@ -16,7 +16,7 @@ Eight phases. Five are finished or nearly so.
 | 0 | Project set-up, CI, first migration | **Done** |
 | 1 | Sign in, staff, sites, shifts, users | **Done** — API and screens |
 | 2 | Attendance: punches paired into shifts, the exception queue | **Done** — API and screens |
-| 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done.** Left: the kiosk app, the gateway, and three gateway endpoints |
+| 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done**, gateway endpoints included. Left: the kiosk app and the gateway, both Samuel's |
 | 4 | Payroll: Ghana tax, payslips, bank file | **Not started — Samuel owns it, see Job A** |
 | 5 | Ghost detection: the rules that catch fake workers | **Done — Francis.** All eleven rules, the queue, the sweep, and the three dashboard screens. Left: the owner's daily cron |
 | 6 | Reports and the final visual pass | Not started |

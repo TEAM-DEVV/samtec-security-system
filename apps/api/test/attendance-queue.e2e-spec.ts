@@ -180,6 +180,22 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance queue on a real database (e2e)
       await get(tokens.admin, '/attendance/exceptions', { cursor: 'nonsense!' }).expect(400);
     });
 
+    it('filters by every type the contract has, including the sixth', async () => {
+      // UNEXPECTED_DEVICE_ENROLLMENT was missing from the filter, so the one
+      // choice that isolates a terminal enrolling fingers nobody asked for
+      // answered 400 — on the real API and in the mock alike.
+      for (const type of [
+        'MISSING_CLOCK_OUT',
+        'MISSING_CLOCK_IN',
+        'UNKNOWN_EMPLOYEE',
+        'INACTIVE_EMPLOYEE',
+        'OVERLAP',
+        'UNEXPECTED_DEVICE_ENROLLMENT',
+      ]) {
+        await get(tokens.admin, '/attendance/exceptions', { type }).expect(200);
+      }
+    });
+
     it('refuses the queue to a guard', async () => {
       await get(tokens.guard, '/attendance/exceptions').expect(403);
     });

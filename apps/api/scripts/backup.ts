@@ -129,9 +129,12 @@ function emptyJsonIsNothing(row: unknown, jsonFields: string[]): unknown {
 async function backup(to: string | undefined): Promise<void> {
   const path = to ? resolve(to) : defaultPath();
   refuseInsideTheRepository(path);
-  mkdirSync(dirname(path), { recursive: true });
+  // **Only this account may read it.** The file is the whole company in one
+  // place, and the guide says to run this from any computer that can reach
+  // the database — which includes shared ones. Windows ignores the mode.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 
-  const file = createWriteStream(path, { encoding: 'utf8' });
+  const file = createWriteStream(path, { encoding: 'utf8', mode: 0o600 });
   const write = (line: string) =>
     new Promise<void>((done, failed) => {
       file.write(`${line}\n`, (error) => (error ? failed(error) : done()));
@@ -230,10 +233,20 @@ async function restore(from: string | undefined, confirmed: boolean): Promise<vo
     );
   }
 
+  // Push onto the list rather than building a new one for every row: a year
+  // of punches for a few hundred guards is the size this script is for, and
+  // re-spreading the array each time made the restore take minutes of pure
+  // copying before it wrote anything — at exactly the moment the database has
+  // been lost and this file is all there is.
   const byModel = new Map<string, unknown[]>();
   for (const line of rows) {
     const { model, row } = JSON.parse(line, restoreTypes) as { model: string; row: unknown };
-    byModel.set(model, [...(byModel.get(model) ?? []), row]);
+    const waiting = byModel.get(model);
+    if (waiting) {
+      waiting.push(row);
+    } else {
+      byModel.set(model, [row]);
+    }
   }
 
   let total = 0;

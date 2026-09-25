@@ -259,13 +259,9 @@ describe('two-factor setup and verification', () => {
         .catch(() => undefined);
     }
 
-    // Five wrong codes in total: the account's totp throttle is now locked,
-    // so even a correct password cannot start another guessing round…
-    const blockedLogin = await auth
-      .login('hr@samtec.example', 'demo-password', 'DASHBOARD')
-      .catch((e: unknown) => e);
-    expect(blockedLogin).toBeInstanceOf(RateLimitException);
-    // …and the still-open challenge is blocked too.
+    // Five codes is the whole allowance for this account, however many
+    // challenges they were spread over. The sixth is refused before it is
+    // even compared with the secret — even a correct one.
     const blockedVerify = await auth
       .verifyTwoFactor(
         second.response.challengeToken,
@@ -278,6 +274,40 @@ describe('two-factor setup and verification', () => {
       action: 'auth.lockout_triggered',
       entityId: user.id,
     });
+
+    // And the lockout stands: knowing the password no longer buys a fresh
+    // round of guesses.
+    const blockedLogin = await auth
+      .login('hr@samtec.example', 'demo-password', 'DASHBOARD')
+      .catch((e: unknown) => e);
+    expect(blockedLogin).toBeInstanceOf(RateLimitException);
+  });
+
+  it('one lockout is recorded once, however many attempts follow it', async () => {
+    const { db, auth, user, setupToken, secret } = await setUpTwoFactor();
+    await auth.enableTwoFactor(setupToken, totpCode(secret, totpStep()), 'DASHBOARD');
+    // Spread over two challenges, because five wrong codes on one cancel
+    // that challenge before the account's own allowance runs out.
+    const first = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
+    if (first.kind !== 'challenge') throw new Error('Expected a challenge');
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await auth
+        .verifyTwoFactor(first.response.challengeToken, '000000', 'DASHBOARD')
+        .catch(() => undefined);
+    }
+    const second = await auth.login('hr@samtec.example', 'demo-password', 'DASHBOARD');
+    if (second.kind !== 'challenge') throw new Error('Expected a challenge');
+    // Two more use the allowance up; the six after that are all refused.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await auth
+        .verifyTwoFactor(second.response.challengeToken, '000000', 'DASHBOARD')
+        .catch(() => undefined);
+    }
+
+    const lockouts = db.auditEntries.filter(
+      (entry) => entry.action === 'auth.lockout_triggered' && entry.entityId === user.id,
+    );
+    expect(lockouts).toHaveLength(1);
   });
 });
 

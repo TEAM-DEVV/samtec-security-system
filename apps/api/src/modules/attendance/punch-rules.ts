@@ -60,8 +60,12 @@ export function punchPayloadHash(punch: PunchFields): string {
  *
  * - `pairable` is false for impossible times: before 2020, or later than the
  *   server's clock (plus 5 minutes, plus how fast the device's clock is known
- *   to run). Such punches are stored but never paired, so a fast clock can
- *   never create future hours.
+ *   to run — itself never more than those same 5 minutes). Such punches are
+ *   stored but never paired, so a fast clock can never create future hours.
+ *
+ *   That allowance is capped because the device is the one reporting it.
+ *   Uncapped, a terminal could say its clock ran nine hours fast and have
+ *   tonight's punches paired into a paid shift that has not happened yet.
  * - `clockSuspect` is true for impossible times, and when the device's clock
  *   was more than 5 minutes off when it sent the batch.
  */
@@ -70,7 +74,7 @@ export function judgePunchTime(
   serverTime: Date,
   clockDriftSeconds: number | null,
 ): { pairable: boolean; clockSuspect: boolean } {
-  const knownFastMs = Math.max(0, clockDriftSeconds ?? 0) * 1000;
+  const knownFastMs = Math.min(Math.max(0, clockDriftSeconds ?? 0), MAX_DRIFT_SECONDS) * 1000;
   const latestPossible = serverTime.getTime() + MAX_DRIFT_SECONDS * 1000 + knownFastMs;
   const time = deviceTime.getTime();
   const pairable = time >= EARLIEST_POSSIBLE && time <= latestPossible;

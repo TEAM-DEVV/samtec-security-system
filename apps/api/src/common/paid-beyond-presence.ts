@@ -3,11 +3,16 @@
  * (docs/plan/08-ghost-detection-engine.md §1).
  *
  * It lives here, depending on nothing, because payroll and detection both
- * need the same answer and neither may import the other: **payroll** refuses
- * a run at submission using the minutes on its own lines, and **detection**
- * raises the alert on its sweep after counting the shifts again. Exporting it
- * from detection would have made payroll import detection and detection
- * import payroll — a circle this codebase does not have anywhere else.
+ * need the same answer and neither may import the other: **payroll** will
+ * refuse a run at submission using the minutes on its own lines, and
+ * **detection** raises the alert on its sweep after counting the shifts
+ * again. Exporting it from detection would have made payroll import detection
+ * and detection import payroll — a circle this codebase does not have
+ * anywhere else.
+ *
+ * **Only detection calls it today.** Payroll has no run endpoints yet
+ * (Phase 4), so its half of R3 is owed, and until it lands the sweep alert is
+ * the only thing standing between a ghost and a payslip.
  */
 
 /** What the rule starts with: an hour a period (docs/plan/08 §2). */

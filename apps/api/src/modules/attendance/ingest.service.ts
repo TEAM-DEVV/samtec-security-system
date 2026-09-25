@@ -259,9 +259,26 @@ export class IngestService {
   }
 }
 
-/** The device clock minus the server clock, in whole seconds (positive = fast). */
+/**
+ * The device clock minus the server clock, in whole seconds (positive = fast),
+ * held to a year either way.
+ *
+ * The bound is not tidiness. The column is a 32-bit integer and the request
+ * schema accepts any year up to 9999, so a terminal whose clock battery died
+ * and reset to 2200 produced a number the column could not hold — which threw
+ * inside the punch transaction, lost the whole batch, and told the device the
+ * server was broken. A clock that wrong is now recorded as "a year out",
+ * which every rule already reads as badly wrong.
+ */
+const MAX_STORED_DRIFT_SECONDS = 365 * 24 * 60 * 60;
+
 function driftSeconds(deviceClockAt: string | undefined, serverTime: Date): number | null {
-  return deviceClockAt === undefined
-    ? null
-    : Math.round((Date.parse(deviceClockAt) - serverTime.getTime()) / 1000);
+  if (deviceClockAt === undefined) {
+    return null;
+  }
+  const seconds = Math.round((Date.parse(deviceClockAt) - serverTime.getTime()) / 1000);
+  if (!Number.isFinite(seconds)) {
+    return null;
+  }
+  return Math.max(-MAX_STORED_DRIFT_SECONDS, Math.min(MAX_STORED_DRIFT_SECONDS, seconds));
 }

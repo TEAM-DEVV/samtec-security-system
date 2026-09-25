@@ -9,6 +9,11 @@ export class RateLimitException extends HttpException {
   constructor(
     detail: string,
     readonly retryAfterSeconds: number,
+    /**
+     * True only on the attempt that started this lockout, so whoever catches
+     * it can write one audit line instead of one per attempt while locked.
+     */
+    readonly justLocked = false,
   ) {
     super(detail, HttpStatus.TOO_MANY_REQUESTS);
   }

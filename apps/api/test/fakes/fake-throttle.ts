@@ -32,6 +32,25 @@ export class FakeThrottle {
     return false;
   }
 
+  /**
+   * Takes one attempt before it is judged, and refuses everything past the
+   * fifth. The real one does this in a single SQL statement so a burst
+   * cannot slip through; that is proved against a real database in
+   * `test/db.e2e-spec.ts`.
+   */
+  async claimAttempt(kind: ThrottleKind, value: string): Promise<void> {
+    const key = `${kind}:${value}`;
+    const count = (this.failures.get(key) ?? 0) + 1;
+    this.failures.set(key, count);
+    if (count <= 5) {
+      return;
+    }
+    if (count === 6) {
+      this.lockedUntil.set(key, Date.now() + 15 * 60_000);
+    }
+    throw new RateLimitException('Too many attempts. Try again in 900 seconds.', 900, count === 6);
+  }
+
   async recordSuccess(kind: ThrottleKind, value: string): Promise<void> {
     const key = `${kind}:${value}`;
     this.failures.delete(key);
