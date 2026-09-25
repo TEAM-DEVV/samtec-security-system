@@ -9,6 +9,7 @@ import { DetectionModule } from './modules/detection/detection.module.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
 import { UsersModule } from './modules/identity/users.module.js';
 import { PayrollModule } from './modules/payroll/payroll.module.js';
+import { ReportsModule } from './modules/reports/reports.module.js';
 import { WorkforceModule } from './modules/workforce/workforce.module.js';
 
 /**
@@ -28,6 +29,7 @@ import { WorkforceModule } from './modules/workforce/workforce.module.js';
     AttendanceModule,
     PayrollModule,
     DetectionModule,
+    ReportsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
 })

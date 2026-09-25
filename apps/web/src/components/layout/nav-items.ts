@@ -1,6 +1,7 @@
 import type { UserRole } from '@samtec/contracts';
 import {
   Activity,
+  BarChart3,
   CalendarClock,
   Clock,
   FileText,
@@ -133,6 +134,15 @@ export const navItems: NavItem[] = [
     phase: 4,
     available: true,
     roles: pageRoles.payslips,
+  },
+  {
+    label: 'Reports',
+    description: 'Who is present, how much absence, and what payroll costs.',
+    to: routes.reports,
+    icon: BarChart3,
+    phase: 6,
+    available: true,
+    roles: pageRoles.reports,
   },
   {
     label: 'Ghost detection',

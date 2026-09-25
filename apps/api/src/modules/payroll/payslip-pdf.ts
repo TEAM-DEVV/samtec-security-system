@@ -111,7 +111,7 @@ export function textForPdf(value: string): string {
 }
 
 /** One line of text at a position, in a named font. */
-interface Line {
+export interface Line {
   x: number;
   y: number;
   size: number;
@@ -328,9 +328,15 @@ export function basisPointsAsPercent(basisPoints: number): string {
  * byte and those offsets are simply string positions — which is the only fiddly
  * part of the format and the reason the encoding is fixed rather than chosen.
  */
-export function buildPayslipPdf(payslip: PayslipForPdf): BuiltPdf {
-  const { lines, rules } = layout(payslip);
-
+/**
+ * Turns a laid-out page into a finished PDF.
+ *
+ * Exported so a second one-page report can reuse the plumbing instead of
+ * copying forty lines of it. Everything fiddly about the format lives here: the
+ * object numbering, the byte offsets in the cross-reference table, and the
+ * Latin-1 assembly that makes those offsets plain string positions.
+ */
+export function assemblePdf(lines: readonly Line[], rules: readonly number[]): BuiltPdf {
   const drawing = [
     ...rules.map(rule),
     ...lines.map(
@@ -374,6 +380,12 @@ export function buildPayslipPdf(payslip: PayslipForPdf): BuiltPdf {
     sizeBytes: bytes.byteLength,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
+}
+
+/** The payslip, laid out and assembled. */
+export function buildPayslipPdf(payslip: PayslipForPdf): BuiltPdf {
+  const { lines, rules } = layout(payslip);
+  return assemblePdf(lines, rules);
 }
 
 /**
