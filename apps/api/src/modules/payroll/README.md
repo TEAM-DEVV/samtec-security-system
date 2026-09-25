@@ -54,10 +54,15 @@ about confirmed shifts.
 | `payroll.schemas.ts` | Every Zod input rule for the module, in one file. Always `strictObject` |
 | `payroll-periods.service.ts` | Opening a month, listing months, closing one for good |
 | `payroll-runs.service.ts` | Calculating a draft run from the company's own records, and reading one back |
+| `payroll-approval.service.ts` | Submitting, approving, rejecting, marking paid, and the bank file |
+| `payslips.service.ts` | Reading a payslip, and handing back the stored file |
+| `payslips.controller.ts` | `/payroll/payslips`. The one payroll route a GUARD may reach |
 | `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
 | `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
 | `run-mapping.ts` | The same for runs and lines, including the totals, which are the exact sums of the lines |
+| `payslip-pdf.ts` | The payslip as a one-page PDF, written directly. No PDF library |
+| `bank-export.ts` | The bank file, with the quoting and the formula guard that stop a row being forged |
 | `payroll-facts.service.ts` | The read seam for ghost detection: minutes and identifiers, never money |
 | `pay-calculation.ts` | The money, as a pure function: pro-rating, SSNIT, the graduated PAYE bands, net pay. No database, no `this` |
 | `worked-minutes.ts` | Which shifts belong to the period, which minutes are overtime, and how many days somebody was employed. Also pure |
@@ -153,13 +158,27 @@ Both read seams are per **date**, not per month, because overtime is decided
 day by day against that day's shift pattern. A month's total cannot tell you
 whether somebody worked four short days and one very long one.
 
+## Why the payslip has no PDF library
+
+The plan first named `pdfkit`. Checking it before taking it on turned up facts
+the plan was made without: it has no published proof of who built it on any
+version, nor do its six dependencies, and it adds about ten megabytes to a
+serverless function.
+
+A payslip is one page of text. PDF is a text format, and the fourteen standard
+fonts are in every reader, so nothing is embedded, measured or subset — which is
+why `payslip-pdf.ts` is short enough to read in one sitting. It uses Helvetica
+for words and Courier for money, and because Courier is monospaced the amounts
+right-align exactly by counting characters, with no font metrics at all.
+
+This is the same reasoning that put the two-factor code generator in this
+codebase by hand rather than as a dependency (see
+`docs/plan/02-stack-decisions.md`, 17 September). If a richer payslip is ever
+wanted, `buildPayslipPdf` is one function behind one interface, and swapping it
+for a library is a contained change.
+
 ## Still to build
 
-Submitting a run, approving it, rejecting it and marking it paid; the payslip
-PDF; and the bank export. Then the dashboard screens. The contract for all of
-them is already merged, inside the `# --- Payroll (Phase 4) ---` banners of
+The dashboard screens. **The whole payroll API is in.** The contract for the
+screens is already merged, inside the `# --- Payroll (Phase 4) ---` banners of
 `packages/contracts/openapi.yaml`.
-
-**Submitting must refuse a run that pays for hours nobody worked** — rule R3,
-through `src/common/paid-beyond-presence.ts` with the fixed sixty-minute
-floor, never by importing detection. The section below says why.

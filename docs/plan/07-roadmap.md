@@ -92,7 +92,9 @@ the house style for a backend module is in
 - [x] The setup endpoints: payroll months, the statutory rate versions, each worker's pay history and where their salary is sent — with the refusals that matter tested, including a set of tax bands that would leave the highest earners untaxed and a bank name a spreadsheet would run as a formula
 - [x] Calculating a draft run, copying every input into its lines, with the hand-calculated figures checked through the real HTTP stack against a real database; who was left out is named rather than forgotten
 - [x] Reading a run back: its lines by staff number, and the statutory summary with the rates it was worked out at
-- Maker–checker approval endpoints, payslip PDFs, bank CSV export
+- [x] Maker–checker approval: submit, approve, reject and mark paid, with the maker refused by the service, by a database `CHECK` and by the four names the run records. Submitting also refuses a run that pays for hours the attendance records do not support, counted afresh rather than read off the line
+- [x] Payslips made when a run is approved, in the same transaction, and never made again; the PDF written directly with no library, and handed back byte for byte
+- [x] The bank file, with RFC 4180 quoting and a formula guard, and both downloads audited
 - **Exit demo:** close a month, approve it as a second user, and open a payslip whose numbers can be checked by hand
 
 ## Phase 5 · Ghost detection (weeks 11 and 12)

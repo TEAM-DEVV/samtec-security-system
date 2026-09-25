@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
 import type {
   PayrollLineList,
   PayrollPeriod,
@@ -12,6 +22,8 @@ import type {
 import type { Response } from 'express';
 import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
+  type ApproveRunBody,
+  approveRunSchema,
   type CreatePeriodBody,
   type CreateRunBody,
   type CreateTaxTableBody,
@@ -27,7 +39,14 @@ import {
   listPeriodsQuerySchema,
   listRunsQuerySchema,
   listTaxTablesQuerySchema,
+  type MarkPaidBody,
+  markPaidSchema,
+  type RejectRunBody,
+  rejectRunSchema,
+  type SubmitRunBody,
+  submitRunSchema,
 } from './payroll.schemas.js';
+import { PayrollApprovalService } from './payroll-approval.service.js';
 import { PayrollPeriodsService } from './payroll-periods.service.js';
 import { PayrollRunsService } from './payroll-runs.service.js';
 import { TaxTablesService } from './tax-tables.service.js';
@@ -50,6 +69,7 @@ export class PayrollController {
     private readonly periods: PayrollPeriodsService,
     private readonly taxTables: TaxTablesService,
     private readonly runs: PayrollRunsService,
+    private readonly approval: PayrollApprovalService,
   ) {}
 
   @Get('periods')
@@ -126,6 +146,70 @@ export class PayrollController {
     @Param('runId', { schema: idSchema }) runId: string,
   ): Promise<PayrollStatutorySummary> {
     return this.runs.statutorySummary(caller, runId);
+  }
+
+  @Post('runs/:runId/submit')
+  @HttpCode(200) // Nothing new is created; the run moves forward.
+  submitRun(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Body({ schema: submitRunSchema }) body: SubmitRunBody,
+  ): Promise<PayrollRun> {
+    return this.approval.submit(caller, runId, body);
+  }
+
+  // Only an ADMIN approves or rejects, and the service then refuses anybody who
+  // worked on the run. Two different rules: one about the role, one about the
+  // person, and the second answers 403 after the run has been found.
+  @Post('runs/:runId/approve')
+  @HttpCode(200)
+  @Roles('ADMIN')
+  approveRun(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Body({ schema: approveRunSchema }) body: ApproveRunBody,
+  ): Promise<PayrollRun> {
+    return this.approval.approve(caller, runId, body);
+  }
+
+  @Post('runs/:runId/reject')
+  @HttpCode(200)
+  @Roles('ADMIN')
+  rejectRun(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Body({ schema: rejectRunSchema }) body: RejectRunBody,
+  ): Promise<PayrollRun> {
+    return this.approval.reject(caller, runId, body);
+  }
+
+  @Post('runs/:runId/mark-paid')
+  @HttpCode(200)
+  @Roles('ADMIN')
+  markRunPaid(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Body({ schema: markPaidSchema }) body: MarkPaidBody,
+  ): Promise<PayrollRun> {
+    return this.approval.markPaid(caller, runId, body);
+  }
+
+  /**
+   * The bank file. It carries every worker's account number, so it is a
+   * download rather than JSON, it is never cached, and asking for it is audited.
+   */
+  @Get('runs/:runId/bank-export')
+  async bankExport(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.approval.bankExport(caller, runId);
+    response.setHeader('Cache-Control', 'no-store');
+    return new StreamableFile(Buffer.from(file.csv, 'utf8'), {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${file.fileName}"`,
+    });
   }
 
   @Get('tax-tables')

@@ -1308,6 +1308,8 @@ model PayrollRun {
 
   @@index([companyId, periodId])
   @@index([companyId, status])
+  /// The runs list: newest first, with the id as the tiebreaker it pages on.
+  @@index([companyId, calculatedAt(sort: Desc), id])
   @@map("payroll_runs")
 }
 
@@ -1375,6 +1377,8 @@ model PayrollLine {
 
   @@index([companyId, runId])
   @@index([employeeId])
+  /// The lines list: by staff number, then id, which is the order it pages in.
+  @@index([companyId, runId, staffNumber, id])
   @@map("payroll_lines")
 }
 
@@ -1400,5 +1404,7 @@ model Payslip {
 
   @@index([companyId, employeeId])
   @@index([runId])
+  /// The payslip list: newest first, with the id as the tiebreaker.
+  @@index([companyId, generatedAt(sort: Desc), id])
   @@map("payslips")
 }

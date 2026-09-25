@@ -5,9 +5,12 @@ import { WorkforceModule } from '../workforce/workforce.module.js';
 import { EmployeePayController } from './employee-pay.controller.js';
 import { EmployeePayService } from './employee-pay.service.js';
 import { PayrollController } from './payroll.controller.js';
+import { PayrollApprovalService } from './payroll-approval.service.js';
 import { PayrollFactsService } from './payroll-facts.service.js';
 import { PayrollPeriodsService } from './payroll-periods.service.js';
 import { PayrollRunsService } from './payroll-runs.service.js';
+import { PayslipsController } from './payslips.controller.js';
+import { PayslipsService } from './payslips.service.js';
 import { TaxTablesService } from './tax-tables.service.js';
 
 /**
@@ -31,12 +34,14 @@ import { TaxTablesService } from './tax-tables.service.js';
  */
 @Module({
   imports: [IdentityModule, WorkforceModule, AttendanceModule],
-  controllers: [PayrollController, EmployeePayController],
+  controllers: [PayrollController, PayslipsController, EmployeePayController],
   providers: [
     PayrollPeriodsService,
     TaxTablesService,
     EmployeePayService,
     PayrollRunsService,
+    PayrollApprovalService,
+    PayslipsService,
     PayrollFactsService,
   ],
   exports: [
@@ -44,6 +49,8 @@ import { TaxTablesService } from './tax-tables.service.js';
     TaxTablesService,
     EmployeePayService,
     PayrollRunsService,
+    PayrollApprovalService,
+    PayslipsService,
     PayrollFactsService,
   ],
 })
