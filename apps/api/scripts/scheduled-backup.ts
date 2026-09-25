@@ -17,7 +17,12 @@
  *    which defaults to `<your home folder>/.samtec/backup-database-url.txt`.
  * 3. Whatever `DATABASE_URL` the backup script itself finds — on a developer's
  *    machine that is the local database, which is almost never what a
- *    schedule is for, so the log says so out loud.
+ *    schedule is for.
+ *
+ * **A backup of a database on this computer is marked `REHEARSAL`, not `OK`**,
+ * however it was chosen. It is the same work and the same file, but it
+ * protects nothing that is not already on this machine, and a log that called
+ * it `OK` would read like a working backup for months.
  *
  * The file exists so the connection string lives **outside this repository**,
  * where no `git add` can reach it. Nothing here ever prints the password: the
@@ -55,6 +60,23 @@ const KEEP_DEFAULT = 14;
 const BACKUP_NAME = /^samtec-.*\.ndjson$/;
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * True when this address is a database on the machine running the script.
+ *
+ * It matters because a schedule pointed at a developer's own database looks
+ * exactly like a working backup in the log — the same "OK", the same row
+ * count — while backing up nothing anybody would miss. Saying it out loud
+ * every single time is the only way the log cannot quietly lie.
+ */
+function isOnThisComputer(databaseUrl: string): boolean {
+  try {
+    const host = new URL(databaseUrl).hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  } catch {
+    return false;
+  }
+}
 
 /** Where a connection string points, without the password. */
 function describe(databaseUrl: string): string {
@@ -182,9 +204,15 @@ async function main(): Promise<void> {
     const rows = /([\d,]+)\s+rows?/.exec(said)?.[1] ?? 'an unknown number of';
     const where = chosen.url ? describe(chosen.url) : 'this computer';
     const removed = keepTheNewest(folder, keep);
+    const rehearsal = !chosen.url || isOnThisComputer(chosen.url);
     note(
-      `OK  ${rows} rows from ${where} into ${to}${removed > 0 ? `, and ${removed} older backup${removed === 1 ? '' : 's'} deleted (keeping ${keep})` : ''}`,
+      `${rehearsal ? 'REHEARSAL' : 'OK'}  ${rows} rows from ${where} into ${to}${removed > 0 ? `, and ${removed} older backup${removed === 1 ? '' : 's'} deleted (keeping ${keep})` : ''}`,
     );
+    if (rehearsal) {
+      note(
+        'REHEARSAL: that database lives on this computer, so this backup protects nothing that is not already here. Name the real one in the file above to make it count.',
+      );
+    }
   } catch (problem) {
     note(`FAILED  ${problem instanceof Error ? problem.message.split('\n')[0] : String(problem)}`);
     process.exitCode = 1;
