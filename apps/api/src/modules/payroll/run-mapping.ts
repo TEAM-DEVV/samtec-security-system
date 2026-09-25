@@ -94,17 +94,71 @@ export function exclusionsOf(stored: unknown): PayrollRunExclusion[] {
       continue;
     }
     const row = item as { employee?: unknown; reason?: unknown };
-    const employee = row.employee as EmployeeRef | undefined;
+    const employee = row.employee as Partial<EmployeeRef> | undefined;
+    // Every field is checked, not just the id. A payroll officer reads this list
+    // to know who to chase, so an entry missing a staff number is worse than no
+    // entry at all — it names somebody they cannot look up.
     if (
       employee === undefined ||
+      employee === null ||
       typeof employee.id !== 'string' ||
+      typeof employee.staffNumber !== 'string' ||
+      typeof employee.fullName !== 'string' ||
       (row.reason !== 'SUSPENDED' && row.reason !== 'NO_PAY_TERMS')
     ) {
       continue;
     }
-    exclusions.push({ employee, reason: row.reason });
+    exclusions.push({
+      employee: {
+        id: employee.id,
+        staffNumber: employee.staffNumber,
+        fullName: employee.fullName,
+      },
+      reason: row.reason,
+    });
   }
   return exclusions;
+}
+
+/**
+ * The totals and counts of one run, however they were arrived at.
+ *
+ * The list endpoint has the database add them up, because loading every line of
+ * every run on a page to sum ten columns is a thousand rows nobody reads. The
+ * single-run endpoints already hold the lines, so they count them directly. Both
+ * routes end up here, so the two can never produce a different shape.
+ */
+export interface RunSummaryTotals {
+  lineCount: number;
+  employeeCount: number;
+  adjustmentLineCount: number;
+  totals: PayrollRunTotals;
+}
+
+/** A run with no lines at all: every total zero, every count zero. */
+export function emptyRunSummary(): RunSummaryTotals {
+  return { lineCount: 0, employeeCount: 0, adjustmentLineCount: 0, totals: { ...NO_TOTALS } };
+}
+
+/** One payroll run, from totals somebody else has already added up. */
+export function toApiRunFromSummary(
+  row: PayrollRun,
+  context: {
+    period: Pick<PayrollPeriod, 'startsOn' | 'endsOn'>;
+    taxYear: number;
+    summary: RunSummaryTotals;
+  },
+): ApiPayrollRun {
+  return {
+    ...toApiRun(row, { period: context.period, taxYear: context.taxYear, lines: [] }),
+    totals: context.summary.totals,
+    summary: {
+      lineCount: context.summary.lineCount,
+      employeeCount: context.summary.employeeCount,
+      adjustmentLineCount: context.summary.adjustmentLineCount,
+      excluded: exclusionsOf(row.excludedEmployees),
+    },
+  };
 }
 
 /** One payroll run, with the totals and counts worked out from its lines. */

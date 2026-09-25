@@ -12,13 +12,14 @@ import type { SegmentStatus } from '@samtec/contracts';
 export const DEFAULT_SCHEDULED_MINUTES = 480;
 
 /**
- * How long a shift pattern runs, in minutes. A night shift wraps past
- * midnight — 22:00 to 06:00 is 1320 to 360 — so the day is added back before
- * the remainder is taken.
+ * How long a shift pattern is.
+ *
+ * It lives in `src/common/shift-length.ts`, because the workforce module
+ * needs the same answer when it reports what each date was scheduled for,
+ * and neither module may import the other. It is re-exported here so this
+ * file still reads as the one place payroll's minutes are worked out.
  */
-export function shiftLengthMinutes(startMinutes: number, endMinutes: number): number {
-  return (endMinutes - startMinutes + 1440) % 1440;
-}
+export { shiftLengthMinutes } from '../../common/shift-length.js';
 
 /** One confirmed shift, as the attendance module recorded it. */
 export interface PayableSegment {
