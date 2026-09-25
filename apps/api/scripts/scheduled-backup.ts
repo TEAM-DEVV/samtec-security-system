@@ -28,7 +28,8 @@
  * `<your home folder>/samtec-backups`, the same place `db:backup` uses,
  * unless `SAMTEC_BACKUP_DIR` says otherwise. The newest
  * `SAMTEC_BACKUP_KEEP` files are kept (14 by default) and older ones are
- * deleted — only files this script itself writes, matched by name.
+ * deleted — only files this script itself writes, matched by name. At the
+ * weekly cadence this project runs, 14 is about three months of history.
  *
  * **Not a public artifact, and not this repository.** A backup is the whole
  * company in one file: names, Ghana Card numbers, pay, bank details and the
