@@ -20,10 +20,13 @@ import { KioskAttemptsPage } from '@/pages/kiosk-attempts-page';
 import { LiveBoardPage } from '@/pages/live-board-page';
 import { LoginPage } from '@/pages/login-page';
 import { MyAttendancePage } from '@/pages/my-attendance-page';
+import { MyPayslipsPage } from '@/pages/my-payslips-page';
 import { NewDevicePage } from '@/pages/new-device-page';
 import { NewUserPage } from '@/pages/new-user-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
+import { PayrollPage } from '@/pages/payroll-page';
+import { PayrollRunPage } from '@/pages/payroll-run-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SetPasswordPage } from '@/pages/set-password-page';
 import { SitesPage } from '@/pages/sites-page';
@@ -183,6 +186,31 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.devices}>
             <DeviceDetailPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'payroll',
+        element: (
+          <RequireRole roles={pageRoles.payroll}>
+            <PayrollPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'payroll/runs/:runId',
+        element: (
+          <RequireRole roles={pageRoles.payroll}>
+            <PayrollRunPage />
+          </RequireRole>
+        ),
+      },
+      {
+        // The one payroll page a guard may open, and only for their own.
+        path: 'payroll/payslips/me',
+        element: (
+          <RequireRole roles={pageRoles.payslips}>
+            <MyPayslipsPage />
           </RequireRole>
         ),
       },

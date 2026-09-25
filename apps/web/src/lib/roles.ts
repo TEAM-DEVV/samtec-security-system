@@ -55,6 +55,18 @@ export const pageRoles = {
   detection: ['ADMIN', 'HR_PAYROLL'],
   /** `POST /detection/sweep` and `PATCH /detection/rules/{code}`: running the rules and changing them. */
   detectionChanges: ['ADMIN'],
+  /** `GET /payroll/periods` and `GET /payroll/runs`: the months and their runs. A supervisor runs the roster and never the money. */
+  payroll: ['ADMIN', 'HR_PAYROLL'],
+  /** Opening a month, calculating a run and submitting it. The API also refuses anybody but the maker to submit. */
+  payrollChanges: ['ADMIN', 'HR_PAYROLL'],
+  /** `POST …/approve`, `…/reject` and `…/mark-paid`. The API also refuses anybody who worked on the run. */
+  payrollApproval: ['ADMIN'],
+  /**
+   * `GET /payroll/payslips` — **the one page a GUARD may open.** They see their
+   * own payslips and nobody else's, which the API enforces by scoping the list
+   * to them rather than refusing them.
+   */
+  payslips: ['ADMIN', 'HR_PAYROLL', 'GUARD'],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 /** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */
