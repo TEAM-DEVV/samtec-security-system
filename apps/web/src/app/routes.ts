@@ -7,9 +7,16 @@ export const routes = {
   status: '/status',
   login: '/login',
   employees: '/employees',
+  /** Register a new employee (ADMIN and HR_PAYROLL). */
+  newEmployee: '/employees/new',
   sites: '/sites',
   /** One employee's record. */
   employee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}`,
+  /** Change one employee's record (ADMIN and HR_PAYROLL). */
+  editEmployee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}/edit`,
+  /** Record that an employee has left. One way only, so it has its own page. */
+  terminateEmployee: (employeeId: string) =>
+    `/employees/${encodeURIComponent(employeeId)}/terminate`,
   /** Sign-in accounts (ADMIN only). */
   users: '/users',
   newUser: '/users/new',

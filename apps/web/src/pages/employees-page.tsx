@@ -1,6 +1,6 @@
 import type { EmployeeList, EmployeeStatus } from '@samtec/contracts';
 import { cn } from 'cn';
-import { Search, Users } from 'lucide-react';
+import { Search, UserPlus, Users } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router';
 import { routes } from '@/app/routes';
@@ -31,6 +31,8 @@ import { $api } from '@/lib/api';
 import { useCursorPages } from '@/lib/cursor-pages';
 import { formatDate } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
+import { pageRoles, roleAllowed } from '@/lib/roles';
+import { useSession } from '@/lib/session';
 
 const PAGE_SIZE = 10;
 const COLUMN_COUNT = 7;
@@ -47,6 +49,9 @@ const SEARCH_MAX_LENGTH = 100;
  */
 export function EmployeesPage() {
   usePageTitle('Employees');
+  const session = useSession();
+  // A supervisor reads this list but may not change anybody on it.
+  const mayAdd = session !== null && roleAllowed(pageRoles.employeeChanges, session.user.role);
   const [searchInput, setSearchInput] = useState('');
   const [searchTooShort, setSearchTooShort] = useState(false);
   const [search, setSearch] = useState<string>();
@@ -90,6 +95,16 @@ export function EmployeesPage() {
         eyebrow="Workforce"
         title="Employees"
         description="Guards and staff on the company payroll."
+        actions={
+          mayAdd ? (
+            <Button asChild>
+              <Link to={routes.newEmployee}>
+                <UserPlus aria-hidden="true" />
+                Add employee
+              </Link>
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-wrap items-start gap-4 rounded-2xl border bg-card/60 p-4">
