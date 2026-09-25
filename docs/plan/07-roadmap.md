@@ -71,7 +71,8 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [x] Roster sync and finger-enrollment windows: `POST /ingest/roster`, `POST /ingest/enrollments` and `POST /devices/{id}/finger-enrollment-windows`, with a terminal that can never enroll anybody by itself
-- [ ] The pull fallback, the demo guide and the threshold report
+- [x] **The threshold report** — [The face-matcher threshold report](../guides/14-face-threshold-report.md), produced by `pnpm --filter @samtec/api face:scores`. It measures what each of the five `ft-1` numbers would decide, using the shipped matcher, and its most useful result is one that can be shown rather than asserted: on a crowd with look-alikes in it, removing the lead rule matches four clock-ins in two hundred to the **wrong person**, and 0.05 turns all four into a second try. It also found that the duplicate queue's false-query rate grows with headcount (0% at 40 people on file, 21.5% at 200), so `duplicate` should rise with a company's size. **Still owed, and said plainly in the report:** the pilot with real volunteers has not happened, so the numbers come from a generated stand-in and cannot confirm `ft-1` for a paying client
+- [ ] The pull fallback and the biometrics demo guide (with the kiosk app — **Samuel**)
 - [x] **Samuel:** dashboard — live clock-ins board (`/attendance/live`), the employee Biometrics panel, the duplicate-enrollment queue (`/biometrics/duplicates`), and kiosk attempts per device (`/devices/attempts`). Built against the mock API. (The new device fields — serial number and the kiosk fingerprint switch — shipped with the Phase 2 Devices pages.)
 - **Exit demo:** a real face-plus-fingerprint clock-in on a phone acting as the site kiosk appears on the dashboard within 5 seconds, and the ZKTeco path passes end to end against the simulator
 
@@ -132,7 +133,7 @@ final visual pass: **Francis**.
 
 - Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
 - Production settings: `NODE_ENV=production` with `ALLOW_SIMULATOR_DEVICES` left unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
-- **Defense pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help
+- [x] **Defence pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help — [The defence pack](../guides/13-defence-pack.md). It describes what is built today and marks every gap, with its owner, in a box: payroll's run workflow and screens, reports, the kiosk and gateway apps, and the employee forms. It ends with the questions a panel actually asks, each with a short answer. Re-read the gap boxes on the day, because they move
 - Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands
 - **Then production for the paying client:** a production environment separate from TEST (real client data only there), set up to the security plan

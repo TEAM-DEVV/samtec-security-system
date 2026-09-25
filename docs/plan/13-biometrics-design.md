@@ -271,7 +271,7 @@ No response carries an embedding, a template or a Ghana Card number, and no kios
 
 - **Where to test:** laptops on `localhost`, and phones only on the fixed TEST kiosk address. Preview addresses change the relying party ID, and plain-HTTP addresses on the local network block the camera. Load time and frame rate are measured on an Android phone, an iPhone and a Windows laptop.
 - **CI:** Playwright with Chrome's virtual authenticator, and a stand-in for Human that produces made-up face samples. The logger-spy test that proves an embedding never reaches a log also covers the error paths (a `400` and a `413` on the kiosk routes).
-- **Pilot:** 10 or more consenting volunteers. A `face:scores` script prints how same-person and different-person scores spread, which is how threshold version `ft-1` (including the duplicate threshold) gets its final numbers.
+- **Pilot:** 10 or more consenting volunteers. A `face:scores` script prints how same-person and different-person scores spread, which is how threshold version `ft-1` (including the duplicate threshold) gets its final numbers. **The script is built** (`pnpm --filter @samtec/api face:scores`, machinery in `face-score-study.ts`) and written up in [The face-matcher threshold report](../guides/14-face-threshold-report.md), which also says what a generated stand-in cannot show and exactly what the pilot must do. The pilot itself is still owed.
 - **The defense demo** (the Android phone is the kiosk, the laptop shows the dashboard):
   1. Samuel, as ADMIN, creates Kwame and registers the phone as kiosk ACC-01.
   2. On the phone: Ghana Card digits, consent, then the face → `PASSED`, and Kwame is ACTIVE. Samuel saves Kwame's finger, and enrolls a supervisor.

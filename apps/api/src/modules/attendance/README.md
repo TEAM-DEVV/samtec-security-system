@@ -35,6 +35,7 @@ Every rule, with its reason, is in [docs/plan/12-attendance-design.md](../../../
 | `face-thresholds.ts` | Every face number in one place, with the name (`ft-1`) stored on each attempt. |
 | `face-match.ts` | Pure rules: Human's similarity formula copied to the server, who a face is (match, not sure, not recognised), the duplicate check (which leaves out the worker's own faces), and whether a capture's frames agree. |
 | `face-template.ts` | Sealing a template with AES-256-GCM, bound to its own row, and opening it again. |
+| `face-score-study.ts` | Not used by the running API: the machinery behind the threshold report (`pnpm --filter @samtec/api face:scores`, written up in [docs/guides/14-face-threshold-report.md](../../../../../docs/guides/14-face-threshold-report.md)). It measures what each face number would decide, using the shipped matcher, and its test pins its copy of the clock-in rule to `identifyFace`. |
 | `face-provider.ts` | The only place that opens a sealed template: hands rows in, gets a decision back. |
 
 ## Rules that must hold
