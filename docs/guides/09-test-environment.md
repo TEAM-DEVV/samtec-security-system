@@ -47,14 +47,20 @@ project (or merge the next pull request).
    **database migrations apply themselves** — merging a migration is all it
    takes.
 
-   A preview build (every push to a branch, every pull request) deliberately
-   does **not** migrate. There is one TEST database for both, so a preview
-   used to change the shared schema before anybody had reviewed it — and
-   because a migration regenerated on top of `main` gets a new folder name,
-   the old one stayed recorded in a database where the repository no longer
-   had it, and every later deploy died at the migrate step until somebody
-   deleted that row by hand. The guard is in `apps/api/vercel.json`, in the
-   build command: migrations run only when `VERCEL_ENV` is `production`.
+   A build that is **not** the production one deliberately does not migrate.
+   The guard is in `apps/api/vercel.json`, in the build command: migrations run
+   only when `VERCEL_ENV` is `production`.
+
+   **Why it is there, honestly.** No preview has ever been built for the API:
+   Branch Tracking is switched off for `samtec-test-api`, so only `main`
+   deploys. The guard is against the day somebody switches it on, or deploys
+   a branch from the command line — because there is one TEST database for
+   every environment, and the project variables reach them all. A preview
+   would then apply a migration to the shared schema before anybody had
+   reviewed it; and since a migration regenerated on top of `main` gets a new
+   folder name, the old one would stay recorded in a database where the
+   repository no longer had it, and every later deploy would die at the
+   migrate step until somebody deleted that row by hand.
 4. A minute or two later, TEST is running your change.
 
 Normally there is nothing to click. If TEST breaks, check the deploy logs
