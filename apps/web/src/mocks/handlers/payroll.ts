@@ -411,16 +411,21 @@ export const payrollHandlers = [
       if (refused) return refused;
       const bad = idProblem(params.runId, 'runId');
       if (bad) return bad;
-      const run = findRun(params.runId);
-      if (!run) return notFound('No payroll run exists with this ID.');
+      // A bad request is decided before a missing record: 400 then 404, as
+      // docs/plan/05-api-contract.md sets out and the real API does.
       const query = new URL(request.url).searchParams;
       const limit = readLimit(query);
       if (limit === undefined) {
         return validationProblem('limit', 'Must be a whole number from 1 to 100.');
       }
-      const employeeId = query.get('employeeId');
+      const employeeIdFilter = query.get('employeeId');
+      if (employeeIdFilter !== null && !isUuid(employeeIdFilter)) {
+        return validationProblem('employeeId', 'Must be a valid ID.');
+      }
+      const run = findRun(params.runId);
+      if (!run) return notFound('No payroll run exists with this ID.');
+      const employeeId = employeeIdFilter;
       if (employeeId !== null) {
-        if (!isUuid(employeeId)) return validationProblem('employeeId', 'Must be a valid ID.');
         if (!mockEmployees.some((employee) => employee.id === employeeId)) {
           return notFound('No employee exists with this ID.');
         }

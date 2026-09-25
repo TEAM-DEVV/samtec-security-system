@@ -10,6 +10,7 @@ import type { SignedInUser } from '../../common/auth.decorators.js';
 import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { isUniqueViolation } from '../../common/prisma-errors.js';
+import { shiftLengthMinutes } from '../../common/shift-length.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { EmployeeStatus } from '../../generated/prisma/enums.js';
@@ -951,13 +952,27 @@ export class EmployeesService {
       scheduledMinutesOnDate: Map<string, number>;
     }[]
   > {
+    /**
+     * Employed at some point inside this month: one condition, not two. The
+     * spell started on or before the last day, and it had not already ended
+     * before the first.
+     *
+     * The employee and their spells are filtered by the very same object, on
+     * purpose. Filtering them by different rules let a spell through that does
+     * not overlap the month at all, and its owner then got a payroll line for
+     * zero days of pay — a line that can never be deleted.
+     */
+    const overlapsTheMonth = {
+      startsOn: { lte: period.endsOn },
+      OR: [{ endsOn: null }, { endsOn: { gte: period.startsOn } }],
+    };
+
     const employees = await this.prisma.employee.findMany({
       where: {
         companyId,
-        // Somebody who left before the month started is nobody's business
-        // here. Everybody else is, including a suspended worker, so the run
-        // can say out loud that they were left out.
-        periods: { some: { startsOn: { lte: period.endsOn } } },
+        // Everybody who was on the books for any of it, a suspended worker
+        // included, so the run can say out loud that they were left out.
+        periods: { some: overlapsTheMonth },
       },
       select: {
         id: true,
@@ -967,7 +982,7 @@ export class EmployeesService {
         lastName: true,
         status: true,
         periods: {
-          where: { OR: [{ endsOn: null }, { endsOn: { gte: period.startsOn } }] },
+          where: overlapsTheMonth,
           select: { startsOn: true, endsOn: true },
           orderBy: { startsOn: 'asc' },
         },
@@ -1025,10 +1040,13 @@ function scheduledMinutesByDate(
     if (assignment.shiftPattern === null) {
       continue;
     }
-    // The same arithmetic payroll uses, so a night shift that ends after
-    // midnight is its real length and not a negative number.
-    const length =
-      (assignment.shiftPattern.endMinutes - assignment.shiftPattern.startMinutes + 1440) % 1440;
+    // The shared rule in `src/common/shift-length.ts`, not a second copy of
+    // the arithmetic. One tested implementation is worth more than two that
+    // agree on the day they were written.
+    const length = shiftLengthMinutes(
+      assignment.shiftPattern.startMinutes,
+      assignment.shiftPattern.endMinutes,
+    );
     const from = assignment.startsOn > period.startsOn ? assignment.startsOn : period.startsOn;
     const to =
       assignment.endsOn !== null && assignment.endsOn < period.endsOn
