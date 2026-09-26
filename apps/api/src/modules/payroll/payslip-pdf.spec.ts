@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   basisPointsAsPercent,
   buildPayslipPdf,
+  charactersThatFit,
   hoursAndMinutes,
   money,
   type PayslipForPdf,
   payslipFileName,
   textForPdf,
+  wrapToWidth,
 } from './payslip-pdf.js';
 
 /**
@@ -287,5 +289,65 @@ describe('what the file is called when somebody saves it', () => {
     expect(payslipFileName('SMT-00042', '2026-09-30', 'a1b2c3d4-0000', true)).toBe(
       'payslip-SMT-00042-2026-09-adjustment-a1b2c3d4.pdf',
     );
+  });
+});
+
+/**
+ * Nothing may run off the right edge of the page.
+ *
+ * We ship no font metrics — that is the point of using a font every reader
+ * already has — so instead of measuring text the layout assumes every character
+ * is the widest glyph in the font. That wraps ordinary text a little early and
+ * can never overflow, which is the trade-off we want: wrapping early is
+ * cosmetic, running off the page loses a worker's name.
+ */
+describe('fitting text to the page', () => {
+  it('never puts more on a line than certainly fits', () => {
+    // 483pt of usable width, at 1.02 em per character.
+    expect(charactersThatFit(11)).toBe(43);
+    expect(charactersThatFit(9)).toBe(52);
+    // Never zero, however large the text.
+    expect(charactersThatFit(999)).toBe(1);
+  });
+
+  it('leaves short text alone', () => {
+    expect(wrapToWidth('Kwame Mensah', 11)).toEqual(['Kwame Mensah']);
+  });
+
+  it('breaks a long line on a space', () => {
+    const name = 'Nana Kwame Osei Tutu Agyeman Prempeh Boakye Danquah Mensah';
+    const parts = wrapToWidth(name, 11);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(part.length).toBeLessThanOrEqual(charactersThatFit(11));
+    }
+    // Nothing is lost: the words come back in order.
+    expect(parts.join(' ')).toBe(name);
+  });
+
+  it('breaks up a single word too long for any line, rather than losing it', () => {
+    const wall = 'x'.repeat(100);
+    const parts = wrapToWidth(wall, 11);
+    expect(parts.join('')).toBe(wall);
+    for (const part of parts) {
+      expect(part.length).toBeLessThanOrEqual(charactersThatFit(11));
+    }
+  });
+
+  it('returns one empty line for empty text, so a caller always has something to draw', () => {
+    expect(wrapToWidth('', 11)).toEqual(['']);
+  });
+
+  it('keeps a very long name and its staff number on the page', () => {
+    // The staff number used to be printed after the name on one line, so a long
+    // name pushed the one field that identifies the worker exactly off the edge.
+    const long = 'Nana Kwame Osei Tutu Agyeman Prempeh Boakye Danquah Mensah Aggrey';
+    const built = buildPayslipPdf({ ...PAYSLIP, fullName: long });
+    const text = Buffer.from(built.bytes).toString('latin1');
+    expect(text).toContain('SMT-00042');
+    // Every line of the name is on the page, and none of it was dropped.
+    for (const part of wrapToWidth(long, 11)) {
+      expect(text).toContain(part);
+    }
   });
 });

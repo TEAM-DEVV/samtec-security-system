@@ -20,6 +20,24 @@ import { decodeCursor } from '../../common/pagination.js';
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * The shape of every id in this system: a UUID, in the canonical form Prisma
+ * accepts for a `@db.Uuid` column.
+ *
+ * This is checked rather than assumed because of what happens otherwise.
+ * `decodeCursor` proves only that a value is one of our base64 cursors, not
+ * that what comes out of it means anything — `aGVsbG8tfHdvcmxk` decodes
+ * perfectly well to `hello|world`. The `world` half then reaches Prisma as a
+ * uuid, which it refuses with an error that carries no HTTP status, so the
+ * caller gets a 500 for a plainly bad request.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when a cursor's id half is really an id. */
+export function looksLikeAnId(value: string | undefined): value is string {
+  return value !== undefined && UUID.test(value);
+}
+
+/**
  * The date a cursor points just past, or `undefined` when there is no cursor.
  * Anything that is not one of our cursors, or that does not hold a real
  * calendar date, is a 400 that tells the caller to start again.

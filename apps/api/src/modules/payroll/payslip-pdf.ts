@@ -141,6 +141,65 @@ function rule(y: number): string {
   return `${MARGIN} ${y} ${PAGE_WIDTH - 2 * MARGIN} 0.6 re f`;
 }
 
+/** The width text may use: the page, less a margin on each side. */
+const USABLE_WIDTH = PAGE_WIDTH - 2 * MARGIN;
+
+/**
+ * The widest any one character can be, as a fraction of the font size.
+ *
+ * We do not ship font metrics — that is the point of using one of the fourteen
+ * fonts every PDF reader already has — so instead of measuring text we assume
+ * every character is the widest glyph in the font. In Helvetica that is `@` at
+ * 1.015 em, and this rounds up from there.
+ *
+ * The trade-off is deliberate and it only goes one way: a line of ordinary
+ * lowercase text wraps a little earlier than it strictly had to, and no line
+ * can ever run past the margin. Wrapping early is a cosmetic cost; running off
+ * the page loses a worker's name and, worse, the staff number printed after it.
+ */
+const WIDEST_GLYPH_EM = 1.02;
+
+/** How many characters certainly fit on one line at this size. */
+export function charactersThatFit(size: number, width = USABLE_WIDTH): number {
+  return Math.max(1, Math.floor(width / (size * WIDEST_GLYPH_EM)));
+}
+
+/**
+ * Breaks text into lines that certainly fit, on spaces where it can.
+ *
+ * Nothing is ever dropped. A single word longer than a line — which a name is
+ * not, but a pasted note might be — is cut at the limit rather than silently
+ * lost off the edge.
+ */
+export function wrapToWidth(text: string, size: number, width = USABLE_WIDTH): string[] {
+  const limit = charactersThatFit(size, width);
+  const out: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    let piece = word;
+    // A word too long for any line is broken up rather than dropped.
+    while (piece.length > limit) {
+      if (line !== '') {
+        out.push(line);
+        line = '';
+      }
+      out.push(piece.slice(0, limit));
+      piece = piece.slice(limit);
+    }
+    const joined = line === '' ? piece : `${line} ${piece}`;
+    if (joined.length <= limit) {
+      line = joined;
+    } else {
+      out.push(line);
+      line = piece;
+    }
+  }
+  if (line !== '' || out.length === 0) {
+    out.push(line);
+  }
+  return out;
+}
+
 /**
  * Lays the payslip out.
  *
@@ -158,13 +217,14 @@ function layout(payslip: PayslipForPdf): { lines: Line[]; rules: number[] } {
   lines.push({ x: MARGIN + 90, y, size: 11, font: 'H', text: 'Payslip' });
   y -= 28;
 
-  lines.push({
-    x: MARGIN,
-    y,
-    size: 11,
-    font: 'HB',
-    text: `${payslip.fullName}  (${payslip.staffNumber})`,
-  });
+  // The name wraps rather than running off the page, and the staff number sits
+  // on its own line — printed after a long name it was the first thing to
+  // disappear, and it is the one field that identifies the worker exactly.
+  for (const part of wrapToWidth(payslip.fullName, 11)) {
+    lines.push({ x: MARGIN, y, size: 11, font: 'HB', text: part });
+    y -= 16;
+  }
+  lines.push({ x: MARGIN, y, size: 10, font: 'H', text: payslip.staffNumber });
   y -= 16;
   lines.push({
     x: MARGIN,
@@ -191,6 +251,13 @@ function layout(payslip: PayslipForPdf): { lines: Line[]; rules: number[] } {
       font: 'HB',
       text: 'This is a correction to an earlier month, not a full month of pay.',
     });
+    // And what the correction is for. Saying a payslip is a correction without
+    // saying what of leaves a worker with no way to check it, which is the one
+    // thing a payslip is for.
+    for (const part of wrapToWidth(payslip.adjustmentNote, 9)) {
+      y -= 12;
+      lines.push({ x: MARGIN, y, size: 9, font: 'H', text: part });
+    }
   }
 
   y -= 22;
@@ -403,5 +470,15 @@ export function payslipFileName(
 ): string {
   const month = periodEndDate.slice(0, 7);
   const suffix = isAdjustment ? `-adjustment-${payslipId.slice(0, 8)}` : '';
-  return `payslip-${staffNumber}-${month}${suffix}.pdf`;
+  // This name reaches a `Content-Disposition` header. The contract's
+  // `StaffNumber` pattern already makes it safe, but a header is the wrong
+  // place to trust a check made two layers away: a quote or a newline here
+  // would let somebody write their own header fields.
+  return `payslip-${safeForAFileName(staffNumber)}-${month}${suffix}.pdf`;
+}
+
+/** Letters, digits, dashes and underscores. Everything else becomes a dash. */
+function safeForAFileName(value: string): string {
+  const cleaned = value.replaceAll(/[^A-Za-z0-9_-]/g, '-');
+  return cleaned === '' ? 'unknown' : cleaned;
 }

@@ -23,6 +23,18 @@ const COST_MONTHS = 12;
 /** A run in either of these states is money the company has committed. */
 const APPROVED = ['LOCKED', 'PAID'] as const;
 
+/**
+ * The marker that tells Excel a file is UTF-8.
+ *
+ * Without it Excel guesses the machine's own codepage, and an accented
+ * Ghanaian name arrives mangled. These two files are opened by a person in a
+ * spreadsheet and by nobody else, which is what makes the marker safe here —
+ * the bank file deliberately does not carry one, because a bank's importer
+ * reads that file and a strict CSV parser treats a marker as part of the first
+ * column's name.
+ */
+const EXCEL_UTF8_MARKER = '\uFEFF';
+
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -255,7 +267,7 @@ export class ReportsService {
     );
 
     return {
-      csv: [header.map(csvCell).join(','), ...rows].join('\n'),
+      csv: EXCEL_UTF8_MARKER + [header.map(csvCell).join(','), ...rows].join('\n'),
       fileName: `attendance-${query.from}-to-${query.to}.csv`,
     };
   }
@@ -290,7 +302,7 @@ export class ReportsService {
         .join(','),
     );
     return {
-      csv: [header.map(csvCell).join(','), ...rows].join('\n'),
+      csv: EXCEL_UTF8_MARKER + [header.map(csvCell).join(','), ...rows].join('\n'),
       fileName: 'payroll-cost.csv',
     };
   }

@@ -65,6 +65,49 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
   const api = () => request(app.getHttpServer());
   const bearer = (value: string): [string, string] => ['Authorization', `Bearer ${value}`];
 
+  /** Everybody who should be paid, so each new month can give them attendance. */
+  const payrollWorkers: string[] = [];
+
+  /**
+   * Confirmed attendance for one worker across one month.
+   *
+   * Rule R3 refuses a run that pays somebody the attendance records do not
+   * support, and a worker with no attendance at all is the plainest case of
+   * that. So the fixture's workers work: twenty days of eight hours, which is
+   * what makes an ordinary run submittable.
+   *
+   * `MANUAL` is the basis because there are no punches behind these — a
+   * database CHECK requires both punch IDs for any other basis.
+   */
+  const giveAttendance = async (
+    employeeId: string,
+    period: { startsOn: Date; endsOn: Date },
+    days = 20,
+  ) => {
+    const start = period.startsOn;
+    const rows = [];
+    for (let day = 0; day < days; day += 1) {
+      const workDate = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + day),
+      );
+      if (workDate > period.endsOn) {
+        break;
+      }
+      rows.push({
+        companyId: company.companyId,
+        employeeId,
+        siteId: company.siteA,
+        workDate,
+        startedAt: new Date(workDate.getTime() + 6 * 3_600_000),
+        endedAt: new Date(workDate.getTime() + 14 * 3_600_000),
+        workedMinutes: 480,
+        basis: 'MANUAL' as const,
+        status: 'CONFIRMED' as const,
+      });
+    }
+    await prisma.workSegment.createMany({ data: rows });
+  };
+
   let workersMade = 0;
   const worker = async (basicMonthlyPesewas = 150_000) => {
     workersMade += 1;
@@ -111,6 +154,7 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         updatedByUserId: company.adminUserId,
       },
     });
+    payrollWorkers.push(created.id);
     return { id: created.id, staffNumber: created.staffNumber };
   };
 
@@ -140,6 +184,17 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
       .set(...bearer(token.hr))
       .send({ year, month })
       .expect(201);
+
+    // Before the run is calculated, because the calculation reads these hours
+    // and rule R3 reads them again at submission.
+    const bounds = {
+      startsOn: new Date(Date.UTC(year, month - 1, 1)),
+      endsOn: new Date(Date.UTC(year, month, 0)),
+    };
+    for (const employeeId of payrollWorkers) {
+      await giveAttendance(employeeId, bounds);
+    }
+
     const run = await api()
       .post('/api/v1/payroll/runs')
       .set(...bearer(token.hr))
@@ -177,6 +232,32 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
     token = await tokensFor(app, company);
     await worker(200_000);
     await worker(120_000);
+
+    // The ACTIVE guard from the attendance fixture is paid too. Without pay
+    // terms they are left out of every run, which left the guard's own payslip
+    // untested — every assertion about it sat behind an `if` that was never
+    // true.
+    await prisma.employeePayTerms.create({
+      data: {
+        companyId: company.companyId,
+        employeeId: company.active.id,
+        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+        basicMonthlyPesewas: 160_000,
+        overtimeHourlyPesewas: 0,
+        createdByUserId: company.adminUserId,
+      },
+    });
+    // And an open employment spell: the calculation pays only the days somebody
+    // was employed, and the attendance fixture records no spell of its own.
+    await prisma.employmentPeriod.create({
+      data: {
+        companyId: company.companyId,
+        employeeId: company.active.id,
+        startsOn: new Date('2026-01-05T00:00:00Z'),
+        endsOn: null,
+      },
+    });
+    payrollWorkers.push(company.active.id);
   });
 
   afterAll(async () => {
@@ -501,6 +582,169 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Rule R3, the reason this phase exists: a run may not pay for hours the
+   * attendance records do not support.
+   *
+   * Until these tests existed the gate was only ever exercised passing, which
+   * is the same as not testing it. Both halves are here: the shift that
+   * disappeared after the run was calculated, and the worker who never came at
+   * all.
+   */
+  describe('rule R3: a run cannot pay for hours nobody worked', () => {
+    it('refuses a run whose shifts were voided after it was calculated', async () => {
+      const { runId } = await draftRun();
+
+      // Somebody disputes the month's attendance after the figures were worked
+      // out. The run still says it owes the hours; the records no longer agree.
+      await prisma.workSegment.updateMany({
+        where: { companyId: company.companyId, employeeId: payrollWorkers[0] },
+        data: { status: 'VOIDED', voidedAt: new Date(), voidedByUserId: company.adminUserId },
+      });
+
+      const refused = await api()
+        .post(`/api/v1/payroll/runs/${runId}/submit`)
+        .set(...bearer(token.hr))
+        .send({})
+        .expect(409);
+      expect(refused.body.detail).toMatch(/attendance records do not support/);
+      // And it names who, so a payroll officer knows where to look.
+      expect(refused.body.detail).toMatch(/SMT-7/);
+    });
+
+    it('refuses a salaried worker who never came to work at all', async () => {
+      // The ghost this whole system is built to stop. Their line has no minutes
+      // on either side of the comparison, so a check of minutes against minutes
+      // passes it — and basic pay is pro-rated by calendar days, so they are
+      // paid a full month (decision 27).
+      const ghost = await worker(180_000);
+      const { runId } = await draftRun();
+      await prisma.workSegment.deleteMany({
+        where: { companyId: company.companyId, employeeId: ghost.id },
+      });
+
+      const refused = await api()
+        .post(`/api/v1/payroll/runs/${runId}/submit`)
+        .set(...bearer(token.hr))
+        .send({})
+        .expect(409);
+      expect(refused.body.detail).toMatch(new RegExp(ghost.staffNumber));
+
+      // Their record stays; nothing is deleted to make a refusal go away.
+      const stillThere = await prisma.payrollLine.findFirst({
+        where: { companyId: company.companyId, runId, employeeId: ghost.id },
+      });
+      expect(stillThere).not.toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
+  /**
+   * A closed month is settled, and the one mistake it prevents is also the one
+   * that cannot be undone: a run pushed to LOCKED can never be unlocked.
+   */
+  describe('a closed month is final', () => {
+    /** A month with a draft in it, then closed behind the draft's back. */
+    const closedWithADraftLeftBehind = async () => {
+      const { periodId, runId } = await draftRun();
+      await api()
+        .post(`/api/v1/payroll/periods/${periodId}/close`)
+        .set(...bearer(token.admin))
+        .send({})
+        .expect(200);
+      return { periodId, runId };
+    };
+
+    it('refuses to submit a draft left behind in it', async () => {
+      const { runId } = await closedWithADraftLeftBehind();
+      const refused = await api()
+        .post(`/api/v1/payroll/runs/${runId}/submit`)
+        .set(...bearer(token.hr))
+        .send({})
+        .expect(409);
+      expect(refused.body.detail).toMatch(/closed/);
+    });
+
+    it('refuses to approve or reject a run waiting in it', async () => {
+      const { periodId, runId } = await draftRun();
+      await api()
+        .post(`/api/v1/payroll/runs/${runId}/submit`)
+        .set(...bearer(token.hr))
+        .send({})
+        .expect(200);
+      await api()
+        .post(`/api/v1/payroll/periods/${periodId}/close`)
+        .set(...bearer(token.admin))
+        .send({})
+        .expect(200);
+
+      await api()
+        .post(`/api/v1/payroll/runs/${runId}/approve`)
+        .set(...bearer(token.admin))
+        .send({})
+        .expect(409);
+      await api()
+        .post(`/api/v1/payroll/runs/${runId}/reject`)
+        .set(...bearer(token.admin))
+        .send({ reason: 'The month is closed.' })
+        .expect(409);
+
+      // Still waiting, and still not locked: the refusal changed nothing.
+      const run = await prisma.payrollRun.findFirstOrThrow({ where: { id: runId } });
+      expect(run.status).toBe('PENDING_APPROVAL');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
+  describe('a cursor that means nothing', () => {
+    it('is a 400 naming the field, on every payroll list', async () => {
+      // `decodeCursor` proves only that a value is one of our base64 cursors.
+      // `hello|world` decodes perfectly, and the `world` half used to reach the
+      // database as a uuid, which answered with a 500 for a plainly bad request.
+      const nonsense = Buffer.from('2060-01-01T00:00:00.000Z|world', 'utf8').toString('base64url');
+      for (const path of [
+        `/api/v1/payroll/runs?cursor=${nonsense}`,
+        `/api/v1/payroll/payslips?cursor=${nonsense}`,
+      ]) {
+        const refused = await api()
+          .get(path)
+          .set(...bearer(token.hr))
+          .expect(400);
+        expect(JSON.stringify(refused.body)).toMatch(/cursor/);
+      }
+    });
+
+    it('does not 500 a lines cursor whose id half is not an id', async () => {
+      const { runId } = await draftRun();
+      const nonsense = Buffer.from('SMT-7001|world', 'utf8').toString('base64url');
+      await api()
+        .get(`/api/v1/payroll/runs/${runId}/lines?cursor=${nonsense}`)
+        .set(...bearer(token.hr))
+        .expect(400);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
+  describe('the payslip list and an ID that names nothing', () => {
+    it('answers 404, not an empty page', async () => {
+      // An empty page says "this month has no payslips"; a 404 says "that is
+      // not a month". A payroll officer chasing a missing payslip needs to know
+      // which, and both sibling lists already answer this way.
+      const nowhere = randomUUID();
+      for (const query of [`employeeId=${nowhere}`, `runId=${nowhere}`, `periodId=${nowhere}`]) {
+        await api()
+          .get(`/api/v1/payroll/payslips?${query}`)
+          .set(...bearer(token.hr))
+          .expect(404);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
   describe('a guard and their own payslip', () => {
     it('lets a guard read their own, and nobody else’s', async () => {
       const { runId } = await locked();
@@ -515,6 +759,10 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
       const somebodyElse = all.body.items.find(
         (item: { employee: { id: string } }) => item.employee.id !== company.active.id,
       );
+      // Asserted, not assumed. Both of these used to be `undefined` on every
+      // run, so every check below them was skipped and the test proved nothing.
+      expect(theirs, 'the guard has a payslip in this run').toBeDefined();
+      expect(somebodyElse, 'somebody else has one too').toBeDefined();
 
       // A guard's list is their own, however they ask.
       const mine = await api()
@@ -525,23 +773,20 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         expect(item.employee.id).toBe(company.active.id);
       }
 
-      if (theirs !== undefined) {
-        await api()
-          .get(`/api/v1/payroll/payslips/${theirs.id}`)
-          .set(...bearer(token.guard))
-          .expect(200);
-      }
-      if (somebodyElse !== undefined) {
-        // 404 and not 403, so nobody learns which payslips exist.
-        await api()
-          .get(`/api/v1/payroll/payslips/${somebodyElse.id}`)
-          .set(...bearer(token.guard))
-          .expect(404);
-        await api()
-          .get(`/api/v1/payroll/payslips/${somebodyElse.id}/pdf`)
-          .set(...bearer(token.guard))
-          .expect(404);
-      }
+      await api()
+        .get(`/api/v1/payroll/payslips/${theirs.id}`)
+        .set(...bearer(token.guard))
+        .expect(200);
+
+      // 404 and not 403, so nobody learns which payslips exist.
+      await api()
+        .get(`/api/v1/payroll/payslips/${somebodyElse.id}`)
+        .set(...bearer(token.guard))
+        .expect(404);
+      await api()
+        .get(`/api/v1/payroll/payslips/${somebodyElse.id}/pdf`)
+        .set(...bearer(token.guard))
+        .expect(404);
     });
 
     it('refuses a supervisor every payslip in the company', async () => {

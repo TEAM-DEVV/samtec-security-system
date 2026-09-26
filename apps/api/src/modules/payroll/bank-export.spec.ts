@@ -61,9 +61,24 @@ describe('one cell of the bank file', () => {
     expect(csvCell('\tone')).toBe('"\'\tone"');
   });
 
+  it('sees a formula hiding behind a space', () => {
+    // Excel and LibreOffice trim a cell before deciding whether it is a
+    // formula, so a leading space used to walk straight past a guard anchored
+    // at the first character. A worker's name is typed by a person and reaches
+    // this file, so it is the one column an attacker can choose freely.
+    expect(csvCell(' =HYPERLINK("http://example.invalid")')).toBe(
+      `"' =HYPERLINK(""http://example.invalid"")"`,
+    );
+    expect(csvCell('   +1')).toBe(`"'   +1"`);
+    expect(csvCell('\n-1')).toBe(`"'\n-1"`);
+    expect(csvCell(' @SUM(A1)')).toBe(`"' @SUM(A1)"`);
+  });
+
   it('leaves an ordinary value exactly as it was', () => {
     expect(csvCell('Akwaaba Bank')).toBe('"Akwaaba Bank"');
     expect(csvCell('1234567890')).toBe('"1234567890"');
+    // A space in an ordinary name is not a formula.
+    expect(csvCell('Kwame Mensah')).toBe('"Kwame Mensah"');
   });
 });
 

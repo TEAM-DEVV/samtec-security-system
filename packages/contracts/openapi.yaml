@@ -3317,11 +3317,18 @@ paths:
         **Roles:** ADMIN or HR_PAYROLL, but only **the maker**, the person who
         calculated this run; anybody else answers `403`. A SUPERVISOR sees no
         payroll at all (`403`), and so does a GUARD. Moves a `DRAFT` run to
-        `PENDING_APPROVAL` and records the submitter and the time together. From
-        Phase 5, detection rule R3 will refuse a submission whose paid hours and
-        punched hours disagree without explanation; version 1 records
-        `punchedMinutes` and `scheduledMinutes` on every line as the evidence a
-        checker needs, and lets the submission through. Audited.
+        `PENDING_APPROVAL` and records the submitter and the time together.
+
+        **Rule R3 is enforced here.** A run that pays for hours the attendance
+        records do not support answers `409`, naming the staff numbers involved.
+        The hours are counted again from the attendance tables, not read off the
+        payroll line, so a shift disputed or voided since the run was calculated
+        is caught. A worker with no attendance at all and a positive net pay is
+        refused too: basic pay is pro-rated by calendar days rather than by
+        attendance, so that worker's line has no minutes on either side of the
+        comparison and would otherwise pass it. Each line still records
+        `punchedMinutes` and `scheduledMinutes` as the evidence a checker reads.
+        Audited.
       requestBody:
         required: true
         content:
