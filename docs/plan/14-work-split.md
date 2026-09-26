@@ -16,7 +16,7 @@ Eight phases. Five are finished or nearly so.
 | 0 | Project set-up, CI, first migration | **Done** |
 | 1 | Sign in, staff, sites, shifts, users | **Done** — API and screens |
 | 2 | Attendance: punches paired into shifts, the exception queue | **Done** — API and screens |
-| 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done**, gateway endpoints included. Left: the kiosk app and the gateway, both Samuel's |
+| 3 | Biometrics: face and finger at a kiosk, ZKTeco terminals | **API done**, gateway endpoints included. **The kiosk app has started** — set-up and the everyday clock-in work on a pretend camera. Left: the kiosk's enrollment screens, the two fallbacks, the real face engine, and the gateway. All Samuel's |
 | 4 | Payroll: Ghana tax, payslips, bank file | **Done — Samuel.** The eight tables, the calculation, every endpoint, the payslip PDF, the bank file and the three screens |
 | 5 | Ghost detection: the rules that catch fake workers | **Done — Francis.** All eleven rules, the queue, the sweep, the three dashboard screens, and the daily run as a Vercel Cron entry |
 | 6 | Reports and the final visual pass | **Reports done — Samuel.** The key figures, both CSV downloads and the run summary PDF. Left: Francis's final visual pass, the last build step of the whole project |
@@ -77,11 +77,22 @@ It is the cleanest seam in the whole system.
 the same person who prepared it, approve it as somebody else, and open a
 payslip whose numbers add up by hand to the pesewa.
 
-## Job B · The kiosk app (`apps/kiosk`)
+## Job B · The kiosk app (`apps/kiosk`) — **started**
 
 This is the live demo: a guard walks up to a phone on the wall, looks at it,
 and their shift starts. **Every API route it needs is merged and working.**
-Nothing blocks it, and nothing waits on it, so fit it around Job A.
+Nothing blocks it, and nothing waits on it.
+
+**Where it stands.** The app exists and works on a pretend camera
+(`pnpm dev:kiosk`): screens 1 and 5 below are built, the signing scheme is pinned
+to the server's by a shared worked example both sides assert, and the device
+secret becomes a key the browser will not hand back. The face engine sits behind
+a `FaceEngine` seam, so the real Human models drop in without a screen changing.
+Read [the kiosk's README](../../apps/kiosk/README.md) before touching it.
+
+**Left:** screens 2, 3, 4 and 6 (they need an ADMIN signed in on the kiosk, which
+set-up deliberately does not do yet), and the real Human engine with its models
+served from the kiosk's own origin.
 
 **What it is.** A separate Vite + React + TypeScript app, its own Vercel
 project, plain CSS (do not pull in the dashboard's Tailwind setup — a kiosk

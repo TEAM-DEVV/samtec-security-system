@@ -69,6 +69,12 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
 - [x] Enrollment on the kiosk by an ADMIN: 3 face frames, the duplicate check (COLLISION decided by a second ADMIN), revoke, withdraw, exemption, and the 90-day retention sweep on the heartbeat
 - [x] Clock-in: identify then confirm, a supervisor's co-sign as the fallback, the live clock-ins board and the kiosk attempt log
 - [ ] **Samuel:** the kiosk app (`apps/kiosk`), on its own Vercel project: device setup, head-turn liveness, clock-in and enrollment screens. Every route it needs is merged — see [14 · Who builds what next](14-work-split.md)
+  - [x] The app itself: React 19 + Vite 8, plain CSS, no router, 72 kB gzipped. Device signing with a key the browser will not hand back, pinned to the server by a shared worked example both sides assert
+  - [x] Set-up: an administrator pastes the device ID and secret from the Devices page. The kiosk never holds an administrator's sign-in
+  - [x] Clock in and out: the random head-turn challenge, `POST /kiosk/identify`, the name for two seconds with **Not me**, then `POST /kiosk/confirm`. A printed photograph is refused because it cannot turn its head, and that is a test
+  - [ ] Consent, enrollment and saving a worker's finger (these need an ADMIN signed in on the kiosk)
+  - [ ] The staff-number fingerprint fallback and the supervisor's co-sign
+  - [ ] The real Human 3.3.6 engine behind the `FaceEngine` seam, models served from the kiosk's own origin
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [ ] **Samuel:** ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end
 - [x] Roster sync and finger-enrollment windows: `POST /ingest/roster`, `POST /ingest/enrollments` and `POST /devices/{id}/finger-enrollment-windows`, with a terminal that can never enroll anybody by itself
