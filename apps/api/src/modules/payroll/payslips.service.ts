@@ -5,8 +5,9 @@
  *
  * - **A guard reads their own payslip and nobody else's.** Asking for somebody
  *   else's answers 404, never 403, so nobody can learn which payslips exist by
- *   probing. Their list is always scoped to themselves whatever they ask for,
- *   rather than being refused for asking wrongly.
+ *   probing. Their list is scoped to themselves when they name nobody; naming
+ *   another employee is the same probe by another route, so it answers 404
+ *   too.
  * - **The stored file is returned byte for byte.** It is never rebuilt, because
  *   a payslip somebody has already been shown must not change afterwards, and
  *   the stored fingerprint is what proves it has not.
@@ -22,7 +23,7 @@ import { toIsoDate } from '../../common/dates.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { ListPayslipsQuery } from './payroll.schemas.js';
-import { badCursor } from './payroll-cursor.js';
+import { badCursor, looksLikeAnId } from './payroll-cursor.js';
 import { payslipFileName } from './payslip-pdf.js';
 
 /** Everything a payslip needs to describe itself, and nothing more. */
@@ -57,11 +58,20 @@ export class PayslipsService {
     if (onlyTheirs && viewer.employeeId === null) {
       return { items: [], nextCursor: null };
     }
-    // A guard asking for somebody else gets their own list, not a refusal.
+    // A guard who names nobody gets their own list. Naming somebody else is a
+    // probe for which payslips exist, so it answers 404 like every other one.
     const employeeId = onlyTheirs ? viewer.employeeId : query.employeeId;
     if (onlyTheirs && query.employeeId !== undefined && query.employeeId !== viewer.employeeId) {
       throw new NotFoundException('No payslip exists with this ID.');
     }
+
+    // A filter naming something that does not exist is a 404, not an empty
+    // page. Both sibling lists (runs and lines), the contract and the dashboard
+    // mock all answer 404 here, and the difference matters to whoever is
+    // reading: an empty page says "this month has no payslips", while a 404
+    // says "that is not a month". A payroll officer chasing a missing payslip
+    // needs to know which.
+    await this.refuseFiltersThatNameNothing(viewer, query, employeeId ?? undefined);
 
     const after = query.cursor === undefined ? undefined : this.payslipCursor(query.cursor);
     const rows = await this.prisma.payslip.findMany({
@@ -140,12 +150,57 @@ export class PayslipsService {
     return payslip;
   }
 
+  /**
+   * Refuses a filter that names a row this company does not have.
+   *
+   * Scoped to the company, so this answers 404 both for an id that exists
+   * nowhere and for one belonging to another company — the same rule the rest
+   * of the API follows, so nobody can use the difference between the two
+   * answers to find out which ids exist elsewhere.
+   */
+  private async refuseFiltersThatNameNothing(
+    viewer: SignedInUser,
+    query: ListPayslipsQuery,
+    employeeId: string | undefined,
+  ): Promise<void> {
+    const companyId = viewer.companyId;
+    const [employee, run, period] = await Promise.all([
+      employeeId === undefined
+        ? null
+        : this.prisma.employee.findFirst({
+            where: { id: employeeId, companyId },
+            select: { id: true },
+          }),
+      query.runId === undefined
+        ? null
+        : this.prisma.payrollRun.findFirst({
+            where: { id: query.runId, companyId },
+            select: { id: true },
+          }),
+      query.periodId === undefined
+        ? null
+        : this.prisma.payrollPeriod.findFirst({
+            where: { id: query.periodId, companyId },
+            select: { id: true },
+          }),
+    ]);
+    if (employeeId !== undefined && employee === null) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    if (query.runId !== undefined && run === null) {
+      throw new NotFoundException('No payroll run exists with this ID.');
+    }
+    if (query.periodId !== undefined && period === null) {
+      throw new NotFoundException('No payroll month exists with this ID.');
+    }
+  }
+
   /** The moment and id a cursor points just past, or a clear 400. */
   private payslipCursor(cursor: string): { generatedAt: Date; id: string } {
     const value = decodeCursor(cursor);
     const [moment, id] = (value ?? '').split('|');
     const generatedAt = moment === undefined ? undefined : new Date(moment);
-    if (generatedAt === undefined || Number.isNaN(generatedAt.getTime()) || !id) {
+    if (generatedAt === undefined || Number.isNaN(generatedAt.getTime()) || !looksLikeAnId(id)) {
       throw badCursor();
     }
     return { generatedAt, id };

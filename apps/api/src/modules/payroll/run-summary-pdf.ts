@@ -18,6 +18,7 @@ import {
   basisPointsAsPercent,
   type Line,
   money,
+  wrapToWidth,
 } from './payslip-pdf.js';
 
 const PAGE_WIDTH = 595;
@@ -156,14 +157,15 @@ export function buildRunSummaryPdf(run: RunSummaryForPdf): BuiltPdf {
     y -= 14;
   } else {
     for (const left of run.excluded.slice(0, 20)) {
-      lines.push({
-        x: MARGIN,
-        y,
-        size: 9,
-        font: 'H',
-        text: `${left.staffNumber}  ${left.fullName}  —  ${left.reason}`,
-      });
-      y -= 13;
+      // Wrapped, not cut: a long name used to push the reason off the page, and
+      // the reason is the only part of this line that explains anything.
+      for (const part of wrapToWidth(
+        `${left.staffNumber}  ${left.fullName}  —  ${left.reason}`,
+        9,
+      )) {
+        lines.push({ x: MARGIN, y, size: 9, font: 'H', text: part });
+        y -= 13;
+      }
     }
     if (run.excluded.length > 20) {
       lines.push({
