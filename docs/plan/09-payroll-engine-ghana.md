@@ -363,6 +363,51 @@ both figures, so they have to tie. Tier 2 is therefore
 add up is refused at the boundary rather than quietly producing a summary that
 does not reconcile.
 
+**27. Rule R3 refuses two different things, because minutes cannot see the
+plainest ghost.** Added 2026-09-26, after a four-lens review of the approval
+chain found the gap and a verifier reproduced it against the local database:
+2,454 payroll lines worth GHS 3,240,802.32 had been submitted, approved and
+paid for workers with no attendance record at all.
+
+The gate compares hours paid against hours present, both counted from the
+attendance tables. For a worker who never came to work, both numbers are zero,
+so the comparison passes — and they are still paid, because **basic pay is
+pro-rated by calendar days employed, not by attendance** (see "How the money is
+worked out"). A ghost worker on a monthly salary is therefore invisible to any
+comparison of minutes, which is exactly the fraud this system exists to stop.
+
+So the gate refuses a line when *either* of these is true:
+
+- `paidBeyondPresence(paid, present, 60) > 0` — it pays for more hours than the
+  records support. This is what catches a shift disputed or voided after the run
+  was calculated.
+- `present === 0 && netPay > 0` — it pays somebody who was never here.
+
+**What this costs.** A worker who is legitimately paid without clocking in —
+somebody on paid leave, or a salaried supervisor who does not use a kiosk — now
+blocks a submission. Version 1 has no way to record either, so today the honest
+answer is that such a worker cannot be paid through a run; hard rule 2's
+adjustment line is where that belongs, and nothing can create one yet. The
+choice is deliberate and it fails closed: refusing to pay somebody who should be
+paid is a conversation, and paying a ghost is a loss nobody notices. When paid
+leave arrives, the second condition gains an exception for it and this decision
+is revisited — not the first condition, which stands on its own.
+
+**What it still does not catch, and why that is a choice.** A salaried worker
+who came once and was paid a full month passes: presence is not zero, and their
+basic pay was never proportional to attendance in the first place. The gate draws
+its line at *nothing at all*, because that is the only point where the answer is
+unambiguous — anything between one day and twenty is a management question about
+absence, not a fraud test, and it is what the absence figure on the Reports page
+and detection's R5 are for. Moving that line would mean deciding how much
+absence makes a salary fraudulent, which is a company's policy and not a
+developer's.
+
+**Where it is enforced.** `refuseHoursNobodyWorked` in
+`payroll-approval.service.ts`, on submission only. Detection's own R3 makes the
+same comparison afterwards as a sweep; the submission gate is the floor and the
+sweep may be stricter, never looser.
+
 ---
 
 # What to build
@@ -426,9 +471,14 @@ Generated once, in the same transaction that locks the run, and stored as
 bytes in `payslips`. The stack has no object storage, and a few hundred guards
 a month is well within what PostgreSQL holds comfortably.
 
-Use **`pdfkit`** (MIT, pure JavaScript, no native build, no headless browser).
-Adding it needs a line in [Stack decisions](02-stack-decisions.md) in the same
-pull request — CLAUDE.md rule 11.
+**Written by hand, with no library.** This page used to say to use `pdfkit`.
+Decision 24 in [Stack decisions](02-stack-decisions.md) reversed that: neither
+`pdfkit` nor any of its six runtime dependencies publishes a provenance
+attestation on any version, and it adds about 10 MB to a serverless function.
+A one-page payslip needs a few hundred lines of PDF, no fonts embedded (the
+fourteen standard fonts are in every reader), and it is testable to the byte —
+see [`payslip-pdf.ts`](../../apps/api/src/modules/payroll/payslip-pdf.ts) and
+the module's own README.
 
 ## Test strategy
 

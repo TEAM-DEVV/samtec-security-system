@@ -38,7 +38,7 @@ import { AuditService } from '../identity/audit.service.js';
 import { EmployeesService } from '../workforce/employees.service.js';
 import { calculatePay, type TaxRates } from './pay-calculation.js';
 import type { CreateRunBody, ListLinesQuery, ListRunsQuery } from './payroll.schemas.js';
-import { badCursor } from './payroll-cursor.js';
+import { badCursor, looksLikeAnId } from './payroll-cursor.js';
 import { PayrollPeriodsService } from './payroll-periods.service.js';
 import {
   emptyRunSummary,
@@ -436,7 +436,7 @@ export class PayrollRunsService {
     }
     const value = decodeCursor(cursor);
     const [moment, id] = (value ?? '').split('|');
-    if (moment === undefined || id === undefined || id.length === 0) {
+    if (moment === undefined || !looksLikeAnId(id)) {
       throw badCursor();
     }
     const calculatedAt = new Date(moment);
@@ -450,12 +450,7 @@ export class PayrollRunsService {
   private lineCursor(cursor: string): { staffNumber: string; id: string } {
     const value = decodeCursor(cursor);
     const [staffNumber, id] = (value ?? '').split('|');
-    if (
-      staffNumber === undefined ||
-      staffNumber.length === 0 ||
-      id === undefined ||
-      id.length === 0
-    ) {
+    if (staffNumber === undefined || staffNumber.length === 0 || !looksLikeAnId(id)) {
       throw badCursor();
     }
     return { staffNumber, id };

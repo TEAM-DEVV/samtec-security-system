@@ -436,9 +436,23 @@ table was built.
 
 - **R3 — paid beyond presence.** Compares what a run paid against confirmed
   attendance. Its comparison lives in `src/common/paid-beyond-presence.ts` so
-  payroll's submit gate can use the same code without importing detection. Known
-  limits, written down: paid leave has no attendance record so it looks like
-  absence, and adjustment lines are skipped.
+  payroll's submit gate can use the same code without importing detection.
+
+  **The part a panel will ask about.** Comparing minutes cannot see a worker who
+  never came at all: their line has zero minutes paid and zero present, which
+  passes the comparison, and they are still paid because basic pay is pro-rated
+  by calendar days and not by attendance. That is the plainest ghost there is,
+  and it went unnoticed until a review of the approval chain reproduced it. The
+  submit gate now refuses on two conditions, not one — hours beyond presence, or
+  any pay at all with no presence (decision 27 in
+  [the payroll engine page](../plan/09-payroll-engine-ghana.md)).
+
+  Known limits, still written down: paid leave has no attendance record so it
+  looks like absence and now blocks a submission outright, and adjustment lines
+  are skipped by the sweep. Version 1 can record neither, so a worker who should
+  be paid without clocking in cannot be paid through a run yet. The choice fails
+  closed on purpose: refusing to pay somebody who should be paid is a
+  conversation, and paying a ghost is a loss nobody notices.
 - **R7 — the supervisor's own patterns.** This is why a supervisor never sees
   this queue.
 - **R11 — ghost relationships.** Flags indirect links between the people

@@ -19,11 +19,11 @@ import { TaxTablesService } from './tax-tables.service.js';
  * `tax_tables`, `tax_bands`, `employee_pay_terms` and
  * `employee_payment_details`, and nothing outside it writes to them.
  *
- * **Phase 4 is still being built.** Here now: the setup endpoints (the months,
- * the statutory rate versions, each worker's pay history and where their
- * salary is sent), and calculating a run and reading it back. Still to come:
- * submit, approve, reject and mark paid; the payslip PDF; the bank export;
- * and the screens.
+ * **Phase 4 is complete.** The setup endpoints (the months, the statutory rate
+ * versions, each worker's pay history and where their salary is sent);
+ * calculating a run and reading it back; submit, approve, reject and mark paid
+ * with the maker-checker rule and rule R3's gate; the payslip PDF and the run
+ * summary PDF, both written by hand; the bank file; and the three screens.
  *
  * `PayrollFactsService` is the read seam Phase 5 needs: ghost detection asks
  * what was paid, through the module that owns the answer. It is exported and

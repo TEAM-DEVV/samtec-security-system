@@ -43,6 +43,46 @@ import { buildPayslipPdf } from './payslip-pdf.js';
 import { exclusionsOf, toApiRun } from './run-mapping.js';
 import { buildRunSummaryPdf, runSummaryFileName } from './run-summary-pdf.js';
 
+/**
+ * How long the approval transaction may take.
+ *
+ * Approving writes one payslip per worker, and each one is a PDF built in
+ * memory and then a row written. Prisma's default budget for an interactive
+ * transaction is five seconds, which a company of a few hundred guards will
+ * exceed — and the failure is the worst kind: the run rolls back, so nothing is
+ * lost, but payroll simply cannot be approved and the message says only that a
+ * transaction timed out.
+ *
+ * The attendance module had to do the same thing for the same reason
+ * (`ATTENDANCE_TRANSACTION_OPTIONS`). The numbers are deliberately the same, so
+ * there is one answer in this codebase to "how long may a long write take".
+ */
+const APPROVAL_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 25_000 } as const;
+
+/**
+ * A closed month is final, and that has to be enforced where the decision is
+ * made.
+ *
+ * Closing a month is the company saying "this is settled". Without this check a
+ * draft left behind in a closed month could still be pushed all the way to
+ * LOCKED and then PAID — and a locked run can never be undone, by anybody, by
+ * design. So the one mistake this prevents is also the one mistake that cannot
+ * be corrected afterwards.
+ *
+ * `byId` has always read the period's status. Until this function existed,
+ * every caller threw it away.
+ */
+function refuseAClosedMonth(
+  run: { period: { status: 'OPEN' | 'CLOSED' } },
+  attempted: 'submitted' | 'approved' | 'rejected',
+): void {
+  if (run.period.status === 'CLOSED') {
+    throw new ConflictException(
+      `This month is closed, so the run cannot be ${attempted}. Re-open the month first.`,
+    );
+  }
+}
+
 @Injectable()
 export class PayrollApprovalService {
   constructor(
@@ -63,9 +103,16 @@ export class PayrollApprovalService {
    * them, so comparing a line with itself would prove nothing. Recounting is
    * what catches a run built on shifts that have been disputed or voided since
    * it was calculated.
+   *
+   * It refuses two different things, because minutes alone miss the plainest
+   * ghost of all: a worker who never came at all. Their line has zero minutes
+   * paid and zero minutes present, which passes any comparison of the two, and
+   * a full month's salary — because basic pay is pro-rated by calendar days,
+   * not by attendance (decision 27).
    */
   async submit(viewer: SignedInUser, runId: string, body: SubmitRunBody): Promise<ApiPayrollRun> {
     const run = await this.byId(viewer, runId);
+    refuseAClosedMonth(run, 'submitted');
     if (run.calculatedByUserId !== viewer.userId) {
       throw new ForbiddenException(
         'Only the person who calculated this run may submit it, so one name answers for the figures.',
@@ -98,6 +145,7 @@ export class PayrollApprovalService {
    */
   async approve(viewer: SignedInUser, runId: string, body: ApproveRunBody): Promise<ApiPayrollRun> {
     const run = await this.byId(viewer, runId);
+    refuseAClosedMonth(run, 'approved');
     this.refuseTheirOwnWork(viewer, run, 'approve');
     if (run.status !== 'PENDING_APPROVAL') {
       throw new ConflictException('Only a run waiting for approval can be approved.');
@@ -140,13 +188,14 @@ export class PayrollApprovalService {
         tx,
       );
       return this.readForApi(tx, viewer, runId);
-    });
+    }, APPROVAL_TRANSACTION_OPTIONS);
     return moved;
   }
 
   /** Sends a run back. A rejection is final: the answer is a new draft. */
   async reject(viewer: SignedInUser, runId: string, body: RejectRunBody): Promise<ApiPayrollRun> {
     const run = await this.byId(viewer, runId);
+    refuseAClosedMonth(run, 'rejected');
     this.refuseTheirOwnWork(viewer, run, 'reject');
     if (run.status !== 'PENDING_APPROVAL') {
       throw new ConflictException('Only a run waiting for approval can be rejected.');
@@ -331,6 +380,7 @@ export class PayrollApprovalService {
         staffNumber: true,
         regularMinutes: true,
         overtimeMinutes: true,
+        netPayPesewas: true,
       },
     });
     if (lines.length === 0) {
@@ -357,7 +407,14 @@ export class PayrollApprovalService {
         present,
         DEFAULT_PRESENCE_TOLERANCE_MINUTES,
       );
-      if (beyond > 0) {
+      // Minutes alone cannot see the ghost this phase exists to stop. Basic pay
+      // is pro-rated by calendar days, not by minutes, so a worker who never
+      // came to work at all has a line with zero minutes on both sides of the
+      // comparison above — nothing paid beyond nothing present — and a full
+      // month's salary. That is precisely a ghost worker, and the minutes gate
+      // waves it through (decision 27).
+      const paidForNothing = present === 0 && line.netPayPesewas > 0;
+      if (beyond > 0 || paidForNothing) {
         unsupported.push(line.staffNumber);
       }
     }
