@@ -116,20 +116,44 @@ payroll touches the tables. It sits in
 [`payroll.module.ts`](payroll.module.ts) beside the setup controllers and
 services, exported and otherwise left alone.
 
-**Submitting a run must refuse one that pays for hours nobody worked**
-(rule R3, docs/plan/08 §1). This is owed, not built: a run can be calculated
-and read back, but the submit endpoint is still to come. When it lands,
-payroll does this itself, from its own data, with the shared function in
-[`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts):
+**Submitting a run refuses one that pays for hours nobody worked**
+(rule R3, docs/plan/08 §1). Built, in
+[`payroll-approval.service.ts`](payroll-approval.service.ts)'s
+`refuseHoursNobodyWorked`. Payroll does this itself, from its own data, with the
+shared function in
+[`src/common/paid-beyond-presence.ts`](../../common/paid-beyond-presence.ts).
+
+Two things about how it is written matter, and both were mistakes once.
+
+**The hours are counted again from the attendance tables, never read off the
+line.** The line's own minutes were written by the same run that paid them, so
+`line.punchedMinutes` on the present side compares a line with itself and always
+passes. The present side comes from
+`AttendanceFactsService.payableSegmentsByEmployee`, which is what catches a
+shift disputed or voided since the run was calculated:
 
 ```ts
+const present = (segments.get(line.employeeId) ?? []).reduce(
+  (total, day) => total + day.workedMinutes,
+  0,
+);
 const beyond = paidBeyondPresence(
   line.regularMinutes + line.overtimeMinutes,
-  line.punchedMinutes,
+  present,
   DEFAULT_PRESENCE_TOLERANCE_MINUTES,
 );
-if (beyond > 0) {
-  throw new ConflictException(/* ... */);
+```
+
+**Minutes alone cannot see the plainest ghost of all.** A worker who never came
+at all has a line with zero minutes paid and zero minutes present, which passes
+any comparison of the two — and a full month's salary, because basic pay is
+pro-rated by calendar days and not by attendance. So the gate refuses two
+different things, and the second one is a separate condition (decision 27):
+
+```ts
+const paidForNothing = present === 0 && line.netPayPesewas > 0;
+if (beyond > 0 || paidForNothing) {
+  /* ... */
 }
 ```
 

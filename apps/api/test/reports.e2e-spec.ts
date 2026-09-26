@@ -114,7 +114,11 @@ describe.skipIf(!databaseUrl)('Reports (e2e)', () => {
     );
     expect(file.headers['cache-control']).toBe('no-store');
     const csv = file.text ?? file.body.toString();
-    expect(csv.split('\n')[0]).toBe(
+    // The file opens with the marker that tells Excel it is UTF-8, so an
+    // accented Ghanaian name is not mangled by the reader's own codepage. The
+    // bank file deliberately carries none — see `bank-export.ts`.
+    expect(csv.startsWith('﻿')).toBe(true);
+    expect(csv.slice(1).split('\n')[0]).toBe(
       '"work_date","staff_number","full_name","site","worked_minutes","worked_hours","clocked_in_by"',
     );
   });

@@ -58,10 +58,15 @@ const HEADER = [
 ];
 
 /**
- * Anything a spreadsheet treats as the start of a formula. A tab and a carriage
- * return are here too: both can begin a formula once the sheet trims them.
+ * Anything a spreadsheet treats as the start of a formula.
+ *
+ * The leading `\s*` is the whole point. Excel and LibreOffice trim a cell
+ * before deciding whether it is a formula, so `" =cmd|'/c calc'!A1"` is a
+ * formula to them and was not to a pattern anchored at the first character. A
+ * worker's own name reaches this file, and a name is typed by a person, so this
+ * is the one column an attacker can choose freely.
  */
-const LOOKS_LIKE_A_FORMULA = /^[=+\-@\t\r]/;
+const LOOKS_LIKE_A_FORMULA = /^\s*[=+\-@\t\r]/;
 
 /**
  * One cell, safe to write.
@@ -83,6 +88,13 @@ export function toGhs(pesewas: number): string {
 
 /**
  * The whole file.
+ *
+ * Plain UTF-8 with **no byte-order mark**, on purpose. A mark would make Excel
+ * read accented names correctly, and the report downloads carry one for that
+ * reason — but this file is read by a bank's import system, and a strict CSV
+ * parser treats the mark as part of the first column's name. A mangled name is
+ * something a payroll officer can see and fix; a payroll upload refused on
+ * payday is not.
  *
  * `approvedAt` is when the run was approved, and it decides the last column: a
  * destination changed after that point was **not** covered by the approval, so
