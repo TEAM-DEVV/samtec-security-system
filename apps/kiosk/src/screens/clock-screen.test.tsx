@@ -265,3 +265,51 @@ describe('ClockScreen', () => {
     expect(await screen.findByText(/already recorded/)).toBeInTheDocument();
   });
 });
+
+/**
+ * A worker who has a fingerprint saved on this kiosk.
+ *
+ * Every other fixture in this file sets `fingerprint: null`, which is exactly
+ * why the first version of this screen dropped the challenge without anything
+ * noticing. The server refuses a confirmation with no assertion, and its refusal
+ * deliberately tells the guard nothing — so the screen has to say something
+ * useful before it gets there.
+ */
+describe('ClockScreen and a saved fingerprint', () => {
+  const MATCHED_NEEDS_FINGER = {
+    status: 200,
+    body: {
+      attemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c05',
+      outcome: 'MATCHED',
+      worker: { displayName: 'Akua B.', staffNumber: 'SMT-00043' },
+      fingerprint: { options: { challenge: 'not-a-real-challenge' } },
+    },
+  };
+
+  it('says so instead of showing the name and then failing', async () => {
+    answers = [MATCHED_NEEDS_FINGER];
+    const user = userEvent.setup();
+    const engine = await renderScreen();
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+    await doTheHeadTurn(engine);
+
+    expect(await screen.findByText(/cannot take your fingerprint yet/)).toBeInTheDocument();
+    // Never the greeting: showing the name would promise a punch that the server
+    // is about to refuse.
+    expect(screen.queryByText('Hello, Akua B.')).not.toBeInTheDocument();
+  });
+
+  it('does not try to confirm without the assertion', async () => {
+    answers = [MATCHED_NEEDS_FINGER];
+    const user = userEvent.setup();
+    const engine = await renderScreen();
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+    await doTheHeadTurn(engine);
+    await screen.findByText(/cannot take your fingerprint yet/);
+
+    // One request only. Confirming without the finger would be working around a
+    // second factor, and the server refuses it anyway.
+    expect(sent).toHaveLength(1);
+    expect(sent.some((request) => request.url.includes('/kiosk/confirm'))).toBe(false);
+  });
+});

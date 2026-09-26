@@ -37,6 +37,23 @@ for in the rain. There is no router because a router would let somebody type
 their way to a screen, and every screen except the everyday one belongs to an
 administrator.
 
+## The heartbeat is not optional
+
+Every kiosk posts `ingest/heartbeat` once a minute
+([`lib/heartbeat.ts`](src/lib/heartbeat.ts)). This looks like a nicety and is
+not: the API has **no scheduled job** for either of the two things that ride on
+it.
+
+- `repairOverdueClockIns` — the only way a forgotten clock-out is ever noticed
+  when nothing else happens at that site.
+- the biometric retention sweep — the only thing that deletes a face template
+  when its time is up, which is a promise made to every worker who consented.
+
+A kiosk that does not tick is a kiosk where nobody's shift gets repaired and
+nobody's biometrics are ever deleted. The design chose a heartbeat over a cron
+entry precisely so there is no extra secret to manage, which means the kiosk
+carries that responsibility.
+
 ## The three things that are easy to get wrong
 
 **1. Signing.** Every `kiosk/…` call is signed by the device:
@@ -96,13 +113,21 @@ Built:
 
 Still to do, in this order:
 
-1. **Consent and enrollment**, and saving a worker's finger — the three screens
+1. **The fingerprint on a clock-in.** When `POST /kiosk/identify` answers with a
+   `fingerprint` challenge, the worker has a key saved on this device and the
+   server **will refuse** a confirmation without the assertion from it. The
+   screen currently detects this and says so plainly rather than showing the name
+   and then failing — but that worker cannot clock in until this is built. Pass
+   `fingerprint.options` **unchanged** to `navigator.credentials.get()` and send
+   the answer as `assertion` on `POST /kiosk/confirm`. Never fall back to
+   confirming without it: that would be a fallback around a second factor.
+2. **Consent and enrollment**, and saving a worker's finger — the three screens
    an administrator uses to put somebody on the system. These need an ADMIN
    signed in on the kiosk, which set-up deliberately does not do today.
-2. **The staff-number fingerprint fallback** and **the supervisor's co-sign** —
+3. **The staff-number fingerprint fallback** and **the supervisor's co-sign** —
    the screen currently names them as the way out after three failures without
    offering them yet.
-3. **The real Human engine** behind `FaceEngine`, with the models served from
+4. **The real Human engine** behind `FaceEngine`, with the models served from
    this app's own origin (never a CDN: a tampered model that always passes
    liveness would be invisible).
 

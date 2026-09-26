@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
 import { MockFaceEngine } from '@/lib/face-mock';
+import { startHeartbeat } from '@/lib/heartbeat';
 import { ClockScreen } from '@/screens/clock-screen';
 import { PairingScreen } from '@/screens/pairing-screen';
 
@@ -53,6 +54,16 @@ export function App({ engine }: AppProps = {}) {
       stillMounted = false;
     };
   }, []);
+
+  // Starts as soon as the phone is paired and runs for as long as the app is
+  // open. Not tied to a screen: a kiosk sitting on "Ready" all night is exactly
+  // when the server most needs the tick (see `lib/heartbeat.ts`).
+  useEffect(() => {
+    if (device === null) {
+      return;
+    }
+    return startHeartbeat(device);
+  }, [device]);
 
   if (looking) {
     return (

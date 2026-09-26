@@ -151,6 +151,23 @@ export function ClockScreen({
         countFailure('Not recognised. Please try again.');
         return;
       }
+      if (answer.fingerprint !== null) {
+        // This worker has a fingerprint key on this kiosk, so the server will
+        // refuse a confirmation that does not carry the assertion from it. That
+        // work is not built yet, so say so rather than showing the name and
+        // then failing: the guard would have no idea what went wrong, and the
+        // server's refusal deliberately tells them nothing.
+        //
+        // Do not fall back to confirming without it. The server refuses anyway,
+        // and a fallback here would be a fallback around a second factor.
+        setStage({
+          name: 'refused',
+          message:
+            'This kiosk cannot take your fingerprint yet. Ask your supervisor to clock you in.',
+          offerFallback: false,
+        });
+        return;
+      }
       setStage({
         name: 'greeting',
         attemptId: answer.attemptId,
