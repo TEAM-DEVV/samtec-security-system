@@ -1,0 +1,309 @@
+/*
+ * The whole kiosk's styling, by hand.
+ *
+ * No Tailwind and no component library, on purpose: this app has six screens
+ * and has to start quickly on a cheap Android phone screwed to a wall at a
+ * gate. Every kilobyte of framework is a kilobyte a guard waits for in the rain.
+ *
+ * Three things drive every choice below:
+ *  - **A guard is standing up, at arm's length, possibly at night.** Text is
+ *    large, contrast is high, and the background is dark so the screen is not a
+ *    lamp in somebody's face at 2am.
+ *  - **The answer must be readable in one glance.** One message at a time,
+ *    centred, nothing else competing with it.
+ *  - **Nothing is said with colour alone.** Every state has words too, because
+ *    colour blindness and a sun-bleached screen are the same problem here.
+ */
+
+:root {
+  --ink: #f4f6f8;
+  --ink-soft: #a8b3bd;
+  --bg: #0d1117;
+  --panel: #161b22;
+  --line: #2a323c;
+  --good: #2ea043;
+  --good-ink: #7ee08f;
+  --bad: #d13438;
+  --bad-ink: #ff9b9e;
+  --wait: #b58900;
+  --wait-ink: #ffd76e;
+  --accent: #1f6feb;
+
+  /* One place to change the whole scale, for a bigger or smaller wall screen. */
+  --step: clamp(1rem, 2.5vh, 1.4rem);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--step);
+  line-height: 1.45;
+  /* A kiosk is touched, not browsed: no accidental text selection, and no
+     bounce when a guard drags a finger across the screen. */
+  user-select: none;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 1.25rem;
+  gap: 1rem;
+}
+
+.screen--centred {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- header --- */
+
+.bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--ink-soft);
+  font-size: 0.8em;
+}
+
+.bar strong {
+  color: var(--ink);
+  font-size: 1.15em;
+  letter-spacing: 0.12em;
+}
+
+/* ----------------------------------------------------------------- type ---- */
+
+h1 {
+  margin: 0;
+  font-size: 1.9em;
+  line-height: 1.15;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.25em;
+}
+
+p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.small {
+  font-size: 0.85em;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* --------------------------------------------------------------- buttons --- */
+
+.button {
+  display: block;
+  width: 100%;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  /* Comfortably above the 44px everyone agrees on, because this is pressed
+     with a cold or gloved hand. */
+  min-height: 3.4rem;
+  cursor: pointer;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button--in {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 18%, var(--panel));
+}
+
+.button--out {
+  border-color: var(--wait);
+  background: color-mix(in srgb, var(--wait) 18%, var(--panel));
+}
+
+.button--quiet {
+  background: transparent;
+  color: var(--ink-soft);
+  font-weight: 500;
+  min-height: 2.8rem;
+}
+
+.button--danger {
+  border-color: var(--bad);
+  color: var(--bad-ink);
+}
+
+.buttons {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 26rem;
+}
+
+/* ---------------------------------------------------------------- camera --- */
+
+.camera {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  overflow: hidden;
+  background: #000;
+}
+
+.camera video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Mirrored, so turning your head left moves the image left. Unmirrored, every
+     person turns the wrong way the first time. */
+  transform: scaleX(-1);
+}
+
+.camera__instruction {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 0.75rem;
+  background: rgb(0 0 0 / 65%);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- notices --- */
+
+.notice {
+  width: 100%;
+  max-width: 30rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: 0.75rem;
+  background: var(--panel);
+  text-align: left;
+}
+
+/* The word in each notice does the work; the colour only agrees with it. */
+.notice--good {
+  border-left-color: var(--good);
+  color: var(--good-ink);
+}
+
+.notice--bad {
+  border-left-color: var(--bad);
+  color: var(--bad-ink);
+}
+
+.notice--wait {
+  border-left-color: var(--wait);
+  color: var(--wait-ink);
+}
+
+/* ----------------------------------------------------------------- forms --- */
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 30rem;
+  text-align: left;
+}
+
+.field label {
+  color: var(--ink-soft);
+  font-size: 0.85em;
+}
+
+.field input {
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  min-height: 3rem;
+  /* A secret or a staff number is typed here, so selection has to work even
+     though the rest of the app forbids it. */
+  user-select: text;
+}
+
+.field input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------ the greeting -- */
+
+.greeting {
+  font-size: 2.4em;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* ---------------------------------------------------------------- motion --- */
+
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 4px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Somebody may have motion sickness, and a kiosk is the worst place to find
+   out. The spinner stops and the border alone shows it is working. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-top-color: var(--accent);
+  }
+
+  .button:active {
+    transform: none;
+  }
+}
