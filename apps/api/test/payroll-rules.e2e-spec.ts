@@ -721,6 +721,105 @@ describe.skipIf(!databaseUrl)('The payroll rules the database enforces (e2e)', (
       ).rejects.toThrow();
     });
 
+    /**
+     * The UPDATE half of the rule above.
+     *
+     * `payroll_runs_start_as_draft` refuses a *new* run in a closed month, but
+     * a draft that was already sitting in one when it closed used to be free to
+     * move: submitted, approved, and then paid. The service refuses that too
+     * (`refuseAClosedMonth`); these prove the database refuses it on its own,
+     * with the service bypassed entirely.
+     */
+    it('refuses to submit a draft left behind in a month that closed afterwards', async () => {
+      const period = await freshPeriod();
+      const run = await draftRun(period);
+      await prisma.payrollLine.create({ data: soundLine({ runId: run.id }) });
+      await prisma.payrollPeriod.update({
+        where: { id: period },
+        data: { status: 'CLOSED', closedAt: new Date(), closedByUserId: maker },
+      });
+
+      await expect(
+        prisma.payrollRun.update({
+          where: { id: run.id },
+          data: { status: 'PENDING_APPROVAL', submittedByUserId: maker, submittedAt: new Date() },
+        }),
+      ).rejects.toThrow(/closed/);
+
+      // The refusal changed nothing: the draft is still a draft.
+      const untouched = await prisma.payrollRun.findFirstOrThrow({ where: { id: run.id } });
+      expect(untouched.status).toBe('DRAFT');
+    });
+
+    it('refuses to approve or reject a run waiting in a month that closed afterwards', async () => {
+      const period = await freshPeriod();
+      const run = await draftRun(period);
+      await prisma.payrollLine.create({ data: soundLine({ runId: run.id }) });
+      await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: { status: 'PENDING_APPROVAL', submittedByUserId: maker, submittedAt: new Date() },
+      });
+      await prisma.payrollPeriod.update({
+        where: { id: period },
+        data: { status: 'CLOSED', closedAt: new Date(), closedByUserId: maker },
+      });
+
+      // A different person approving breaks no other rule, so the closed month
+      // is the only thing that can be refusing these two.
+      await expect(
+        prisma.payrollRun.update({
+          where: { id: run.id },
+          data: { status: 'LOCKED', approvedByUserId: checker, approvedAt: new Date() },
+        }),
+      ).rejects.toThrow(/closed/);
+      await expect(
+        prisma.payrollRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'REJECTED',
+            rejectedByUserId: checker,
+            rejectedAt: new Date(),
+            rejectionReason: 'The month is closed.',
+          },
+        }),
+      ).rejects.toThrow(/closed/);
+
+      const untouched = await prisma.payrollRun.findFirstOrThrow({ where: { id: run.id } });
+      expect(untouched.status).toBe('PENDING_APPROVAL');
+    });
+
+    it('still lets a run approved while the month was open be marked paid after it closes', async () => {
+      // The one decision a closed month does not refuse, because the money may
+      // leave the bank after the books are closed (`PayrollPeriodsService.close`).
+      const period = await freshPeriod();
+      const run = await draftRun(period);
+      await prisma.payrollLine.create({ data: soundLine({ runId: run.id }) });
+      await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: { status: 'PENDING_APPROVAL', submittedByUserId: maker, submittedAt: new Date() },
+      });
+      await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: { status: 'LOCKED', approvedByUserId: checker, approvedAt: new Date() },
+      });
+      await prisma.payrollPeriod.update({
+        where: { id: period },
+        data: { status: 'CLOSED', closedAt: new Date(), closedByUserId: maker },
+      });
+
+      const paid = await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'PAID',
+          paidByUserId: checker,
+          paidAt: new Date(),
+          paidOn: new Date('2030-03-05T00:00:00Z'),
+          paymentReference: 'AKB-TRF-2030-0001',
+        },
+      });
+      expect(paid.status).toBe('PAID');
+    });
+
     it('refuses a bank name that hides a spreadsheet formula behind a space', async () => {
       // The pattern refused a leading `=`, but not a space before it — and a
       // spreadsheet trims the space on import and runs the formula anyway.
