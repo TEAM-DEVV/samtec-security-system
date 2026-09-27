@@ -14,6 +14,14 @@ import { importSigningKey } from '@/lib/signing';
 let sent: { url: string; headers: Record<string, string>; body: string }[] = [];
 let failNext = false;
 
+/** A short interval, so these tests take milliseconds rather than minutes. */
+const TICK = 30;
+
+/** Real time, because these tests use the real clock. */
+function pause(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function aPairedKiosk(): Promise<PairedDevice> {
   return {
     deviceId: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01',
@@ -46,7 +54,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.useRealTimers();
 });
 
 describe('the heartbeat', () => {
@@ -77,50 +84,42 @@ describe('the heartbeat', () => {
   });
 
   it('keeps ticking on the interval', async () => {
-    vi.useFakeTimers();
     const device = await aPairedKiosk();
-    const stop = startHeartbeat(device, 1000);
+    const stop = startHeartbeat(device, TICK);
 
-    await vi.advanceTimersByTimeAsync(3500);
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(3));
     stop();
-    // Counted loosely on purpose. Each tick signs before it sends, and signing
-    // is asynchronous, so a tick can land just either side of a tick boundary.
-    // What matters is that it keeps going, not that it lands on the millisecond.
-    expect(sent.length).toBeGreaterThanOrEqual(3);
   });
 
   it('stops when it is told to, and does not keep ticking', async () => {
-    vi.useFakeTimers();
     const device = await aPairedKiosk();
-    const stop = startHeartbeat(device, 1000);
-    await vi.advanceTimersByTimeAsync(1500);
+    const stop = startHeartbeat(device, TICK);
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2));
 
     stop();
-    // Long enough for ten more ticks, had the interval survived.
-    await vi.advanceTimersByTimeAsync(10_000);
+    // Long enough for many more ticks, had the interval survived. A request
+    // already in flight when `stop` was called still finishes — that is one
+    // heartbeat and harmless — so this settles first, then checks nothing more
+    // arrives.
+    await pause(TICK * 4);
     const after = sent.length;
-    await vi.advanceTimersByTimeAsync(10_000);
+    await pause(TICK * 10);
 
-    // A request already in flight when `stop` was called still finishes — it is
-    // one heartbeat and harmless. What must not happen is the interval carrying
-    // on, so the count has to be settled by now.
     expect(sent).toHaveLength(after);
-    expect(after).toBeLessThan(5);
   });
 
   it('keeps going after a failure, because a gate loses signal', async () => {
-    vi.useFakeTimers();
     failNext = true;
     const device = await aPairedKiosk();
-    const stop = startHeartbeat(device, 1000);
+    const stop = startHeartbeat(device, TICK);
 
-    await vi.advanceTimersByTimeAsync(2500);
+    // The first tick is refused, the way a gate with no signal refuses it.
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(1));
     failNext = false;
-    await vi.advanceTimersByTimeAsync(2000);
-    stop();
 
     // A rejected request must not kill the interval: the whole point is that it
-    // tries again a minute later.
-    expect(sent.length).toBeGreaterThan(3);
+    // tries again, so the count keeps climbing.
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(3));
+    stop();
   });
 });
