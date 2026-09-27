@@ -39,14 +39,26 @@ export interface MockFaceOptions {
   person?: string;
 }
 
+/** How many reads the pretend head stays turned before it looks back. */
+const READS_SPENT_TURNED = 2;
+
 /**
  * A pretend camera.
  *
- * `askedToTurn` is how a test drives the challenge: the screen sets it when it
- * picks a direction, and a `follows` head then reports turning that way.
+ * It performs the whole gesture by itself once the screen tells it what was
+ * asked (`asked`): it reports the turn for a couple of frames, then centres,
+ * which is what a person does. That matters beyond the tests — the first version
+ * of this class waited for a test to set a field by hand, so in the running app
+ * the head never turned, every attempt timed out after twenty seconds, and
+ * `pnpm dev:kiosk` could not clock anybody in.
+ *
+ * A `still` head ignores `asked` entirely, which is exactly what a printed
+ * photograph does.
  */
 export class MockFaceEngine implements FaceEngine {
-  askedToTurn: HeadTurn | null = null;
+  /** The turn currently being performed, and how many reads are left of it. */
+  private turningTo: HeadTurn | null = null;
+  private readsLeftTurned = 0;
   private started = false;
   private readonly options: Required<MockFaceOptions>;
 
@@ -64,6 +76,21 @@ export class MockFaceEngine implements FaceEngine {
     this.started = true;
   }
 
+  /**
+   * The screen has asked for a turn, so the pretend head performs one.
+   *
+   * A real engine does not need telling — it reads the frame. This one has no
+   * head to read, which is why the interface carries the hook.
+   */
+  asked(turn: HeadTurn): void {
+    if (this.options.head === 'still') {
+      // A photograph does not turn, however politely it is asked.
+      return;
+    }
+    this.turningTo = turn;
+    this.readsLeftTurned = READS_SPENT_TURNED;
+  }
+
   async read(): Promise<FaceReading> {
     if (!this.started) {
       // The same refusal a real engine gives before its models have loaded, so
@@ -76,7 +103,18 @@ export class MockFaceEngine implements FaceEngine {
         problem: 'The camera is not ready yet.',
       };
     }
-    const { facePixels, real, live, head, person } = this.options;
+    const { facePixels, real, live, person } = this.options;
+
+    // The turn lasts a couple of frames and then the head comes back to centre,
+    // which is the gesture the screen is waiting for.
+    let turnedTo: HeadTurn | null = null;
+    if (this.turningTo !== null && this.readsLeftTurned > 0) {
+      turnedTo = this.turningTo;
+      this.readsLeftTurned -= 1;
+    } else {
+      this.turningTo = null;
+    }
+
     return {
       sample: {
         model: FACE_MODEL,
@@ -85,13 +123,15 @@ export class MockFaceEngine implements FaceEngine {
         live,
       },
       facePixels,
-      turnedTo: head === 'follows' ? this.askedToTurn : null,
+      turnedTo,
       problem: facePixels === 0 ? 'No face in view. Stand in front of the screen.' : null,
     };
   }
 
   stop(): void {
     this.started = false;
+    this.turningTo = null;
+    this.readsLeftTurned = 0;
   }
 }
 

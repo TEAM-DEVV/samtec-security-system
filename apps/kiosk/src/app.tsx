@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { loadDevice, type PairedDevice } from '@/lib/device';
+import { forgetDevice, loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
 import { MockFaceEngine } from '@/lib/face-mock';
 import { startHeartbeat } from '@/lib/heartbeat';
@@ -22,13 +22,35 @@ interface AppProps {
   engine?: FaceEngine;
 }
 
+/**
+ * The camera to use when nobody passed one in.
+ *
+ * **The pretend camera must never reach a real kiosk.** It accepts any frame, so
+ * a deployed build running on it would do no face check at all: anybody could
+ * clock in as the last person the server matched. A build is either a
+ * development build with no real engine yet, or a production build that must
+ * refuse to run rather than pretend.
+ *
+ * When the real Human engine lands it is constructed here, and this guard stops
+ * mattering — until then it is the only thing standing between a deploy and a
+ * kiosk that waves everybody through.
+ */
+function defaultEngine(): FaceEngine {
+  if (import.meta.env.PROD) {
+    throw new Error(
+      'This build has no face engine. The pretend camera accepts any face and must never run on a real kiosk.',
+    );
+  }
+  return new MockFaceEngine();
+}
+
 export function App({ engine }: AppProps = {}) {
   const [device, setDevice] = useState<PairedDevice | null>(null);
   const [looking, setLooking] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   // One engine for the life of the app: starting a camera is slow, and a new
   // one per render would ask Android for permission again.
-  const camera = useMemo(() => engine ?? new MockFaceEngine(), [engine]);
+  const camera = useMemo(() => engine ?? defaultEngine(), [engine]);
 
   useEffect(() => {
     let stillMounted = true;
@@ -89,5 +111,16 @@ export function App({ engine }: AppProps = {}) {
     return <PairingScreen onPaired={setDevice} />;
   }
 
-  return <ClockScreen device={device} engine={camera} />;
+  return (
+    <ClockScreen
+      device={device}
+      engine={camera}
+      onSetUpAgain={() => {
+        // Offered only when the server has refused this phone's key (a 401).
+        // A well-formed but wrong secret pairs happily and then fails every
+        // request, and without this the phone has no way back at all.
+        void forgetDevice().then(() => setDevice(null));
+      }}
+    />
+  );
 }

@@ -21,5 +21,16 @@ export default defineConfig({
     // Not 5173: the dashboard already owns that, and both run at once.
     port: 5174,
     strictPort: true,
+    // The kiosk talks to `/api/v1` on its own origin, in development as in
+    // production. Same-origin is not a convenience: the deployed app's content
+    // security policy sets `connect-src 'self'`, and a WebAuthn key is bound to
+    // an origin, so a cross-origin API would break the fingerprint path. Point
+    // this elsewhere with VITE_API_BASE_URL only when you mean to.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
+    },
   },
 });

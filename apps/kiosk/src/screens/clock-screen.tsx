@@ -13,11 +13,20 @@ import {
   type HeadTurn,
   headTurnInstruction,
   randomHeadTurn,
+  readingIsLive,
   readingIsUsable,
 } from '@/lib/face';
 
 /** How long the name stays on screen before the punch is recorded. */
 const SHOW_THE_NAME_MILLISECONDS = 2000;
+/**
+ * How long an answer stays on screen before the kiosk clears itself.
+ *
+ * A kiosk is a screen on a wall. Left alone it showed the last guard's name and
+ * whether they had started or ended a shift until somebody pressed a button,
+ * which tells everybody walking past who is on duty.
+ */
+const CLEAR_THE_SCREEN_AFTER_MILLISECONDS = 8000;
 /** How often the pretend or real camera is read while a challenge runs. */
 const READ_EVERY_MILLISECONDS = 200;
 /** After this many failures in a row, the fallbacks are offered. */
@@ -29,13 +38,16 @@ type Stage =
   | { name: 'challenging'; direction: KioskDirection; turn: HeadTurn; turned: boolean }
   | { name: 'asking'; direction: KioskDirection }
   | { name: 'greeting'; attemptId: string; displayName: string; direction: KioskDirection }
+  | { name: 'cancelling' }
   | { name: 'recording' }
   | { name: 'done'; punch: KioskPunchResponse }
-  | { name: 'refused'; message: string; offerFallback: boolean };
+  | { name: 'refused'; message: string; offerFallback: boolean; offerSetUpAgain?: boolean };
 
 interface ClockScreenProps {
   device: PairedDevice;
   engine: FaceEngine;
+  /** Forgets this kiosk, so an administrator can set the phone up again. */
+  onSetUpAgain?: () => void;
   /** Overridable so a test does not wait two real seconds to see the name. */
   showTheNameFor?: number;
   /**
@@ -63,6 +75,7 @@ interface ClockScreenProps {
 export function ClockScreen({
   device,
   engine,
+  onSetUpAgain,
   showTheNameFor = SHOW_THE_NAME_MILLISECONDS,
   challengeSeconds = CHALLENGE_SECONDS,
 }: ClockScreenProps) {
@@ -89,6 +102,10 @@ export function ClockScreen({
       if (video.current !== null) {
         await engine.start(video.current);
       }
+      // A real engine works the direction out from the frame and can ignore
+      // this. The pretend camera has no head to look at, so without it the
+      // challenge could never be answered outside a test.
+      engine.asked?.(turn);
     } catch {
       setStage({
         name: 'refused',
@@ -116,11 +133,28 @@ export function ClockScreen({
       if (cancelled.current) {
         return;
       }
-      const reading = await engine.read();
-      if (!turned && reading.turnedTo === turn) {
+      let reading: Awaited<ReturnType<FaceEngine['read']>>;
+      try {
+        reading = await engine.read();
+      } catch {
+        // A camera can be revoked mid-gesture. Without this the loop throws out
+        // of an async function nobody awaits, and the screen sits on
+        // "Follow the instruction" with nothing to press.
+        engine.stop();
+        setStage({
+          name: 'refused',
+          message: 'The camera stopped working. Tell your supervisor.',
+          offerFallback: false,
+        });
+        return;
+      }
+      // `readingIsLive` on the turn as well as the sample. Checking only the
+      // final frame would let one person do the head turn and a photograph
+      // supply the face a moment later.
+      if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
         turned = true;
         setStage({ name: 'challenging', direction, turn, turned: true });
-      } else if (turned && reading.turnedTo === null && readingIsUsable(reading)) {
+      } else if (turned && readingIsUsable(reading)) {
         // Turned, then came back to centre, and this frame is good enough.
         await identify(direction, reading.sample);
         return;
@@ -176,11 +210,7 @@ export function ClockScreen({
       });
     } catch (error) {
       engine.stop();
-      setStage({
-        name: 'refused',
-        message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
-        offerFallback: false,
-      });
+      setStage(refusalFrom(error));
     }
   }
 
@@ -192,16 +222,21 @@ export function ClockScreen({
       setFailures(0);
       setStage({ name: 'done', punch });
     } catch (error) {
-      setStage({
-        name: 'refused',
-        message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
-        offerFallback: false,
-      });
+      setStage(refusalFrom(error));
     }
   }
 
-  /** The guard pressed "Not me": the match is cancelled and counts as a failure. */
+  /**
+   * The guard pressed "Not me": the match is cancelled and counts as a failure.
+   *
+   * The stage changes **before** anything is awaited, and that ordering is the
+   * whole correctness of this function. Leaving the greeting is what clears the
+   * two-second confirm timer; awaiting first left it armed, so on a slow network
+   * the timer fired and clocked in the very person who had just said this is not
+   * them. That is the one outcome this button exists to prevent.
+   */
   async function notMe(attemptId: string) {
+    setStage({ name: 'cancelling' });
     try {
       await callSigned<void>(device, 'kiosk/not-me', { attemptId });
     } catch {
@@ -253,6 +288,7 @@ export function ClockScreen({
         onConfirm={confirm}
         onNotMe={notMe}
         onRest={rest}
+        onSetUpAgain={onSetUpAgain}
       />
     </div>
   );
@@ -265,9 +301,18 @@ interface BodyProps {
   onConfirm: (attemptId: string) => void;
   onNotMe: (attemptId: string) => void;
   onRest: () => void;
+  onSetUpAgain?: () => void;
 }
 
-function Body({ stage, showTheNameFor, onBegin, onConfirm, onNotMe, onRest }: BodyProps) {
+function Body({
+  stage,
+  showTheNameFor,
+  onBegin,
+  onConfirm,
+  onNotMe,
+  onRest,
+  onSetUpAgain,
+}: BodyProps) {
   // The name is shown for two seconds with a way out, then the punch goes in.
   // The wait is the whole point of "Not me": without it nobody could object.
   useEffect(() => {
@@ -277,6 +322,17 @@ function Body({ stage, showTheNameFor, onBegin, onConfirm, onNotMe, onRest }: Bo
     const timer = setTimeout(() => onConfirm(stage.attemptId), showTheNameFor);
     return () => clearTimeout(timer);
   }, [stage, showTheNameFor, onConfirm]);
+
+  // An answer clears itself. This is a screen on a wall: the last guard's name
+  // and whether they started or ended a shift used to sit there until somebody
+  // pressed a button, telling everybody walking past who is on duty.
+  useEffect(() => {
+    if (stage.name !== 'done' && stage.name !== 'refused') {
+      return;
+    }
+    const timer = setTimeout(onRest, CLEAR_THE_SCREEN_AFTER_MILLISECONDS);
+    return () => clearTimeout(timer);
+  }, [stage, onRest]);
 
   switch (stage.name) {
     case 'resting':
@@ -296,11 +352,28 @@ function Body({ stage, showTheNameFor, onBegin, onConfirm, onNotMe, onRest }: Bo
 
     case 'challenging':
       return (
-        <p className="notice notice--wait" role="status">
-          {stage.turned
-            ? 'Good. Look straight ahead and hold still.'
-            : 'Follow the instruction on the camera.'}
-        </p>
+        <>
+          <p className="notice notice--wait" role="status">
+            {stage.turned
+              ? 'Good. Look straight ahead and hold still.'
+              : 'Follow the instruction on the camera.'}
+          </p>
+          <div className="buttons">
+            {/* Twenty seconds is a long time to stand in the rain in front of a
+                screen that has decided to wait. */}
+            <button type="button" className="button button--quiet" onClick={onRest}>
+              Cancel
+            </button>
+          </div>
+        </>
+      );
+
+    case 'cancelling':
+      return (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p role="status">Cancelling…</p>
+        </>
       );
 
     case 'asking':
@@ -345,10 +418,15 @@ function Body({ stage, showTheNameFor, onBegin, onConfirm, onNotMe, onRest }: Bo
         <>
           <h1>{stage.punch.direction === 'IN' ? 'Shift started' : 'Shift ended'}</h1>
           <p className="notice notice--good" role="status">
-            Recorded for {stage.punch.worker.displayName}.{' '}
+            Recorded for {stage.punch.worker.displayName}{' '}
+            <span className="mono">({stage.punch.worker.staffNumber})</span> at{' '}
+            <span className="mono">{timeInGhana(stage.punch.recordedAt)}</span>.{' '}
             {stage.punch.status === 'DUPLICATE'
               ? 'This was already recorded, so nothing was added twice.'
               : 'Have a good shift.'}
+          </p>
+          <p className="small muted">
+            This is the time the server recorded, not this phone's clock.
           </p>
           <div className="buttons">
             <button type="button" className="button" onClick={onRest}>
@@ -366,19 +444,59 @@ function Body({ stage, showTheNameFor, onBegin, onConfirm, onNotMe, onRest }: Bo
           </p>
           {stage.offerFallback && (
             <p className="notice notice--wait">
-              Still not working? Use your staff number, or ask your supervisor to help you clock in.
+              Still not working? Ask your supervisor to help you clock in.
             </p>
           )}
           <div className="buttons">
             <button type="button" className="button" onClick={onRest}>
               Start again
             </button>
+            {stage.offerSetUpAgain === true && onSetUpAgain !== undefined && (
+              <button type="button" className="button button--danger" onClick={onSetUpAgain}>
+                Set this phone up again
+              </button>
+            )}
           </div>
         </>
       );
   }
 }
 
+/**
+ * Turns a failed request into the refused stage.
+ *
+ * One function because a 401 can come back from any signed call, and the
+ * recovery it needs is the same every time: this phone's key is wrong, or the
+ * device has been switched off, and only an administrator setting it up again
+ * gets past that. Written once when it lived in `confirm` alone, which meant a
+ * 401 on `identify` — the first call a guard makes — left the phone stuck.
+ */
+function refusalFrom(error: unknown): Extract<Stage, { name: 'refused' }> {
+  return {
+    name: 'refused',
+    message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
+    offerFallback: false,
+    offerSetUpAgain: error instanceof KioskRequestFailed && error.status === 401,
+  };
+}
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * The server's recorded moment, as a guard reads a clock.
+ *
+ * Ghana keeps UTC+0 all year, so this formats in UTC rather than the phone's own
+ * zone — a phone set to the wrong zone must not make the kiosk disagree with the
+ * dashboard about when somebody clocked in.
+ */
+function timeInGhana(isoMoment: string): string {
+  const at = new Date(isoMoment);
+  if (Number.isNaN(at.getTime())) {
+    return isoMoment;
+  }
+  const hours = String(at.getUTCHours()).padStart(2, '0');
+  const minutes = String(at.getUTCMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 }

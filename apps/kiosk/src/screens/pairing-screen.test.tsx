@@ -17,7 +17,9 @@ import { PairingScreen } from './pairing-screen';
  * against the browser's real WebCrypto.
  */
 const A_REAL_LOOKING_ID = '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01';
-const A_REAL_LOOKING_SECRET = 'sk_live_0123456789abcdefghij';
+// Never `sk_live_`: a fixture that reads like a production secret is a fixture
+// somebody will one day grep for and panic about.
+const A_REAL_LOOKING_SECRET = 'sk_test_0123456789abcdefghij';
 
 const paired = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/device', () => ({

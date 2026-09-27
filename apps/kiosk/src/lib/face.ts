@@ -49,6 +49,15 @@ export interface FaceReading {
 export interface FaceEngine {
   /** Loads the models. Called once, before the camera is shown. */
   start: (video: HTMLVideoElement) => Promise<void>;
+  /**
+   * Which way the screen has just asked the head to turn.
+   *
+   * Optional, and a real engine may ignore it — it works out which way a head is
+   * actually facing from the frame. The pretend camera needs it, because it has
+   * no head to look at: without being told, it can never answer the challenge,
+   * and `pnpm dev:kiosk` cannot clock anybody in.
+   */
+  asked?: (turn: HeadTurn) => void;
   /** Reads the current frame. Called many times a second while a challenge runs. */
   read: () => Promise<FaceReading>;
   /** Releases the camera and the models. */
@@ -61,13 +70,20 @@ export interface UsableReading extends FaceReading {
 }
 
 /**
- * True when a reading is good enough to send.
+ * True when the frame holds a live face, close enough to judge, whichever way it
+ * is looking.
+ *
+ * Used on **both** frames of the challenge, and that is the point. Checking only
+ * the final centred frame would let one person perform the head turn and a
+ * photograph supply the face a moment later — the gesture done by a human, the
+ * sample taken from a picture. Requiring every frame of the gesture to be a live
+ * face is what ties the two together.
  *
  * Written as a type guard so the caller gets a sample it does not have to
  * null-check again. Re-checking is where a "cannot be null here" comment gets
  * written and then stops being true.
  */
-export function readingIsUsable(reading: FaceReading): reading is UsableReading {
+export function readingIsLive(reading: FaceReading): reading is UsableReading {
   return (
     reading.sample !== null &&
     reading.problem === null &&
@@ -75,6 +91,11 @@ export function readingIsUsable(reading: FaceReading): reading is UsableReading 
     reading.sample.real >= MIN_ANTI_SPOOFING &&
     reading.sample.live >= MIN_ANTI_SPOOFING
   );
+}
+
+/** True when a reading is live **and** looking straight ahead, so it can be sent. */
+export function readingIsUsable(reading: FaceReading): reading is UsableReading {
+  return readingIsLive(reading) && reading.turnedTo === null;
 }
 
 /**

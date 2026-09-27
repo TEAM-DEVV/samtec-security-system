@@ -11,8 +11,21 @@ import { type KioskRoute, nowInSeconds, signRequest } from '@/lib/signing';
  * refuse everything, with a 401 that says nothing about why.
  */
 
-/** Where the API is. Set at build time; the dev server proxies to localhost. */
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+/**
+ * Where the API is.
+ *
+ * `VITE_API_BASE_URL`, the same name the dashboard uses, so one setting means
+ * one thing across the project. It defaults to `/api/v1` — a path, not a host —
+ * so both the dev server and the deployment reach the API on this app's **own
+ * origin**: the dev server proxies it (`vite.config.ts`) and Vercel rewrites it
+ * (`vercel.json`).
+ *
+ * Same-origin is not a convenience here. The kiosk's content security policy
+ * sets `connect-src 'self'`, and WebAuthn keys are bound to an origin, so a
+ * cross-origin API would break the fingerprint path and be blocked by the
+ * policy. A trailing slash is trimmed so a URL never reads `/api/v1//kiosk/…`.
+ */
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1').replace(/\/+$/, '');
 
 /** A refusal the kiosk can show a person, with the API's own words. */
 export class KioskRequestFailed extends Error {

@@ -61,7 +61,12 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding: 1.25rem;
+  /* `viewport-fit=cover` in index.html lets the page fill the phone, including
+     behind a notch and the home indicator — which means the padding has to put
+     the content back out of their way. Without this the top bar sits under the
+     notch on the exact phones a kiosk runs on. */
+  padding: calc(1.25rem + env(safe-area-inset-top)) calc(1.25rem + env(safe-area-inset-right))
+    calc(1.25rem + env(safe-area-inset-bottom)) calc(1.25rem + env(safe-area-inset-left));
   gap: 1rem;
 }
 

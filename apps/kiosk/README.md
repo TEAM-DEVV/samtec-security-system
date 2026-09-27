@@ -17,10 +17,20 @@ pnpm dev:kiosk
 ```
 
 Opens on <http://localhost:5174> with a **pretend camera**, so it runs on any
-machine. The dashboard keeps port 5173, and both can run at once.
+machine. The dashboard keeps port 5173, and both can run at once. Press
+**Start shift** and the pretend head performs the turn by itself.
 
-To point it at a real API, set `VITE_API_URL`. It defaults to
-`http://localhost:3000/api/v1`.
+To set a phone up you need the **device ID and secret**, both shown on the
+dashboard right after you register a device (Devices → Add device). The secret is
+shown once only.
+
+**The API is always on this app's own origin, `/api/v1`.** The dev server proxies
+it to `http://localhost:3000` (`vite.config.ts`) and the deployment rewrites it
+(`vercel.json`). That is not a convenience: the deployed content security policy
+sets `connect-src 'self'`, and a WebAuthn key is bound to an origin, so a
+cross-origin API would break the fingerprint path. Override with
+`VITE_API_BASE_URL` (the same name the dashboard uses) only when you mean to, and
+`VITE_API_PROXY` to move where the dev server forwards.
 
 ## Why it looks nothing like the dashboard
 
@@ -82,6 +92,14 @@ again, but **it cannot see the camera**. If the challenge here is weak, the whol
 thing is weak. A random LEFT or RIGHT head turn, completed within 20 seconds,
 then one centred sample — which is what a printed photograph cannot do, and what
 `clock-screen.test.tsx` proves with a pretend head that never turns.
+
+## The pretend camera must never be deployed
+
+It accepts any frame. A production build running on it would do **no face check
+at all** — anybody could clock in as whoever the server last matched. So
+`defaultEngine()` in `app.tsx` **throws** in a production build rather than fall
+back to it. The kiosk refuses to run instead of pretending to check faces, and
+that guard stops mattering only when the real Human engine lands.
 
 ## The face engine is behind a seam
 

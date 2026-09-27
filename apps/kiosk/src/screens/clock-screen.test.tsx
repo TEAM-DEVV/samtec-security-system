@@ -108,31 +108,14 @@ async function renderScreen(engine = new MockFaceEngine(), showTheNameFor = 10) 
   return engine;
 }
 
-/**
- * Does what a person does: turns the way the screen asked, then looks back at
- * it.
- *
- * Both halves matter. Turning and *staying* turned is not the gesture, and the
- * screen is right to keep waiting for the centred frame — an earlier version of
- * these tests only turned, and every one of them failed for that reason.
- */
-async function doTheHeadTurn(engine: MockFaceEngine) {
-  const asked = await screen.findByText(/Turn your head to the (left|right)/);
-  engine.askedToTurn = asked.textContent?.includes('left') ? 'LEFT' : 'RIGHT';
-  await screen.findByText('Now look straight ahead');
-  engine.askedToTurn = null;
-}
-
 describe('ClockScreen', () => {
   it('records a shift start: turn your head, see your name, punch goes in', async () => {
     answers = [MATCHED, PUNCHED];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
 
     expect(screen.getByRole('heading', { name: 'Ready' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-
-    await doTheHeadTurn(engine);
 
     expect(await screen.findByText('Hello, Kwame A.')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Shift started' })).toBeInTheDocument();
@@ -142,9 +125,8 @@ describe('ClockScreen', () => {
   it('signs every request, and sends exactly the body it signed', async () => {
     answers = [MATCHED, PUNCHED];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
     await screen.findByRole('heading', { name: 'Shift started' });
 
     expect(sent).toHaveLength(2);
@@ -170,6 +152,11 @@ describe('ClockScreen', () => {
     await renderScreen(new MockFaceEngine({ head: 'still' }));
     await user.click(screen.getByRole('button', { name: 'End shift' }));
 
+    // A still head keeps the instruction on screen, which is also the only place
+    // the challenge wording can be observed — a head that follows performs the
+    // whole gesture in a couple of frames.
+    expect(await screen.findByText(/Turn your head to the (left|right)/)).toBeInTheDocument();
+
     expect(
       await screen.findByText(/Stand square to the screen and try again/, {}, { timeout: 5000 }),
     ).toBeInTheDocument();
@@ -180,9 +167,8 @@ describe('ClockScreen', () => {
   it('never says why a face was not recognised, and never shows a score', async () => {
     answers = [NOT_RECOGNISED];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
 
     expect(await screen.findByText('Not recognised. Please try again.')).toBeInTheDocument();
     // Anybody can stand in front of a kiosk, so nothing here may hint at who
@@ -196,7 +182,7 @@ describe('ClockScreen', () => {
   it('offers the fallbacks only after three failures in a row', async () => {
     answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       // After a refusal the screen offers "Start again", which returns it to
@@ -205,16 +191,15 @@ describe('ClockScreen', () => {
         await user.click(screen.getByRole('button', { name: 'Start again' }));
       }
       await user.click(screen.getByRole('button', { name: 'Start shift' }));
-      await doTheHeadTurn(engine);
       await screen.findByText('Not recognised. Please try again.');
 
       // Every call spends the unlock whatever the answer, so the fallback is
       // offered only once the face path has clearly failed.
       if (attempt < 3) {
-        expect(screen.queryByText(/ask your supervisor/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/[Aa]sk your supervisor/)).not.toBeInTheDocument();
       }
     }
-    expect(await screen.findByText(/ask your supervisor/)).toBeInTheDocument();
+    expect(await screen.findByText(/[Aa]sk your supervisor/)).toBeInTheDocument();
   });
 
   it('cancels the match when the worker presses Not me', async () => {
@@ -222,9 +207,8 @@ describe('ClockScreen', () => {
     const user = userEvent.setup();
     // Two whole seconds, as the real screen gives: the wait is the only reason
     // "Not me" can be pressed at all, so the test has to use the real one.
-    const engine = await renderScreen(new MockFaceEngine(), 2000);
+    await renderScreen(new MockFaceEngine(), 2000);
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
 
     await user.click(await screen.findByRole('button', { name: 'Not me' }));
 
@@ -248,9 +232,8 @@ describe('ClockScreen', () => {
       },
     ];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
 
     expect(await screen.findByText('This kiosk has been switched off.')).toBeInTheDocument();
   });
@@ -258,9 +241,8 @@ describe('ClockScreen', () => {
   it('says a repeat was already recorded rather than pretending it is new', async () => {
     answers = [MATCHED, { status: 200, body: { ...PUNCHED.body, status: 'DUPLICATE' } }];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
 
     expect(await screen.findByText(/already recorded/)).toBeInTheDocument();
   });
@@ -289,9 +271,8 @@ describe('ClockScreen and a saved fingerprint', () => {
   it('says so instead of showing the name and then failing', async () => {
     answers = [MATCHED_NEEDS_FINGER];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
 
     expect(await screen.findByText(/cannot take your fingerprint yet/)).toBeInTheDocument();
     // Never the greeting: showing the name would promise a punch that the server
@@ -302,9 +283,8 @@ describe('ClockScreen and a saved fingerprint', () => {
   it('does not try to confirm without the assertion', async () => {
     answers = [MATCHED_NEEDS_FINGER];
     const user = userEvent.setup();
-    const engine = await renderScreen();
+    await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await doTheHeadTurn(engine);
     await screen.findByText(/cannot take your fingerprint yet/);
 
     // One request only. Confirming without the finger would be working around a
