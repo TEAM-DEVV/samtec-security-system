@@ -55,6 +55,16 @@ export async function callSigned<Answer>(
   device: PairedDevice,
   route: KioskRoute,
   body: unknown,
+  /**
+   * An administrator's access token, for the set-up routes only.
+   *
+   * Consent, enrollment and saving a finger need **both** an ADMIN signed in on
+   * this kiosk and the device's signature: a stolen password alone cannot enroll
+   * anybody, and neither can a stolen kiosk (docs/plan/13 section 2). The
+   * everyday clock-in routes pass nothing here — the guard at the gate has no
+   * account.
+   */
+  adminToken?: string,
 ): Promise<Answer> {
   // Once. Everything below uses this exact string.
   const text = JSON.stringify(body);
@@ -68,6 +78,7 @@ export async function callSigned<Answer>(
       'X-Samtec-Device': device.deviceId,
       'X-Samtec-Timestamp': timestamp,
       'X-Samtec-Signature': signature,
+      ...(adminToken === undefined ? {} : { Authorization: `Bearer ${adminToken}` }),
     },
     body: text,
   });
