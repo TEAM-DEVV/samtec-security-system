@@ -48,6 +48,8 @@ interface ClockScreenProps {
   engine: FaceEngine;
   /** Forgets this kiosk, so an administrator can set the phone up again. */
   onSetUpAgain?: () => void;
+  /** Opens the administrator's sign-in, for enrolling somebody. */
+  onAdmin?: () => void;
   /** Overridable so a test does not wait two real seconds to see the name. */
   showTheNameFor?: number;
   /**
@@ -76,6 +78,7 @@ export function ClockScreen({
   device,
   engine,
   onSetUpAgain,
+  onAdmin,
   showTheNameFor = SHOW_THE_NAME_MILLISECONDS,
   challengeSeconds = CHALLENGE_SECONDS,
 }: ClockScreenProps) {
@@ -266,7 +269,23 @@ export function ClockScreen({
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
         <strong>SAMTEC</strong>
-        <span>{device.name}</span>
+        {/* The way in for an administrator. Deliberately plain and small: it is
+            not a secret door — the sign-in behind it is the real gate, and only
+            an ADMIN can get through it — but a guard clocking in should never
+            press it by accident. Hidden mid-attempt so nothing is abandoned
+            half-done. */}
+        {onAdmin !== undefined && stage.name === 'resting' ? (
+          <button
+            type="button"
+            className="button button--quiet"
+            style={{ width: 'auto', minHeight: 0, padding: '0.35rem 0.6rem', fontSize: '0.8em' }}
+            onClick={onAdmin}
+          >
+            {device.name} · Admin
+          </button>
+        ) : (
+          <span>{device.name}</span>
+        )}
       </div>
 
       {/* The camera element stays mounted through every stage. Remounting it

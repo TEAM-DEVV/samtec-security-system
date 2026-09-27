@@ -1,0 +1,446 @@
+import type {
+  BiometricConsent,
+  BiometricConsentText,
+  EmployeeList,
+  FaceEnrollmentResult,
+  FaceSample,
+} from '@samtec/contracts';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
+import type { AdminSession } from '@/lib/admin-session';
+import { callSigned, KioskRequestFailed } from '@/lib/api';
+import type { PairedDevice } from '@/lib/device';
+import {
+  CHALLENGE_SECONDS,
+  type FaceEngine,
+  headTurnInstruction,
+  randomHeadTurn,
+  readingIsLive,
+  readingIsUsable,
+} from '@/lib/face';
+
+/** The contract wants exactly three captures. */
+const CAPTURES_NEEDED = 3;
+/** The design's spacing between them, so the three frames are not one frame. */
+const BETWEEN_CAPTURES_MILLISECONDS = 500;
+/** The last four digits of the Ghana Card, as the contract asks. */
+const CARD_LAST_4 = /^\d{4}$/;
+const READ_EVERY_MILLISECONDS = 200;
+
+/** Where this screen is. */
+type Stage =
+  | { name: 'choosing' }
+  | { name: 'consenting' }
+  | { name: 'recording-consent' }
+  | { name: 'capturing'; taken: number; instruction: string }
+  | { name: 'sending' }
+  | { name: 'enrolled'; result: FaceEnrollmentResult }
+  | { name: 'failed'; message: string };
+
+interface EnrollScreenProps {
+  device: PairedDevice;
+  admin: AdminSession;
+  engine: FaceEngine;
+  onDone: () => void;
+  /** Overridable so a test does not sit through three real half-second waits. */
+  betweenCaptures?: number;
+  challengeSeconds?: number;
+}
+
+/**
+ * Putting a worker on the system: their consent, then their face.
+ *
+ * Both steps need **an administrator signed in on this kiosk and the kiosk's own
+ * signature**. A stolen password cannot enrol anybody, and neither can a stolen
+ * kiosk (docs/plan/13 section 2).
+ *
+ * Two rules this screen exists to honour:
+ *
+ * - **The consent words come from the server and are shown exactly as sent.** The
+ *   record stores which version was agreed to and its fingerprint, so the company
+ *   can show later what a worker actually read. A kiosk that paraphrased them
+ *   would make that record a lie.
+ * - **A collision says only "needs an admin review".** When a new face looks like
+ *   somebody already enrolled, naming them would tell whoever is standing there
+ *   who else works for this company, which is exactly the thing a biometric system
+ *   must not leak.
+ */
+export function EnrollScreen({
+  device,
+  admin,
+  engine,
+  onDone,
+  betweenCaptures = BETWEEN_CAPTURES_MILLISECONDS,
+  challengeSeconds = CHALLENGE_SECONDS,
+}: EnrollScreenProps) {
+  const [stage, setStage] = useState<Stage>({ name: 'choosing' });
+  const [employeeId, setEmployeeId] = useState('');
+  const [cardLast4, setCardLast4] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [consentText, setConsentText] = useState<BiometricConsentText | null>(null);
+  const [waiting, setWaiting] = useState<EmployeeList['items']>([]);
+  const [problem, setProblem] = useState<string | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const cancelled = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      cancelled.current = true;
+      engine.stop();
+    };
+  }, [engine]);
+
+  // The official wording, and the people who still need enrolling. Both are read
+  // with the administrator's token: the kiosk itself may not list employees.
+  useEffect(() => {
+    let live = true;
+    const base = (import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1').replace(/\/+$/, '');
+    const headers = { Authorization: `Bearer ${admin.accessToken}` };
+    void Promise.all([
+      fetch(`${base}/biometrics/consent-text`, { headers }).then((answer) => answer.json()),
+      fetch(`${base}/employees?status=PENDING_ENROLLMENT&limit=100`, { headers }).then((answer) =>
+        answer.json(),
+      ),
+    ])
+      .then(([text, employees]: [BiometricConsentText, EmployeeList]) => {
+        if (live) {
+          setConsentText(text);
+          setWaiting(employees.items ?? []);
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setProblem('Could not load the consent wording. Check the connection and try again.');
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [admin.accessToken]);
+
+  async function recordConsent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (stage.name === 'recording-consent' || consentText === null) {
+      return;
+    }
+    if (!CARD_LAST_4.test(cardLast4)) {
+      setProblem('Type the last four digits of the Ghana Card.');
+      return;
+    }
+    if (!agreed) {
+      setProblem('The worker has to agree before anything is recorded.');
+      return;
+    }
+    setProblem(null);
+    setStage({ name: 'recording-consent' });
+    try {
+      const consent = await callSigned<BiometricConsent>(
+        device,
+        'kiosk/consents',
+        { employeeId, ghanaCardLast4: cardLast4, textVersion: consentText.version },
+        admin.accessToken,
+      );
+      // The card digits have done their job. Nothing on a kiosk should keep part
+      // of somebody's Ghana Card number a moment longer than it is needed.
+      setCardLast4('');
+      await captureThreeFaces(consent.id);
+    } catch (error) {
+      setStage({
+        name: 'failed',
+        message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
+      });
+    }
+  }
+
+  /**
+   * Three captures, half a second apart, each after its own head turn.
+   *
+   * A turn per capture rather than one for all three: three frames of the same
+   * pose half a second apart are nearly the same frame, and the server checks the
+   * three agree with each other. Asking again each time gives three genuinely
+   * different looks at a live face.
+   */
+  async function captureThreeFaces(consentId: string) {
+    const samples: FaceSample[] = [];
+    try {
+      if (video.current !== null) {
+        await engine.start(video.current);
+      }
+    } catch {
+      setStage({ name: 'failed', message: 'The camera would not start. Try again.' });
+      return;
+    }
+
+    while (samples.length < CAPTURES_NEEDED) {
+      const turn = randomHeadTurn();
+      setStage({
+        name: 'capturing',
+        taken: samples.length,
+        instruction: headTurnInstruction(turn),
+      });
+      engine.asked?.(turn);
+
+      const sample = await oneCapture(turn, challengeSeconds);
+      if (cancelled.current) {
+        return;
+      }
+      if (sample === null) {
+        engine.stop();
+        setStage({
+          name: 'failed',
+          message: 'That did not work. Stand square to the screen, in good light, and try again.',
+        });
+        return;
+      }
+      samples.push(sample);
+      if (samples.length < CAPTURES_NEEDED) {
+        await wait(betweenCaptures);
+      }
+    }
+
+    engine.stop();
+    setStage({ name: 'sending' });
+    try {
+      const result = await callSigned<FaceEnrollmentResult>(
+        device,
+        'kiosk/face-enrollments',
+        { employeeId, consentId, samples },
+        admin.accessToken,
+      );
+      setStage({ name: 'enrolled', result });
+    } catch (error) {
+      setStage({
+        name: 'failed',
+        message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
+      });
+    }
+  }
+
+  /** One head turn, then one centred frame, or `null` when the time runs out. */
+  async function oneCapture(turn: 'LEFT' | 'RIGHT', seconds: number): Promise<FaceSample | null> {
+    const deadline = Date.now() + seconds * 1000;
+    let turned = false;
+    while (Date.now() < deadline) {
+      if (cancelled.current) {
+        return null;
+      }
+      let reading: Awaited<ReturnType<FaceEngine['read']>>;
+      try {
+        reading = await engine.read();
+      } catch {
+        return null;
+      }
+      if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
+        turned = true;
+      } else if (turned && readingIsUsable(reading)) {
+        return reading.sample;
+      }
+      await wait(READ_EVERY_MILLISECONDS);
+    }
+    return null;
+  }
+
+  const chosen = waiting.find((one) => one.id === employeeId);
+
+  return (
+    <div className="screen screen--centred">
+      <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
+        <strong>SAMTEC</strong>
+        <span>Enrolling · {admin.fullName}</span>
+      </div>
+
+      <div className="camera" hidden={stage.name !== 'capturing'}>
+        <video ref={video} playsInline muted autoPlay />
+        {stage.name === 'capturing' && <p className="camera__instruction">{stage.instruction}</p>}
+      </div>
+
+      {stage.name === 'choosing' && (
+        <>
+          <h1>Who is being enrolled?</h1>
+          <div className="field">
+            <label htmlFor="enroll-employee">Worker</label>
+            <select
+              id="enroll-employee"
+              value={employeeId}
+              onChange={(event) => setEmployeeId(event.target.value)}
+              className="mono"
+              style={{
+                minHeight: '3rem',
+                borderRadius: '0.6rem',
+                padding: '0.85rem 0.9rem',
+                background: 'var(--bg)',
+                color: 'var(--ink)',
+                border: '1px solid var(--line)',
+                font: 'inherit',
+              }}
+            >
+              <option value="">Choose a worker</option>
+              {waiting.map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.staffNumber} · {one.fullName}
+                </option>
+              ))}
+            </select>
+          </div>
+          {waiting.length === 0 && (
+            <p className="notice notice--wait">
+              Nobody is waiting to be enrolled. Register the worker on the dashboard first.
+            </p>
+          )}
+          {problem !== null && (
+            <p className="notice notice--bad" role="alert">
+              {problem}
+            </p>
+          )}
+          <div className="buttons">
+            <button
+              type="button"
+              className="button button--in"
+              disabled={employeeId === '' || consentText === null}
+              onClick={() => setStage({ name: 'consenting' })}
+            >
+              Continue
+            </button>
+            <button type="button" className="button button--quiet" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        </>
+      )}
+
+      {stage.name === 'consenting' && consentText !== null && (
+        <form noValidate onSubmit={recordConsent} className="buttons" style={{ maxWidth: '34rem' }}>
+          <h1>Read this to {chosen?.fullName ?? 'the worker'}</h1>
+          {/* The server's exact words. Never paraphrased: the record says which
+              version was agreed to, and that has to be true. */}
+          <div
+            className="notice"
+            style={{ whiteSpace: 'pre-wrap', maxHeight: '18rem', overflowY: 'auto' }}
+          >
+            {consentText.text}
+          </div>
+          <p className="small muted">
+            Version <span className="mono">{consentText.version}</span>
+          </p>
+
+          <div className="field">
+            <label htmlFor="enroll-card">Last 4 digits of their Ghana Card</label>
+            <input
+              id="enroll-card"
+              className="mono"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={4}
+              value={cardLast4}
+              onChange={(event) => setCardLast4(event.target.value.replace(/\D/g, ''))}
+            />
+          </div>
+
+          <label
+            className="notice"
+            style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}
+          >
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(event) => setAgreed(event.target.checked)}
+              style={{ width: '1.5rem', height: '1.5rem' }}
+            />
+            <span>They have read this, or had it read to them, and they agree.</span>
+          </label>
+
+          {problem !== null && (
+            <p className="notice notice--bad" role="alert">
+              {problem}
+            </p>
+          )}
+
+          <button type="submit" className="button button--in">
+            Record consent and take their face
+          </button>
+          <button
+            type="button"
+            className="button button--quiet"
+            onClick={() => setStage({ name: 'choosing' })}
+          >
+            Back
+          </button>
+        </form>
+      )}
+
+      {stage.name === 'recording-consent' && (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p role="status">Recording their consent…</p>
+        </>
+      )}
+
+      {stage.name === 'capturing' && (
+        <p className="notice notice--wait" role="status">
+          Capture {stage.taken + 1} of {CAPTURES_NEEDED}. Follow the instruction on the camera, then
+          look straight ahead.
+        </p>
+      )}
+
+      {stage.name === 'sending' && (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p role="status">Saving their face…</p>
+        </>
+      )}
+
+      {stage.name === 'enrolled' && (
+        <>
+          <h1>{stage.result.dedupe === 'PASSED' ? 'Enrolled' : 'Needs an admin review'}</h1>
+          <p
+            className={
+              stage.result.dedupe === 'PASSED' ? 'notice notice--good' : 'notice notice--wait'
+            }
+            role="status"
+          >
+            {stage.result.dedupe === 'PASSED'
+              ? `${chosen?.fullName ?? 'This worker'} can now clock in with their face.`
+              : // Never who it looked like. Whoever is standing here must not learn
+                // who else works for this company.
+                'This face needs a second administrator to look at it on the dashboard before it can be used. Nothing else to do here.'}
+          </p>
+          <div className="buttons">
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setEmployeeId('');
+                setAgreed(false);
+                setStage({ name: 'choosing' });
+              }}
+            >
+              Enrol somebody else
+            </button>
+            <button type="button" className="button button--quiet" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        </>
+      )}
+
+      {stage.name === 'failed' && (
+        <>
+          <p className="notice notice--bad" role="alert">
+            {stage.message}
+          </p>
+          <div className="buttons">
+            <button type="button" className="button" onClick={() => setStage({ name: 'choosing' })}>
+              Start again
+            </button>
+            <button type="button" className="button button--quiet" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
