@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { type AdminSession, hasExpired, signOut } from '@/lib/admin-session';
 import { forgetDevice, loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
 import { MockFaceEngine } from '@/lib/face-mock';
 import { startHeartbeat } from '@/lib/heartbeat';
+import { AdminSignInScreen } from '@/screens/admin-sign-in-screen';
 import { ClockScreen } from '@/screens/clock-screen';
+import { EnrollScreen } from '@/screens/enroll-screen';
 import { PairingScreen } from '@/screens/pairing-screen';
 
 /**
@@ -46,6 +49,15 @@ function defaultEngine(): FaceEngine {
 
 export function App({ engine }: AppProps = {}) {
   const [device, setDevice] = useState<PairedDevice | null>(null);
+  /**
+   * Which screen an administrator has opened, if any.
+   *
+   * `null` is the everyday kiosk. Nothing here is stored: a reload puts the
+   * phone back to the clock-in screen with no session, which is the right
+   * behaviour for a shared device on a wall.
+   */
+  const [adminScreen, setAdminScreen] = useState<'signing-in' | 'enrolling' | null>(null);
+  const [admin, setAdmin] = useState<AdminSession | null>(null);
   const [looking, setLooking] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   // One engine for the life of the app: starting a camera is slow, and a new
@@ -87,6 +99,22 @@ export function App({ engine }: AppProps = {}) {
     return startHeartbeat(device);
   }, [device]);
 
+  // An administrator who walks away must not leave a session on a wall. The
+  // server's token dies in fifteen minutes regardless; this makes the screen
+  // agree with it rather than failing a request later and looking broken.
+  useEffect(() => {
+    if (admin === null) {
+      return;
+    }
+    const timer = setInterval(() => {
+      if (hasExpired(admin)) {
+        setAdmin(null);
+        setAdminScreen(null);
+      }
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [admin]);
+
   if (looking) {
     return (
       <div className="screen screen--centred">
@@ -111,10 +139,40 @@ export function App({ engine }: AppProps = {}) {
     return <PairingScreen onPaired={setDevice} />;
   }
 
+  if (adminScreen === 'signing-in') {
+    return (
+      <AdminSignInScreen
+        onSignedIn={(session) => {
+          setAdmin(session);
+          setAdminScreen('enrolling');
+        }}
+        onCancel={() => setAdminScreen(null)}
+      />
+    );
+  }
+
+  if (adminScreen === 'enrolling' && admin !== null) {
+    return (
+      <EnrollScreen
+        device={device}
+        admin={admin}
+        engine={camera}
+        onDone={() => {
+          // Signed out on the way back, not left to time out: the next person to
+          // touch this phone is a guard clocking in.
+          void signOut(admin);
+          setAdmin(null);
+          setAdminScreen(null);
+        }}
+      />
+    );
+  }
+
   return (
     <ClockScreen
       device={device}
       engine={camera}
+      onAdmin={() => setAdminScreen('signing-in')}
       onSetUpAgain={() => {
         // Offered only when the server has refused this phone's key (a 401).
         // A well-formed but wrong secret pairs happily and then fails every

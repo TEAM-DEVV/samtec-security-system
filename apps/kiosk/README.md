@@ -128,6 +128,28 @@ Built:
 - **Clock in and out** (`screens/clock-screen.tsx`) — the head-turn challenge,
   `POST /kiosk/identify`, the name for two seconds with a **Not me** button, then
   `POST /kiosk/confirm`. Three failures in a row offer the fallbacks.
+- **An administrator signing in** (`screens/admin-sign-in-screen.tsx`) — email,
+  password and the six-digit code. Reached from the small **Admin** button on the
+  resting screen. Two-factor *set-up* is refused here on purpose: it means
+  showing a QR code and a secret key on a screen bolted to a wall.
+- **Consent and enrollment** (`screens/enroll-screen.tsx`) — the official consent
+  wording shown exactly as the server sends it, the last four digits of the Ghana
+  Card, then three face captures with a fresh head turn before each. A collision
+  says only *needs an admin review*.
+
+### Why an administrator can sign in on a phone on a wall
+
+Because enrollment can only happen at a kiosk, and nothing else in the system can
+put a face on file. The session is deliberately poor, and the server makes it so:
+**no refresh token at all**, fifteen minutes, ADMIN only, and it works on the
+kiosk screens and nowhere else. It is held in a variable — never `localStorage`,
+never IndexedDB — so a reload ends it, and the app signs out on the way back to
+the clock-in screen rather than waiting for the clock.
+
+The API knows a sign-in is a *kiosk* sign-in from the browser's `Origin` header,
+which a page cannot forge. That is why the kiosk's address has to be in
+`KIOSK_ORIGINS` (already set to `http://localhost:5174` in `.env.example`) and why
+this app talks to `/api/v1` on its own origin.
 
 Still to do, in this order:
 

@@ -72,7 +72,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
   - [x] The app itself: React 19 + Vite 8, plain CSS, no router, 72 kB gzipped. Device signing with a key the browser will not hand back, pinned to the server by a shared worked example both sides assert
   - [x] Set-up: an administrator pastes the device ID and secret from the Devices page. The kiosk never holds an administrator's sign-in
   - [x] Clock in and out: the random head-turn challenge, `POST /kiosk/identify`, the name for two seconds with **Not me**, then `POST /kiosk/confirm`. A printed photograph is refused because it cannot turn its head, and that is a test
-  - [ ] Consent, enrollment and saving a worker's finger (these need an ADMIN signed in on the kiosk)
+  - [x] An administrator signing in on the kiosk: ADMIN only, no refresh token, fifteen minutes, kiosk screens only. Two-factor set-up is refused here — it would mean showing a QR code and a secret key on a screen on a wall
+  - [x] Consent and enrollment: the official wording shown exactly as the server sends it, the last four digits of the Ghana Card, three captures with a fresh head turn before each, and a collision that says only "needs an admin review"
+  - [ ] Saving a worker's finger (needs WebAuthn, with the options passed through untouched)
   - [ ] The staff-number fingerprint fallback and the supervisor's co-sign
   - [ ] The real Human 3.3.6 engine behind the `FaceEngine` seam, models served from the kiosk's own origin
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
