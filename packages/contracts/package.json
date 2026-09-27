@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts"
     },
+    "./device-signature-vector": {
+      "types": "./src/device-signature-vector.ts",
+      "default": "./src/device-signature-vector.ts"
+    },
     "./openapi.yaml": "./openapi.yaml"
   },
   "scripts": {

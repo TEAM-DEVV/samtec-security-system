@@ -84,6 +84,24 @@ export function NewDevicePage() {
               <CardDescription>{deviceKindLabels[registered.device.kind]}</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
+              {/* A kiosk needs both halves to pair, and the ID used to appear
+                  only in the address bar — so setting one up meant copying a
+                  UUID out of the browser's URL. It is not a secret; it is shown
+                  plainly, beside the secret that is. */}
+              <div className="grid gap-1.5">
+                <Label htmlFor="device-id">Device ID</Label>
+                <Input
+                  id="device-id"
+                  readOnly
+                  value={registered.device.id}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="font-mono text-xs"
+                />
+                <p className="text-muted-foreground text-xs">
+                  A kiosk asks for this and the secret below. Not secret on its own.
+                </p>
+              </div>
+
               <SecretPanel
                 secret={registered.secret}
                 explanation="Put this secret into the device or its gateway; it signs every request the device sends. It does nothing until another administrator switches the device on."

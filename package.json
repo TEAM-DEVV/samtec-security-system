@@ -13,6 +13,7 @@
     "dev:api": "pnpm --filter @samtec/api dev",
     "dev:web": "pnpm --filter @samtec/web dev:mock",
     "dev:web:live": "pnpm --filter @samtec/web dev",
+    "dev:kiosk": "pnpm --filter @samtec/kiosk dev",
     "build": "pnpm --recursive build",
     "typecheck": "pnpm --recursive typecheck",
     "test": "pnpm --recursive test",
