@@ -4,7 +4,6 @@ import {
   BarChart3,
   CalendarClock,
   Clock,
-  FileText,
   Home,
   ListChecks,
   type LucideIcon,
@@ -152,14 +151,6 @@ export const navItems: NavItem[] = [
     phase: 5,
     available: true,
     roles: pageRoles.detection,
-  },
-  {
-    label: 'Reports',
-    description: 'CSV and PDF exports.',
-    to: '/reports',
-    icon: FileText,
-    phase: 6,
-    available: false,
   },
   {
     label: 'Users',
