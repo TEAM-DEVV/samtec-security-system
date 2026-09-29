@@ -7,6 +7,13 @@ import { MockFaceEngine } from '@/lib/face-mock';
 import { importSigningKey } from '@/lib/signing';
 import { EnrollScreen } from './enroll-screen';
 
+// The sensor is pretended; the availability check says yes so the buttons show.
+vi.mock('@/lib/passkeys', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/passkeys')>();
+  return { ...real, createPasskey: vi.fn(), passkeysAvailable: () => true };
+});
+const passkeys = vi.mocked(await import('@/lib/passkeys'));
+
 /**
  * Putting a worker on the system.
  *
@@ -284,5 +291,58 @@ describe('EnrollScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/not the last four digits/);
     // And nothing was captured: consent comes first, always.
     expect(sent.some((one) => one.url.includes('/kiosk/face-enrollments'))).toBe(false);
+  });
+});
+
+/**
+ * Saving a worker's fingerprint on this phone.
+ *
+ * The sensor is pretended (`@/lib/passkeys` is mocked): a test runner has no
+ * finger. What is real: the server's options go to the sensor unchanged, the
+ * sealed ticket goes back unchanged, and only the sensor's public answer is
+ * ever sent — never anything read from a finger.
+ */
+describe('EnrollScreen · saving a fingerprint', () => {
+  it('offers it for an enrolled worker, and registers the key the sensor made', async () => {
+    answers['/kiosk/passkey-options'] = {
+      status: 200,
+      body: { ticket: 'sealed-ticket', options: { challenge: 'from-the-server' } },
+    };
+    answers['/kiosk/passkeys'] = {
+      status: 201,
+      body: {
+        id: '01927c3e-eeee-7000-8000-000000000001',
+        deviceId: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01',
+        deviceName: 'Main Gate kiosk',
+        registeredAt: '2026-09-29T09:00:00.000Z',
+        synced: true,
+        revokedAt: null,
+      },
+    };
+    const registration = { id: 'new-key', rawId: 'new-key', type: 'public-key' };
+    passkeys.createPasskey.mockResolvedValue(
+      registration as unknown as Awaited<ReturnType<typeof passkeys.createPasskey>>,
+    );
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Save a fingerprint instead (already enrolled)' }),
+    );
+    await user.selectOptions(screen.getByLabelText('Worker'), 'SMT-00002 · Abena Owusu');
+    await user.click(screen.getByRole('button', { name: 'Save their fingerprint' }));
+
+    expect(await screen.findByRole('heading', { name: 'Fingerprint saved' })).toBeInTheDocument();
+    // The server's options reached the sensor unchanged…
+    expect(passkeys.createPasskey).toHaveBeenCalledWith({ challenge: 'from-the-server' });
+    // …and the registration went back with the sealed ticket, unchanged.
+    const registered = sent.find((request) => request.url.includes('/kiosk/passkeys'));
+    expect(JSON.parse(registered?.body ?? '{}')).toEqual({
+      employeeId: '01927c3e-5a4b-7c8d-9e0f-000000000002',
+      ticket: 'sealed-ticket',
+      response: registration,
+    });
+    // A synced key is called out for the records, as the contract asks.
+    expect(screen.getByText(/copy the key to its own cloud account/)).toBeInTheDocument();
   });
 });

@@ -3,8 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PairedDevice } from '@/lib/device';
 import { MockFaceEngine } from '@/lib/face-mock';
+import { type AssertionJson, FingerprintRefused } from '@/lib/passkeys';
 import { importSigningKey } from '@/lib/signing';
 import { ClockScreen } from './clock-screen';
+
+// The sensor is pretended: a test runner has no finger. The class and the
+// option-crossing helpers stay real, so the screen's error handling is the
+// shipped one.
+vi.mock('@/lib/passkeys', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/passkeys')>();
+  return { ...real, getAssertion: vi.fn(), createPasskey: vi.fn() };
+});
+const passkeys = vi.mocked(await import('@/lib/passkeys'));
 
 /**
  * The everyday screen.
@@ -196,10 +206,31 @@ describe('ClockScreen', () => {
       // Every call spends the unlock whatever the answer, so the fallback is
       // offered only once the face path has clearly failed.
       if (attempt < 3) {
-        expect(screen.queryByText(/[Aa]sk your supervisor/)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Another way in' })).not.toBeInTheDocument();
       }
     }
-    expect(await screen.findByText(/[Aa]sk your supervisor/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Another way in' })).toBeInTheDocument();
+  });
+
+  it('opens the fallback screen with the direction that failed', async () => {
+    answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED];
+    const user = userEvent.setup();
+    await renderScreen();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (attempt > 1) {
+        await user.click(screen.getByRole('button', { name: 'Start again' }));
+      }
+      await user.click(screen.getByRole('button', { name: 'End shift' }));
+      await screen.findByText('Not recognised. Please try again.');
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Another way in' }));
+    expect(await screen.findByRole('heading', { name: 'Another way in' })).toBeInTheDocument();
+    // The two ways in, and nothing that leaks who works here.
+    expect(
+      screen.getByRole('button', { name: 'My staff number and my fingerprint' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'A supervisor clocks me in' })).toBeInTheDocument();
   });
 
   it('cancels the match when the worker presses Not me', async () => {
@@ -249,13 +280,12 @@ describe('ClockScreen', () => {
 });
 
 /**
- * A worker who has a fingerprint saved on this kiosk.
+ * A worker who has a fingerprint saved on this kiosk (`FACE_PASSKEY`).
  *
- * Every other fixture in this file sets `fingerprint: null`, which is exactly
- * why the first version of this screen dropped the challenge without anything
- * noticing. The server refuses a confirmation with no assertion, and its refusal
- * deliberately tells the guard nothing — so the screen has to say something
- * useful before it gets there.
+ * The sensor itself is pretended (`@/lib/passkeys` is mocked), because a test
+ * runner has no finger. What is real: the server's options are handed over
+ * unchanged, the punch carries the sensor's answer unchanged, and a finger
+ * that fails never lets a confirmation through without one.
  */
 describe('ClockScreen and a saved fingerprint', () => {
   const MATCHED_NEEDS_FINGER = {
@@ -267,26 +297,53 @@ describe('ClockScreen and a saved fingerprint', () => {
       fingerprint: { options: { challenge: 'not-a-real-challenge' } },
     },
   };
+  const AN_ASSERTION = { id: 'key-1', rawId: 'key-1', type: 'public-key' } as AssertionJson;
 
-  it('says so instead of showing the name and then failing', async () => {
-    answers = [MATCHED_NEEDS_FINGER];
-    const user = userEvent.setup();
-    await renderScreen();
-    await user.click(screen.getByRole('button', { name: 'Start shift' }));
-
-    expect(await screen.findByText(/cannot take your fingerprint yet/)).toBeInTheDocument();
-    // Never the greeting: showing the name would promise a punch that the server
-    // is about to refuse.
-    expect(screen.queryByText('Hello, Akua B.')).not.toBeInTheDocument();
+  afterEach(() => {
+    passkeys.getAssertion.mockReset();
   });
 
-  it('does not try to confirm without the assertion', async () => {
-    answers = [MATCHED_NEEDS_FINGER];
+  it('asks the sensor, and confirms with its answer', async () => {
+    answers = [MATCHED_NEEDS_FINGER, PUNCHED];
+    // A sensor that waits for the test to press the finger, so the screen in
+    // between — the name and the ask — can actually be seen.
+    let pressTheFinger: (assertion: AssertionJson) => void = () => {};
+    passkeys.getAssertion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pressTheFinger = resolve;
+        }) as ReturnType<typeof passkeys.getAssertion>,
+    );
     const user = userEvent.setup();
     await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
-    await screen.findByText(/cannot take your fingerprint yet/);
 
+    // The name and the ask, together: the finger press is the confirmation, so
+    // there is no silent two-second timer on this path.
+    expect(await screen.findByText('Hello, Akua B.')).toBeInTheDocument();
+    expect(screen.getByText(/Touch the fingerprint sensor/)).toBeInTheDocument();
+
+    pressTheFinger(AN_ASSERTION);
+    expect(await screen.findByRole('heading', { name: 'Shift started' })).toBeInTheDocument();
+
+    // The server's options went to the sensor unchanged, and the sensor's
+    // answer went back unchanged.
+    expect(passkeys.getAssertion).toHaveBeenCalledWith({ challenge: 'not-a-real-challenge' });
+    const confirmBody = JSON.parse(sent[1]?.body ?? '{}');
+    expect(sent[1]?.url).toContain('/kiosk/confirm');
+    expect(confirmBody.assertion).toEqual(AN_ASSERTION);
+  });
+
+  it('never confirms when the finger was not read', async () => {
+    answers = [MATCHED_NEEDS_FINGER];
+    passkeys.getAssertion.mockRejectedValue(
+      new FingerprintRefused('The fingerprint was not read. Try again.', true),
+    );
+    const user = userEvent.setup();
+    await renderScreen();
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+
+    expect(await screen.findByText('The fingerprint was not read. Try again.')).toBeInTheDocument();
     // One request only. Confirming without the finger would be working around a
     // second factor, and the server refuses it anyway.
     expect(sent).toHaveLength(1);
