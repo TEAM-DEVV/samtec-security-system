@@ -13,6 +13,11 @@ language — put them in your own voice, but keep them this simple. Never say a
 word you cannot explain if interrupted; everything here is explained in the
 pack.
 
+**The slides.** [SAMTEC-defence-slides.pptx](SAMTEC-defence-slides.pptx) is
+the deck for this script: sixteen slides, one per step below, with the SAY
+text of each step in the speaker notes. Open it in PowerPoint, press F5, and
+follow the script.
+
 **The one rule for the whole day:** when you do not know, say "I don't know,
 but I know where it is written" — and name the document. That is a strong
 answer. Guessing is the only losing move.
