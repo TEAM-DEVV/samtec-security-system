@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { type AdminSession, hasExpired, signOut } from '@/lib/admin-session';
 import { forgetDevice, loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
+import { HumanFaceEngine } from '@/lib/face-human';
 import { MockFaceEngine } from '@/lib/face-mock';
 import { startHeartbeat } from '@/lib/heartbeat';
 import { AdminSignInScreen } from '@/screens/admin-sign-in-screen';
@@ -28,21 +29,21 @@ interface AppProps {
 /**
  * The camera to use when nobody passed one in.
  *
- * **The pretend camera must never reach a real kiosk.** It accepts any frame, so
- * a deployed build running on it would do no face check at all: anybody could
- * clock in as the last person the server matched. A build is either a
- * development build with no real engine yet, or a production build that must
- * refuse to run rather than pretend.
+ * A production build always gets the real Human engine (`lib/face-human.ts`),
+ * with the models served from this app's own origin. Development keeps the
+ * pretend camera so `pnpm dev:kiosk` runs on any machine with no camera at
+ * all — set `VITE_FACE_ENGINE=human` to try the real one locally.
  *
- * When the real Human engine lands it is constructed here, and this guard stops
- * mattering — until then it is the only thing standing between a deploy and a
- * kiosk that waves everybody through.
+ * **The pretend camera must never reach a real kiosk.** It accepts any frame,
+ * so a deployed build running on it would do no face check at all: anybody
+ * could clock in as the last person the server matched. That is why the
+ * choice here reads the build mode, never a setting a deployment could get
+ * wrong: there is no value that puts the pretend camera into a production
+ * build.
  */
 function defaultEngine(): FaceEngine {
-  if (import.meta.env.PROD) {
-    throw new Error(
-      'This build has no face engine. The pretend camera accepts any face and must never run on a real kiosk.',
-    );
+  if (import.meta.env.PROD || import.meta.env.VITE_FACE_ENGINE === 'human') {
+    return new HumanFaceEngine();
   }
   return new MockFaceEngine();
 }
