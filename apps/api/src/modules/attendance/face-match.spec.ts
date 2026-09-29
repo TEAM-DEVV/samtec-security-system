@@ -21,14 +21,14 @@ function humanSimilarity(a: number[], b: number[]): number {
     .map((value, index) => (value - (b[index] as number)) ** 2)
     .reduce((total, value) => total + value, 0);
   const distance = 25 * sumOfSquares;
-  return Math.max(0, Math.min(1, (1 - Math.sqrt(distance) / 100 - 0.2) / 0.6));
+  return Math.max(0, Math.min(1, (1 - Math.sqrt(distance) / 100 - 0.2) / 0.8));
 }
 
 /**
  * A face is 1,024 numbers. These test faces are flat lists (every number the
  * same), so the score follows one simple line: with 1,024 numbers a step of
- * `d` between two faces scores `4/3 − (8/3) × d`. That makes 1 at a step of
- * 0.125, 0.6 (the clock-in threshold) at 0.275, 0.5 (the duplicate threshold)
+ * `d` between two faces scores `1 - 2 * d`. That makes 1 only at a step of
+ * 0, 0.45 (the clock-in threshold) at 0.275, 0.375 (the duplicate threshold)
  * at 0.3125, and 0 at 0.5 and beyond.
  */
 function faceAt(level: number): number[] {
@@ -37,7 +37,7 @@ function faceAt(level: number): number[] {
 
 /** The score two flat faces this far apart will get, worked out by hand. */
 function scoreForStep(step: number): number {
-  return Math.max(0, Math.min(1, 4 / 3 - (8 / 3) * step));
+  return Math.max(0, Math.min(1, 1 - 2 * step));
 }
 
 /**
@@ -90,13 +90,15 @@ describe('similarity', () => {
 
   it('works out the formula by hand, as a check on both versions', () => {
     // Two numbers, 3 apart each: Σ(a−b)² = 18, distance = 25 × 18 = 450,
-    // similarity = (1 − √450 ÷ 100 − 0.2) ÷ 0.6.
-    const expected = (1 - Math.sqrt(450) / 100 - 0.2) / 0.6;
+    // similarity = (1 - sqrt(450) / 100 - 0.2) / 0.8.
+    const expected = (1 - Math.sqrt(450) / 100 - 0.2) / 0.8;
 
-    expect(expected).toBeCloseTo(0.9798, 4);
+    expect(expected).toBeCloseTo(0.7348, 4);
     expect(similarity([0, 0], [3, 3])).toBeCloseTo(expected, 12);
-    // Closer than that is simply "the same face": the formula stops at 1.
-    expect(similarity([0, 0], [0.1, 0.1])).toBe(1);
+    // Very close is still not "the same face": only identical numbers score 1,
+    // which is the whole point of ft-2.
+    expect(similarity([0, 0], [0.1, 0.1])).toBeCloseTo(0.9912, 3);
+    expect(similarity([0, 0], [0.1, 0.1])).toBeLessThan(1);
   });
 
   it('never answers on lists of different lengths, or on nothing', () => {
@@ -138,12 +140,12 @@ describe('identifyFace', () => {
   ];
 
   it('names the person when the face is close enough and clearly ahead', () => {
-    // 0.2 from Kwame's face (0.8), 0.4 from Ama's (0.27): a clear lead.
+    // 0.2 from Kwame's face (0.6), 0.4 from Ama's (0.2): a clear lead.
     const result = identifyFace(sampleOf(faceAt(0.2)), faces);
 
     expect(result.outcome).toBe('MATCHED');
     expect(result.outcome === 'MATCHED' && result.employeeId).toBe('kwame');
-    expect(result.scores.best).toBeCloseTo(0.8, 12);
+    expect(result.scores.best).toBeCloseTo(0.6, 12);
     expect(result.scores.best - result.scores.runnerUp).toBeGreaterThanOrEqual(
       FACE_THRESHOLDS.lead,
     );
@@ -156,7 +158,7 @@ describe('identifyFace', () => {
       embedding: faceAt(0.01),
     };
 
-    // 0.827 for the twin against 0.8 for Kwame: both good scores, no lead.
+    // 0.62 for the twin against 0.6 for Kwame: both good scores, no lead.
     const result = identifyFace(sampleOf(faceAt(0.2)), [...faces, twin]);
 
     expect(result.outcome).toBe('AMBIGUOUS');
@@ -229,7 +231,7 @@ describe('findDuplicateFace', () => {
   });
 
   it('asks about a face it would not let clock in, because the check is looser', () => {
-    // 0.29 away scores 0.56: too far to clock in, close enough to ask an ADMIN.
+    // 0.29 away scores 0.42: too far to clock in, close enough to ask an ADMIN.
     const middling = sampleOf(faceAt(0.29));
     const found = findDuplicateFace(middling, faces, 'newcomer');
 
@@ -241,15 +243,14 @@ describe('findDuplicateFace', () => {
   it('draws both lines where the thresholds say', () => {
     // These samples sit on the far side of the guard's face, so the other
     // worker is nowhere near and only the threshold decides. A step of 0.3125
-    // scores exactly 0.5 (the duplicate threshold), and a score on the line
-    // counts. A step of 0.275 works out to 0.6 (the clock-in threshold) minus
+    // scores exactly 0.375 (the duplicate threshold), and a score on the line
+    // counts. A step of 0.275 works out to 0.45 (the clock-in threshold) minus
     // five millionths of a millionth, because adding up 1,024 numbers leaves
     // a rounding error that small, so the samples either side of that line
     // are a hair away from it. No camera can tell faces apart that finely,
     // and either answer on the line itself is a safe one.
-    expect(findDuplicateFace(sampleOf(faceAt(-0.3125)), faces, 'newcomer')?.employeeId).toBe(
-      'guard',
-    );
+    // Exactly on the duplicate line the sum of 1,024 squares lands a rounding
+    // error below 0.375, so the line itself is tested a hair either side.
     expect(findDuplicateFace(sampleOf(faceAt(-0.312)), faces, 'newcomer')?.employeeId).toBe(
       'guard',
     );

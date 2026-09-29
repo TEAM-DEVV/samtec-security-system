@@ -36,7 +36,8 @@ describe('offsetForScore', () => {
   });
 
   it('spans the whole score band, from touching to nothing alike', () => {
-    expect(offsetForScore(1)).toBeCloseTo(0.125, 6);
+    // Under ft-2 only identical numbers score 1, so the band starts at zero offset.
+    expect(offsetForScore(1)).toBeCloseTo(0, 6);
     expect(offsetForScore(0)).toBeCloseTo(0.5, 6);
   });
 });
