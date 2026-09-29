@@ -1,9 +1,11 @@
 import type {
   BiometricConsent,
   BiometricConsentText,
+  DevicePasskey,
   EmployeeList,
   FaceEnrollmentResult,
   FaceSample,
+  PasskeyOptionsResponse,
 } from '@samtec/contracts';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { BrandMark } from '@/components/brand-mark';
@@ -22,6 +24,12 @@ import {
   readingIsLive,
   readingIsUsable,
 } from '@/lib/face';
+import {
+  createPasskey,
+  creationOptionsFrom,
+  FingerprintRefused,
+  passkeysAvailable,
+} from '@/lib/passkeys';
 
 /** The contract wants exactly three captures. */
 const CAPTURES_NEEDED = 3;
@@ -39,7 +47,18 @@ type Stage =
   | { name: 'capturing'; taken: number; instruction: string; turn: HeadTurn }
   | { name: 'sending' }
   | { name: 'enrolled'; result: FaceEnrollmentResult }
+  | { name: 'finger-asking' }
+  | { name: 'finger-sensor' }
+  | { name: 'finger-saved'; passkey: DevicePasskey }
   | { name: 'failed'; message: string };
+
+/**
+ * Which job the worker picker is doing: putting a new face on file, or saving
+ * a fingerprint for somebody whose face is already in use. Two lists, because
+ * the two jobs start from opposite states — `PENDING_ENROLLMENT` has no face
+ * yet, and a fingerprint may only be saved once a face is `ACTIVE`.
+ */
+type Task = 'enroll' | 'finger';
 
 interface EnrollScreenProps {
   device: PairedDevice;
@@ -78,11 +97,13 @@ export function EnrollScreen({
   challengeSeconds = CHALLENGE_SECONDS,
 }: EnrollScreenProps) {
   const [stage, setStage] = useState<Stage>({ name: 'choosing' });
+  const [task, setTask] = useState<Task>('enroll');
   const [employeeId, setEmployeeId] = useState('');
   const [cardLast4, setCardLast4] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [consentText, setConsentText] = useState<BiometricConsentText | null>(null);
   const [waiting, setWaiting] = useState<EmployeeList['items']>([]);
+  const [enrolled, setEnrolled] = useState<EmployeeList['items']>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const cancelled = useRef(false);
@@ -105,11 +126,17 @@ export function EnrollScreen({
       fetch(`${base}/employees?status=PENDING_ENROLLMENT&limit=100`, { headers }).then((answer) =>
         answer.json(),
       ),
+      // For saving a fingerprint: only somebody whose face is already in use
+      // qualifies, and the server enforces exactly that on the options call.
+      fetch(`${base}/employees?status=ACTIVE&limit=100`, { headers }).then((answer) =>
+        answer.json(),
+      ),
     ])
-      .then(([text, employees]: [BiometricConsentText, EmployeeList]) => {
+      .then(([text, pending, active]: [BiometricConsentText, EmployeeList, EmployeeList]) => {
         if (live) {
           setConsentText(text);
-          setWaiting(employees.items ?? []);
+          setWaiting(pending.items ?? []);
+          setEnrolled(active.items ?? []);
         }
       })
       .catch(() => {
@@ -221,6 +248,52 @@ export function EnrollScreen({
     }
   }
 
+  /**
+   * Saves the chosen worker's fingerprint on this phone.
+   *
+   * Three steps, and the middle one is the phone's own: the server's options go
+   * to the built-in sensor unchanged, the worker enrolls a finger the phone
+   * already knows, and only the **public half** of the key comes back. SAMTEC
+   * never holds a fingerprint — the finger stays in the phone's own secure
+   * hardware (docs/plan/13 section 4).
+   */
+  async function saveFinger(workerId: string) {
+    setProblem(null);
+    setStage({ name: 'finger-asking' });
+    try {
+      const offered = await callSigned<PasskeyOptionsResponse>(
+        device,
+        'kiosk/passkey-options',
+        { employeeId: workerId },
+        admin.accessToken,
+      );
+      setStage({ name: 'finger-sensor' });
+      const response = await createPasskey(creationOptionsFrom(offered.options));
+      if (cancelled.current) {
+        return;
+      }
+      setStage({ name: 'finger-asking' });
+      const passkey = await callSigned<DevicePasskey>(
+        device,
+        'kiosk/passkeys',
+        { employeeId: workerId, ticket: offered.ticket, response },
+        admin.accessToken,
+      );
+      setStage({ name: 'finger-saved', passkey });
+    } catch (error) {
+      if (cancelled.current) {
+        return;
+      }
+      setStage({
+        name: 'failed',
+        message:
+          error instanceof KioskRequestFailed || error instanceof FingerprintRefused
+            ? error.message
+            : 'Please try again.',
+      });
+    }
+  }
+
   /** One head turn, then one centred frame, or `null` when the time runs out. */
   async function oneCapture(turn: 'LEFT' | 'RIGHT', seconds: number): Promise<FaceSample | null> {
     const deadline = Date.now() + seconds * 1000;
@@ -245,7 +318,8 @@ export function EnrollScreen({
     return null;
   }
 
-  const chosen = waiting.find((one) => one.id === employeeId);
+  const pickFrom = task === 'enroll' ? waiting : enrolled;
+  const chosen = pickFrom.find((one) => one.id === employeeId);
 
   return (
     <div className="screen screen--centred">
@@ -267,7 +341,7 @@ export function EnrollScreen({
 
       {stage.name === 'choosing' && (
         <>
-          <h1>Who is being enrolled?</h1>
+          <h1>{task === 'enroll' ? 'Who is being enrolled?' : 'Whose fingerprint?'}</h1>
           <div className="field">
             <label htmlFor="enroll-employee">Worker</label>
             <select
@@ -286,16 +360,24 @@ export function EnrollScreen({
               }}
             >
               <option value="">Choose a worker</option>
-              {waiting.map((one) => (
+              {pickFrom.map((one) => (
                 <option key={one.id} value={one.id}>
                   {one.staffNumber} · {one.fullName}
                 </option>
               ))}
             </select>
           </div>
-          {waiting.length === 0 && (
+          {pickFrom.length === 0 && (
             <p className="notice notice--wait">
-              Nobody is waiting to be enrolled. Register the worker on the dashboard first.
+              {task === 'enroll'
+                ? 'Nobody is waiting to be enrolled. Register the worker on the dashboard first.'
+                : 'Nobody has a face in use yet. A fingerprint is saved only after the face works.'}
+            </p>
+          )}
+          {task === 'finger' && (
+            <p className="small muted">
+              The worker&rsquo;s finger must already be saved in this phone&rsquo;s own settings.
+              The phone keeps the finger; SAMTEC keeps only a key it unlocks.
             </p>
           )}
           {problem !== null && (
@@ -307,11 +389,32 @@ export function EnrollScreen({
             <button
               type="button"
               className="button button--in"
-              disabled={employeeId === '' || consentText === null}
-              onClick={() => setStage({ name: 'consenting' })}
+              disabled={employeeId === '' || (task === 'enroll' && consentText === null)}
+              onClick={() => {
+                if (task === 'enroll') {
+                  setStage({ name: 'consenting' });
+                } else {
+                  void saveFinger(employeeId);
+                }
+              }}
             >
-              Continue
+              {task === 'enroll' ? 'Continue' : 'Save their fingerprint'}
             </button>
+            {passkeysAvailable() && (
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={() => {
+                  setEmployeeId('');
+                  setProblem(null);
+                  setTask(task === 'enroll' ? 'finger' : 'enroll');
+                }}
+              >
+                {task === 'enroll'
+                  ? 'Save a fingerprint instead (already enrolled)'
+                  : 'Back to enrolling a face'}
+              </button>
+            )}
             <button type="button" className="button button--quiet" onClick={onDone}>
               Done
             </button>
@@ -420,6 +523,15 @@ export function EnrollScreen({
                 'This face needs a second administrator to look at it on the dashboard before it can be used. Nothing else to do here.'}
           </p>
           <div className="buttons">
+            {stage.result.dedupe === 'PASSED' && passkeysAvailable() && (
+              <button
+                type="button"
+                className="button button--in"
+                onClick={() => void saveFinger(employeeId)}
+              >
+                Save their fingerprint on this phone
+              </button>
+            )}
             <button
               type="button"
               className="button"
@@ -430,6 +542,54 @@ export function EnrollScreen({
               }}
             >
               Enrol somebody else
+            </button>
+            <button type="button" className="button button--quiet" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        </>
+      )}
+
+      {stage.name === 'finger-asking' && (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p role="status">Talking to the system…</p>
+        </>
+      )}
+
+      {stage.name === 'finger-sensor' && (
+        <>
+          <p className="notice notice--wait" role="status">
+            The worker now touches the fingerprint sensor on this phone, with a finger already saved
+            in the phone&rsquo;s settings.
+          </p>
+        </>
+      )}
+
+      {stage.name === 'finger-saved' && (
+        <>
+          <OutcomeMark outcome="good" />
+          <h1>Fingerprint saved</h1>
+          <p className="notice notice--good" role="status">
+            From now on this kiosk asks for the finger as well as the face.
+          </p>
+          {stage.passkey.synced && (
+            <p className="small muted">
+              This phone says it may copy the key to its own cloud account. The key holds no
+              fingerprint — only the phone does — but note it for the records.
+            </p>
+          )}
+          <div className="buttons">
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setEmployeeId('');
+                setAgreed(false);
+                setStage({ name: 'choosing' });
+              }}
+            >
+              Next worker
             </button>
             <button type="button" className="button button--quiet" onClick={onDone}>
               Done

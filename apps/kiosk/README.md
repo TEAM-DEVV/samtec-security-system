@@ -151,25 +151,21 @@ which a page cannot forge. That is why the kiosk's address has to be in
 `KIOSK_ORIGINS` (already set to `http://localhost:5174` in `.env.example`) and why
 this app talks to `/api/v1` on its own origin.
 
-Still to do, in this order:
+Still to do:
 
-1. **The fingerprint on a clock-in.** When `POST /kiosk/identify` answers with a
-   `fingerprint` challenge, the worker has a key saved on this device and the
-   server **will refuse** a confirmation without the assertion from it. The
-   screen currently detects this and says so plainly rather than showing the name
-   and then failing — but that worker cannot clock in until this is built. Pass
-   `fingerprint.options` **unchanged** to `navigator.credentials.get()` and send
-   the answer as `assertion` on `POST /kiosk/confirm`. Never fall back to
-   confirming without it: that would be a fallback around a second factor.
-2. **Consent and enrollment**, and saving a worker's finger — the three screens
-   an administrator uses to put somebody on the system. These need an ADMIN
-   signed in on the kiosk, which set-up deliberately does not do today.
-3. **The staff-number fingerprint fallback** and **the supervisor's co-sign** —
-   the screen currently names them as the way out after three failures without
-   offering them yet.
-4. **The real Human engine** behind `FaceEngine`, with the models served from
+1. **The real Human engine** behind `FaceEngine`, with the models served from
    this app's own origin (never a CDN: a tampered model that always passes
    liveness would be invisible).
+
+The fingerprint paths are built: a clock-in whose worker has a key here asks
+the sensor and confirms with its assertion (`FACE_PASSKEY`); after three failed
+faces the **Another way in** screen (`screens/fallback-screen.tsx`) offers the
+staff-number-plus-finger fallback (`STAFF_PASSKEY`, flagged) and the
+supervisor's co-sign (`PIN_FALLBACK`, with an audited reason); and the enroll
+screen saves a worker's finger (`kiosk/passkey-options` → the sensor →
+`kiosk/passkeys`). The WebAuthn JSON↔buffer translation lives in
+`lib/passkeys.ts` and is pinned by tests, because one wrong character there
+fails every fingerprint with an error that names nothing.
 
 ## A rule about messages
 
