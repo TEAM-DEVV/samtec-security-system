@@ -51,7 +51,14 @@ const FAILURES_BEFORE_FALLBACK = 3;
 /** Where the screen is in the one flow it has. */
 type Stage =
   | { name: 'resting' }
-  | { name: 'challenging'; direction: KioskDirection; turn: HeadTurn; turned: boolean }
+  | {
+      name: 'challenging';
+      direction: KioskDirection;
+      turn: HeadTurn;
+      turned: boolean;
+      /** False until the camera is open and the models are in: the wait is named on screen. */
+      ready: boolean;
+    }
   | { name: 'asking'; direction: KioskDirection }
   | { name: 'greeting'; attemptId: string; displayName: string; direction: KioskDirection }
   | {
@@ -135,6 +142,10 @@ export function ClockScreen({
 
   useEffect(() => {
     run.current += 1;
+    // The models download while the kiosk sits on "Ready", not when a guard
+    // is already standing in front of it. A failure here is not an event: the
+    // next start() tries again and reports in its own words.
+    void engine.prepare?.().catch(() => undefined);
     return () => {
       run.current += 1;
       engine.stop();
@@ -145,7 +156,7 @@ export function ClockScreen({
   async function begin(direction: KioskDirection) {
     const mine = ++run.current;
     const turn = randomHeadTurn();
-    setStage({ name: 'challenging', direction, turn, turned: false });
+    setStage({ name: 'challenging', direction, turn, turned: false, ready: false });
     try {
       if (video.current !== null) {
         await engine.start(video.current);
@@ -154,6 +165,9 @@ export function ClockScreen({
       // this. The pretend camera has no head to look at, so without it the
       // challenge could never be answered outside a test.
       engine.asked?.(turn);
+      if (run.current === mine) {
+        setStage({ name: 'challenging', direction, turn, turned: false, ready: true });
+      }
     } catch {
       // Whatever the camera managed to open before failing goes off again.
       engine.stop();
@@ -213,7 +227,7 @@ export function ClockScreen({
       // supply the face a moment later.
       if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
         turned = true;
-        setStage({ name: 'challenging', direction, turn, turned: true });
+        setStage({ name: 'challenging', direction, turn, turned: true, ready: true });
       } else if (turned && readingIsUsable(reading)) {
         // Turned, then came back to centre, and this frame is good enough.
         await identify(mine, direction, reading.sample);
@@ -536,9 +550,11 @@ function Body({
       return (
         <>
           <p className="notice notice--wait" role="status">
-            {stage.turned
-              ? 'Good. Look straight ahead and hold still.'
-              : 'Follow the instruction on the camera.'}
+            {!stage.ready
+              ? 'Getting the camera ready. The first time on a phone takes about a minute: keep this page open.'
+              : stage.turned
+                ? 'Good. Look straight ahead and hold still.'
+                : 'Follow the instruction on the camera.'}
           </p>
           <div className="buttons">
             {/* Twenty seconds is a long time to stand in the rain in front of a
