@@ -1,0 +1,21 @@
+{
+  "name": "@samtec/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SAMTEC gateway: the small always-on service that speaks to ZKTeco terminals at a site and forwards their punches to the API.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/main.ts",
+    "start": "node src/main.ts",
+    "fake-terminal": "node test/fake-terminal.ts",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@samtec/contracts": "workspace:*",
+    "@types/node": "^24.13.0",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.0"
+  }
+}
