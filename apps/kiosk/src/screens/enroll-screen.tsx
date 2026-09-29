@@ -6,12 +6,17 @@ import type {
   FaceSample,
 } from '@samtec/contracts';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { BrandMark } from '@/components/brand-mark';
+import { CaptureDots } from '@/components/capture-dots';
+import { FaceGuide } from '@/components/face-guide';
+import { OutcomeMark } from '@/components/outcome-mark';
 import type { AdminSession } from '@/lib/admin-session';
 import { callSigned, KioskRequestFailed } from '@/lib/api';
 import type { PairedDevice } from '@/lib/device';
 import {
   CHALLENGE_SECONDS,
   type FaceEngine,
+  type HeadTurn,
   headTurnInstruction,
   randomHeadTurn,
   readingIsLive,
@@ -31,7 +36,7 @@ type Stage =
   | { name: 'choosing' }
   | { name: 'consenting' }
   | { name: 'recording-consent' }
-  | { name: 'capturing'; taken: number; instruction: string }
+  | { name: 'capturing'; taken: number; instruction: string; turn: HeadTurn }
   | { name: 'sending' }
   | { name: 'enrolled'; result: FaceEnrollmentResult }
   | { name: 'failed'; message: string };
@@ -176,6 +181,7 @@ export function EnrollScreen({
         name: 'capturing',
         taken: samples.length,
         instruction: headTurnInstruction(turn),
+        turn,
       });
       engine.asked?.(turn);
 
@@ -244,12 +250,18 @@ export function EnrollScreen({
   return (
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
-        <strong>SAMTEC</strong>
+        <strong>
+          <BrandMark />
+          SAMTEC
+        </strong>
         <span>Enrolling · {admin.fullName}</span>
       </div>
 
       <div className="camera" hidden={stage.name !== 'capturing'}>
         <video ref={video} playsInline muted autoPlay />
+        {/* The same oval and arrow the clock-in screen uses, so a worker being
+            enrolled learns the gesture they will use every day from now on. */}
+        <FaceGuide state="turn" turn={stage.name === 'capturing' ? stage.turn : null} />
         {stage.name === 'capturing' && <p className="camera__instruction">{stage.instruction}</p>}
       </div>
 
@@ -375,10 +387,13 @@ export function EnrollScreen({
       )}
 
       {stage.name === 'capturing' && (
-        <p className="notice notice--wait" role="status">
-          Capture {stage.taken + 1} of {CAPTURES_NEEDED}. Follow the instruction on the camera, then
-          look straight ahead.
-        </p>
+        <>
+          <CaptureDots taken={stage.taken} needed={CAPTURES_NEEDED} />
+          <p className="notice notice--wait" role="status">
+            Capture {stage.taken + 1} of {CAPTURES_NEEDED}. Follow the instruction on the camera,
+            then look straight ahead.
+          </p>
+        </>
       )}
 
       {stage.name === 'sending' && (
@@ -390,6 +405,7 @@ export function EnrollScreen({
 
       {stage.name === 'enrolled' && (
         <>
+          <OutcomeMark outcome={stage.result.dedupe === 'PASSED' ? 'good' : 'waiting'} />
           <h1>{stage.result.dedupe === 'PASSED' ? 'Enrolled' : 'Needs an admin review'}</h1>
           <p
             className={
@@ -424,6 +440,7 @@ export function EnrollScreen({
 
       {stage.name === 'failed' && (
         <>
+          <OutcomeMark outcome="bad" />
           <p className="notice notice--bad" role="alert">
             {stage.message}
           </p>

@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { BrandMark } from '@/components/brand-mark';
 import { type AdminSession, signIn, verifyCode } from '@/lib/admin-session';
 import { KioskRequestFailed } from '@/lib/api';
 
@@ -81,7 +82,10 @@ export function AdminSignInScreen({ onSignedIn, onCancel }: AdminSignInScreenPro
   return (
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
-        <strong>SAMTEC</strong>
+        <strong>
+          <BrandMark />
+          SAMTEC
+        </strong>
         <span>Administrator</span>
       </div>
 
