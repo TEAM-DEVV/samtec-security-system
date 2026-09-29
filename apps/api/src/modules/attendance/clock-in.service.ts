@@ -253,7 +253,8 @@ export class ClockInService {
     // The face names a person; the gate still asks whether that person may
     // punch here today: on the books, and posted to the site this kiosk
     // stands on, the same two questions the finger and co-sign paths ask.
-    if ((await this.employees.statusOf(device.companyId, attempt.employeeId)) !== 'ACTIVE') {
+    const status = await this.employees.statusOf(device.companyId, attempt.employeeId, this.prisma);
+    if (status !== 'ACTIVE') {
       throw new ConflictException(CANNOT_PUNCH);
     }
     await this.assertPostedHere(device, attempt.employeeId);

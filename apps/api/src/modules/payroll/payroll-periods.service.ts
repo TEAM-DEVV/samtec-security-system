@@ -116,17 +116,6 @@ export class PayrollPeriodsService {
     const closed = await this.prisma.$transaction(async (tx) => {
       await this.byId(viewer, periodId, tx);
 
-      // A closed month is final and cannot be reopened, so closing one whose
-      // run was never approved would leave its workers unpaid for good.
-      const settled = await tx.payrollRun.count({
-        where: { periodId, companyId: viewer.companyId, status: { in: ['LOCKED', 'PAID'] } },
-      });
-      if (settled === 0) {
-        throw new ConflictException(
-          'A month closes only after its run is approved. Approve the run first, or leave the month open.',
-        );
-      }
-
       // The condition rides on the update itself, so two people closing the
       // same month at the same time get a clear 409 rather than a trigger.
       const changed = await tx.payrollPeriod.updateMany({
