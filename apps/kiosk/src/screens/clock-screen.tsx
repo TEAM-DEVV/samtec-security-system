@@ -37,6 +37,12 @@ const SHOW_THE_NAME_MILLISECONDS = 2000;
  * which tells everybody walking past who is on duty.
  */
 const CLEAR_THE_SCREEN_AFTER_MILLISECONDS = 8000;
+/**
+ * How long a "touch the sensor" ask, with its name, may sit before the screen
+ * clears itself. The sheet lives about a minute; a name on an idle wall
+ * screen is the leak the constant above exists to prevent.
+ */
+const CLEAR_A_WAITING_NAME_MILLISECONDS = 60_000;
 /** How often the pretend or real camera is read while a challenge runs. */
 const READ_EVERY_MILLISECONDS = 200;
 /** After this many failures in a row, the fallbacks are offered. */
@@ -115,20 +121,29 @@ export function ClockScreen({
   const [stage, setStage] = useState<Stage>({ name: 'resting' });
   const [failures, setFailures] = useState(0);
   const video = useRef<HTMLVideoElement | null>(null);
-  // Read inside timers and awaited work, which may outlive the stage that
-  // started them, so it cannot be state.
-  const cancelled = useRef(false);
+  /**
+   * Which attempt is the living one. Every flow captures the value at its
+   * start and compares after every await: pressing "Not me", Cancel or
+   * starting again bumps it, so a continuation from an earlier flow — a
+   * finger sheet that finally resolved, a challenge loop mid-sleep — finds
+   * itself stale and stops, instead of confirming a disowned attempt or
+   * painting over a newer screen. A single "cancelled" boolean could not say
+   * *which* flow was cancelled, and re-arming it for the new flow quietly
+   * revived the old one.
+   */
+  const run = useRef(0);
 
   useEffect(() => {
+    run.current += 1;
     return () => {
-      cancelled.current = true;
+      run.current += 1;
       engine.stop();
     };
   }, [engine]);
 
   /** Starts a clock-in or clock-out: the head turn first, then the server. */
   async function begin(direction: KioskDirection) {
-    cancelled.current = false;
+    const mine = ++run.current;
     const turn = randomHeadTurn();
     setStage({ name: 'challenging', direction, turn, turned: false });
     try {
@@ -140,6 +155,11 @@ export function ClockScreen({
       // challenge could never be answered outside a test.
       engine.asked?.(turn);
     } catch {
+      // Whatever the camera managed to open before failing goes off again.
+      engine.stop();
+      if (run.current !== mine) {
+        return;
+      }
       setStage({
         name: 'refused',
         message: 'The camera would not start. Tell your supervisor.',
@@ -147,7 +167,11 @@ export function ClockScreen({
       });
       return;
     }
-    await runChallenge(direction, turn);
+    if (run.current !== mine) {
+      engine.stop();
+      return;
+    }
+    await runChallenge(mine, direction, turn);
   }
 
   /**
@@ -158,12 +182,12 @@ export function ClockScreen({
    * the server checks the numbers again but it cannot see the camera, so if this
    * is weak the whole thing is weak.
    */
-  async function runChallenge(direction: KioskDirection, turn: HeadTurn) {
+  async function runChallenge(mine: number, direction: KioskDirection, turn: HeadTurn) {
     const deadline = Date.now() + challengeSeconds * 1000;
     let turned = false;
 
     while (Date.now() < deadline) {
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
       let reading: Awaited<ReturnType<FaceEngine['read']>>;
@@ -174,6 +198,9 @@ export function ClockScreen({
         // of an async function nobody awaits, and the screen sits on
         // "Follow the instruction" with nothing to press.
         engine.stop();
+        if (run.current !== mine) {
+          return;
+        }
         setStage({
           name: 'refused',
           message: 'The camera stopped working. Tell your supervisor.',
@@ -189,17 +216,23 @@ export function ClockScreen({
         setStage({ name: 'challenging', direction, turn, turned: true });
       } else if (turned && readingIsUsable(reading)) {
         // Turned, then came back to centre, and this frame is good enough.
-        await identify(direction, reading.sample);
+        await identify(mine, direction, reading.sample);
         return;
       }
       await wait(READ_EVERY_MILLISECONDS);
     }
 
     engine.stop();
-    countFailure('That did not work. Stand square to the screen and try again.');
+    if (run.current !== mine) {
+      return;
+    }
+    // A timeout is nobody's failed attempt: nothing reached the server, so it
+    // does not move the server's own fallback unlock — but the person still
+    // deserves the way to the fallbacks, which need the direction.
+    refuse('That did not work. Stand square to the screen and try again.', direction);
   }
 
-  async function identify(direction: KioskDirection, sample: FaceSample) {
+  async function identify(mine: number, direction: KioskDirection, sample: FaceSample) {
     setStage({ name: 'asking', direction });
     try {
       const answer = await callSigned<KioskIdentifyResponse>(device, 'kiosk/identify', {
@@ -208,7 +241,7 @@ export function ClockScreen({
         sample,
       });
       engine.stop();
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
       if (answer.outcome !== 'MATCHED' || answer.worker === null) {
@@ -230,6 +263,7 @@ export function ClockScreen({
           direction,
         });
         await fingerThenConfirm(
+          mine,
           answer.attemptId,
           requestOptionsFrom(answer.fingerprint.options),
           direction,
@@ -244,48 +278,57 @@ export function ClockScreen({
       });
     } catch (error) {
       engine.stop();
+      if (run.current !== mine) {
+        return;
+      }
       setStage(refusalFrom(error));
     }
   }
 
   /**
    * The device's sensor, then the punch. The options are the server's,
-   * unchanged; a cancelled or unread finger counts as a failure like a missed
-   * head turn, so three of them still open the fallbacks.
+   * unchanged. A cancelled or unread finger is shown but **not counted**: the
+   * server counts only attempts it saw fail, a cancelled finger leaves a
+   * MATCHED attempt behind, and offering fallbacks the server has not
+   * unlocked would walk the guard into one more refusal.
    */
   async function fingerThenConfirm(
+    mine: number,
     attemptId: string,
     options: RequestOptionsJson,
     direction: KioskDirection,
   ) {
     try {
       const assertion = await getAssertion(options);
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
-      await confirm(attemptId, assertion);
+      await confirm(mine, attemptId, assertion);
     } catch (error) {
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
-      countFailure(
-        error instanceof FingerprintRefused ? error.message : 'Please try again.',
-        direction,
-      );
+      refuse(error instanceof FingerprintRefused ? error.message : 'Please try again.', direction);
     }
   }
 
   /** The guard said nothing (or proved their finger), so the punch goes in. */
-  async function confirm(attemptId: string, assertion?: unknown) {
+  async function confirm(mine: number, attemptId: string, assertion?: unknown) {
     setStage({ name: 'recording' });
     try {
       const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', {
         attemptId,
         ...(assertion === undefined ? {} : { assertion }),
       });
+      if (run.current !== mine) {
+        return;
+      }
       setFailures(0);
       setStage({ name: 'done', punch });
     } catch (error) {
+      if (run.current !== mine) {
+        return;
+      }
       setStage(refusalFrom(error));
     }
   }
@@ -300,18 +343,22 @@ export function ClockScreen({
    * them. That is the one outcome this button exists to prevent.
    */
   async function notMe(attemptId: string, direction?: KioskDirection) {
-    // Leaving the greeting first is what clears the confirm timer; a finger
-    // sheet that is still open simply fails once the attempt is cancelled.
+    // Leaving the greeting first is what clears the confirm timer, and
+    // bumping the run retires a fingerprint read still waiting on the
+    // sensor: its result must not confirm an attempt the guard has just
+    // disowned — even if a whole new flow has started by the time it lands.
+    run.current += 1;
     setStage({ name: 'cancelling' });
-    // Also stops a fingerprint read that is still waiting on the sensor: its
-    // result must not confirm an attempt the guard has just disowned. `begin`
-    // clears this again, the same as after "Cancel".
-    cancelled.current = true;
     try {
       await callSigned<void>(device, 'kiosk/not-me', { attemptId });
     } catch {
-      // Recording the "not me" is useful but not essential; the guard still
-      // needs to get on with their shift either way.
+      // Once more; the server cancelling the match is what makes a lingering
+      // finger sheet harmless, so one bad packet should not be the difference.
+      try {
+        await callSigned<void>(device, 'kiosk/not-me', { attemptId });
+      } catch {
+        // The guard still needs to get on with their shift either way.
+      }
     }
     countFailure('Sorry about that. Please try again.', direction);
   }
@@ -327,8 +374,23 @@ export function ClockScreen({
     });
   }
 
+  /**
+   * A refusal that is nobody's failed attempt — a timeout the server never
+   * saw, a finger sheet waved away. Shown the same, and the fallbacks are
+   * still offered once real failures have unlocked them, but it never moves
+   * the count itself: the count mirrors the server's own unlock rule.
+   */
+  function refuse(message: string, direction?: KioskDirection) {
+    setStage({
+      name: 'refused',
+      message,
+      offerFallback: failures >= FAILURES_BEFORE_FALLBACK,
+      direction,
+    });
+  }
+
   function rest() {
-    cancelled.current = true;
+    run.current += 1;
     engine.stop();
     setStage({ name: 'resting' });
   }
@@ -397,7 +459,7 @@ export function ClockScreen({
         stage={stage}
         showTheNameFor={showTheNameFor}
         onBegin={begin}
-        onConfirm={confirm}
+        onConfirm={(attemptId) => void confirm(run.current, attemptId)}
         onNotMe={notMe}
         onFallback={(direction) => setStage({ name: 'fallback', direction })}
         onRest={rest}
@@ -442,10 +504,15 @@ function Body({
   // and whether they started or ended a shift used to sit there until somebody
   // pressed a button, telling everybody walking past who is on duty.
   useEffect(() => {
-    if (stage.name !== 'done' && stage.name !== 'refused') {
+    if (stage.name !== 'done' && stage.name !== 'refused' && stage.name !== 'fingerprinting') {
       return;
     }
-    const timer = setTimeout(onRest, CLEAR_THE_SCREEN_AFTER_MILLISECONDS);
+    const timer = setTimeout(
+      onRest,
+      stage.name === 'fingerprinting'
+        ? CLEAR_A_WAITING_NAME_MILLISECONDS
+        : CLEAR_THE_SCREEN_AFTER_MILLISECONDS,
+    );
     return () => clearTimeout(timer);
   }, [stage, onRest]);
 

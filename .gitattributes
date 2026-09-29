@@ -23,3 +23,7 @@ packages/contracts/src/generated/** linguist-generated=true
 # pnpm-lock.yaml and apps/web/public/mockServiceWorker.js are generated too, but
 # stay expanded on purpose: a reviewer must see which package versions and
 # which service worker code a pull request brings in.
+
+# The kiosk's committed face models: exact bytes, pinned by hash in their
+# README. Neither line-ending conversion nor any formatter may touch them.
+apps/kiosk/public/models/** -text

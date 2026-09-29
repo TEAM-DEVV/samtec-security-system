@@ -127,12 +127,21 @@ export class HumanFaceEngine implements FaceEngine {
   private human: LoadedHuman | null = null;
   private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
+  /**
+   * Bumped by every `stop()`. The first model load takes seconds, and a
+   * guard who presses Cancel during it must actually get the camera light
+   * off: a `start()` that comes back from an await to find the generation
+   * moved closes whatever it just opened and gives up, instead of switching
+   * a camera on for a screen that already left.
+   */
+  private generation = 0;
 
   constructor(modelBasePath = '/models') {
     this.modelBasePath = modelBasePath;
   }
 
   async start(video: HTMLVideoElement): Promise<void> {
+    const mine = this.generation;
     if (this.human === null) {
       const { default: Human } = await import('@vladmandic/human');
       const human = new Human({
@@ -158,18 +167,42 @@ export class HumanFaceEngine implements FaceEngine {
       });
       await human.load();
       await human.warmup();
+      // The loaded models are kept whatever happened meanwhile — they carry
+      // no camera. Only the stream below answers to the generation.
       this.human = human as unknown as LoadedHuman;
     }
+    if (this.generation !== mine) {
+      throw new Error('The camera was stopped while it was starting.');
+    }
     if (this.stream === null) {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const opened = await navigator.mediaDevices.getUserMedia({
         // The guard-facing camera, at a size the models are comfortable with.
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
+      if (this.generation !== mine) {
+        // Stopped while the permission sheet was up: the light goes straight
+        // back off, and nobody is left filming a gate for a dead screen.
+        for (const track of opened.getTracks()) {
+          track.stop();
+        }
+        throw new Error('The camera was stopped while it was starting.');
+      }
+      this.stream = opened;
     }
     this.video = video;
     video.srcObject = this.stream;
-    await video.play();
+    try {
+      await video.play();
+    } catch (error) {
+      // A play() that fails must not leave the stream running headless.
+      this.stop();
+      throw error;
+    }
+    if (this.generation !== mine) {
+      this.stop();
+      throw new Error('The camera was stopped while it was starting.');
+    }
   }
 
   async read(): Promise<FaceReading> {
@@ -189,7 +222,9 @@ export class HumanFaceEngine implements FaceEngine {
     // The camera light must go out the moment the screen is done: a kiosk
     // that films the gate all day is not what anybody consented to. The
     // loaded models stay — reloading megabytes for every clock-in would put
-    // a guard in the rain for nothing.
+    // a guard in the rain for nothing. The bump retires any `start()` still
+    // in flight, so a Cancel mid-load really is a Cancel.
+    this.generation += 1;
     for (const track of this.stream?.getTracks() ?? []) {
       track.stop();
     }

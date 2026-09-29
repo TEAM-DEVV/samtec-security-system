@@ -41,7 +41,7 @@ afterEach(() => {
   passkeys.getAssertion.mockReset();
 });
 
-const A_WORKER = { displayName: 'Kwame A.', staffNumber: 'GA-0007' };
+const A_WORKER = { displayName: 'Kwame A.', staffNumber: 'SMT-00042' };
 const AN_ASSERTION = { id: 'key-1', rawId: 'key-1', type: 'public-key' } as AssertionJson;
 const PUNCHED = {
   status: 200,
@@ -94,11 +94,14 @@ describe('FallbackScreen · staff number and fingerprint', () => {
     await renderFallback(onDone);
 
     await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
-    await user.type(screen.getByLabelText('Your staff number'), 'ga-0007');
+    await user.type(screen.getByLabelText('Your staff number'), 'smt-00042');
     await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
 
     // The typed number is tidied to the contract's shape before it is sent.
-    expect(JSON.parse(sent[0]?.body ?? '{}')).toEqual({ staffNumber: 'GA-0007', direction: 'IN' });
+    expect(JSON.parse(sent[0]?.body ?? '{}')).toEqual({
+      staffNumber: 'SMT-00042',
+      direction: 'IN',
+    });
     expect(sent[0]?.url).toContain('/kiosk/fingerprint-options');
 
     // The server's options went to the sensor unchanged, and the punch carried
@@ -126,7 +129,7 @@ describe('FallbackScreen · staff number and fingerprint', () => {
     await renderFallback();
 
     await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
-    await user.type(screen.getByLabelText('Your staff number'), 'GA-9999');
+    await user.type(screen.getByLabelText('Your staff number'), 'SMT-09999');
     await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
 
     expect(
@@ -160,7 +163,7 @@ describe('FallbackScreen · staff number and fingerprint', () => {
     await renderFallback(onDone);
 
     await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
-    await user.type(screen.getByLabelText('Your staff number'), 'GA-0007');
+    await user.type(screen.getByLabelText('Your staff number'), 'SMT-00042');
     await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
 
     await user.click(await screen.findByRole('button', { name: 'Try the fingerprint again' }));
@@ -189,7 +192,7 @@ describe('FallbackScreen · a supervisor co-signs', () => {
     await renderFallback(onDone);
 
     await user.click(screen.getByRole('button', { name: 'A supervisor clocks me in' }));
-    await user.type(screen.getByLabelText(/staff number/), 'GA-0007');
+    await user.type(screen.getByLabelText(/staff number/), 'SMT-00042');
     await user.type(screen.getByLabelText(/Why can/), 'Face not recognised');
     await user.click(screen.getByRole('button', { name: 'Supervisor: prove your face' }));
 
@@ -197,7 +200,7 @@ describe('FallbackScreen · a supervisor co-signs', () => {
     // The supervisor's identify names the worker and carries the face sample.
     const identify = JSON.parse(sent[0]?.body ?? '{}');
     expect(identify.purpose).toBe('CO_SIGN');
-    expect(identify.staffNumber).toBe('GA-0007');
+    expect(identify.staffNumber).toBe('SMT-00042');
     expect(identify.sample.embedding).toHaveLength(1024);
     // The punch carries the co-sign attempt and the audited reason.
     const punch = JSON.parse(sent[1]?.body ?? '{}');
@@ -227,7 +230,7 @@ describe('FallbackScreen · a supervisor co-signs', () => {
     await renderFallback(onDone);
 
     await user.click(screen.getByRole('button', { name: 'A supervisor clocks me in' }));
-    await user.type(screen.getByLabelText(/staff number/), 'GA-0007');
+    await user.type(screen.getByLabelText(/staff number/), 'SMT-00042');
     await user.type(screen.getByLabelText(/Why can/), 'Camera cannot see in the rain');
     await user.click(screen.getByRole('button', { name: 'Supervisor: prove your face' }));
 
@@ -245,5 +248,104 @@ describe('FallbackScreen · a supervisor co-signs', () => {
     expect(shown).not.toMatch(/MATCHED|AMBIGUOUS|NOT_RECOGNISED|LOW_LIVENESS/);
     expect(shown).not.toMatch(/0\.\d\d/);
     expect(shown).not.toMatch(/score|match|confiden/i);
+  });
+});
+
+describe('FallbackScreen · what the review demanded', () => {
+  it('never turns a typed staff number into a name on the wall', async () => {
+    answers = [
+      {
+        status: 200,
+        body: {
+          attemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c05',
+          worker: A_WORKER,
+          options: { challenge: 'from-the-server' },
+        },
+      },
+    ];
+    // A sensor that never resolves: the screen sits on the ask.
+    passkeys.getAssertion.mockImplementation(
+      () => new Promise(() => {}) as ReturnType<typeof passkeys.getAssertion>,
+    );
+    const user = userEvent.setup();
+    await renderFallback();
+    await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
+    await user.type(screen.getByLabelText('Your staff number'), 'SMT-00042');
+    await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
+
+    expect(await screen.findByText(/Touch the fingerprint sensor/)).toBeInTheDocument();
+    // Typing a number and refusing the finger must teach a stranger nothing:
+    // the name appears only once a punch is recorded.
+    expect(screen.queryByText(/Kwame/)).not.toBeInTheDocument();
+  });
+
+  it("a cancelled co-sign finger retries the co-sign, never the worker's confirm", async () => {
+    answers = [
+      {
+        status: 200,
+        body: {
+          attemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c08',
+          outcome: 'MATCHED',
+          worker: { displayName: 'Abena O.', staffNumber: 'SV-0001' },
+          fingerprint: { options: { challenge: 'supervisor-finger' } },
+        },
+      },
+      { ...PUNCHED, body: { ...PUNCHED.body, method: 'PIN_FALLBACK' } },
+    ];
+    passkeys.getAssertion
+      .mockRejectedValueOnce(
+        new FingerprintRefused('The fingerprint was not read. Try again.', true),
+      )
+      .mockResolvedValueOnce(AN_ASSERTION);
+    const onDone = vi.fn();
+    const user = userEvent.setup();
+    await renderFallback(onDone);
+
+    await user.click(screen.getByRole('button', { name: 'A supervisor clocks me in' }));
+    await user.type(screen.getByLabelText(/staff number/), 'SMT-00042');
+    await user.type(screen.getByLabelText(/Why can/), 'Face not recognised');
+    await user.click(screen.getByRole('button', { name: 'Supervisor: prove your face' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Try the fingerprint again' }));
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled(), { timeout: 5000 });
+
+    // The retry went to the co-sign endpoint with the co-sign attempt — a
+    // confirm would be refused by the server and dead-end the supervisor.
+    const punch = sent.find((request) => request.url.includes('/kiosk/assisted-punches'));
+    expect(punch).toBeDefined();
+    expect(sent.some((request) => request.url.includes('/kiosk/confirm'))).toBe(false);
+    expect(JSON.parse(punch?.body ?? '{}')).toMatchObject({
+      coSignAttemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c08',
+      assertion: AN_ASSERTION,
+      reason: 'Face not recognised',
+    });
+  });
+
+  it('a cancel on one path never strands the next path mid-flow', async () => {
+    answers = [
+      {
+        status: 200,
+        body: {
+          attemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c05',
+          worker: A_WORKER,
+          options: { challenge: 'from-the-server' },
+        },
+      },
+      PUNCHED,
+    ];
+    passkeys.getAssertion.mockResolvedValue(AN_ASSERTION);
+    const onDone = vi.fn();
+    const user = userEvent.setup();
+    await renderFallback(onDone);
+
+    // Open the co-sign, walk out of it, then take the number path: the
+    // cancel from the first must not swallow the second.
+    await user.click(screen.getByRole('button', { name: 'A supervisor clocks me in' }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
+    await user.type(screen.getByLabelText('Your staff number'), 'SMT-00042');
+    await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
+
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 });
