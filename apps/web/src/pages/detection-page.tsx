@@ -86,7 +86,7 @@ export function DetectionPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <PageHeader
-        eyebrow="Phase 5 · Ghost detection"
+        eyebrow="Ghost detection"
         title="Alerts"
         description="Questions the rules have raised about a worker, a device or a decision. Nothing here is a verdict: open one, read the evidence, and record what you found."
         actions={

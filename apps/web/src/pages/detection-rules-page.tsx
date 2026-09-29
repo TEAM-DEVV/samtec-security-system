@@ -46,7 +46,7 @@ export function DetectionRulesPage() {
       </Link>
 
       <PageHeader
-        eyebrow="Phase 5 · Ghost detection"
+        eyebrow="Ghost detection"
         title="Rules"
         description={
           mayChange
