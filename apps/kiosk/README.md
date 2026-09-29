@@ -151,11 +151,18 @@ which a page cannot forge. That is why the kiosk's address has to be in
 `KIOSK_ORIGINS` (already set to `http://localhost:5174` in `.env.example`) and why
 this app talks to `/api/v1` on its own origin.
 
-Still to do:
+**Everything is built.** The real camera is Human 3.3.6 behind the
+`FaceEngine` seam (`lib/face-human.ts`): loaded lazily so the everyday screen
+never waits for it, with its five model files committed at `public/models/`
+and served from this app's own origin, their SHA-256s pinned in the README
+there. Production builds always get the real engine; `pnpm dev:kiosk` keeps
+the pretend camera (set `VITE_FACE_ENGINE=human` to try the real one locally).
 
-1. **The real Human engine** behind `FaceEngine`, with the models served from
-   this app's own origin (never a CDN: a tampered model that always passes
-   liveness would be invisible).
+**One check no test can do** (docs/plan/13 section 7): on a real Android
+phone and an iPhone at the deployed kiosk address, confirm the models accept
+real faces, that a printed photograph is refused, and that the head-turn
+direction matches the instruction — `YAW_SIGN` in `lib/face-human.ts` is the
+one value that check exists to confirm, and flipping it is a one-line fix.
 
 The fingerprint paths are built: a clock-in whose worker has a key here asks
 the sensor and confirms with its assertion (`FACE_PASSKEY`); after three failed

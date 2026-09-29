@@ -27,6 +27,9 @@ import { type KioskRoute, nowInSeconds, signRequest } from '@/lib/signing';
  */
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1').replace(/\/+$/, '');
 
+/** A hung connection must not hold a guard at the gate with the camera on. */
+const REQUEST_TIMEOUT_MILLISECONDS = 15_000;
+
 /** A refusal the kiosk can show a person, with the API's own words. */
 export class KioskRequestFailed extends Error {
   readonly status: number;
@@ -81,6 +84,7 @@ export async function callSigned<Answer>(
       ...(adminToken === undefined ? {} : { Authorization: `Bearer ${adminToken}` }),
     },
     body: text,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS),
   });
 
   if (response.status === 204) {
