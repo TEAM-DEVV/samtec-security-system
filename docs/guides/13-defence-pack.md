@@ -465,9 +465,14 @@ sent a PIN-fallback punch — which the shipped simulator does. Found in the Pha
 7 review, fixed with a test. The lesson to say out loud: *a rule that fails
 silently is worse than no rule*, so the sweep now surfaces its own failures.
 
-> **The one thing still owed in detection:** R3's second control is a gate on
-> payroll's *submit* endpoint, which is in Samuel's Phase 4 work. Until it
-> lands, the nightly sweep is R3's only control.
+> **R3 has both of its controls now.** The second one is the gate on payroll's
+> *submit* endpoint (`refuseHoursNobodyWorked` in `payroll-approval.service.ts`):
+> a run is refused when it pays for more hours than the attendance records
+> support, or pays anybody at all who has no attendance in the month. That
+> second condition is decision 27 in the payroll engine page — minutes alone
+> could not see a salaried worker who never came, because basic pay is
+> pro-rated by calendar days. The nightly sweep is the sweep; the submit gate is
+> the floor.
 
 ### 3.5 payroll — Ghanaian pay, from verified attendance
 

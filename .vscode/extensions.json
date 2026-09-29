@@ -6,7 +6,6 @@
     "editorconfig.editorconfig",
     "redhat.vscode-yaml",
     "42crunch.vscode-openapi",
-    "vitest.explorer",
-    "anthropic.claude-code"
+    "vitest.explorer"
   ]
 }

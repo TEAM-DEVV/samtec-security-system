@@ -8,7 +8,6 @@ Everything about the project lives in this folder: the plan, the architecture an
 
 If you are new to the project, read these in order.
 
-0. **Samuel's very first session:** [Frontend kickoff](guides/00-frontend-kickoff.md) — three commands and one prompt, and Claude Code sets everything up with you.
 1. [How the system works](guides/01-how-the-system-works.md): the whole system in plain English. Read this first.
 2. [Set up your computer](guides/02-setup-on-windows.md): install the tools and run the project.
 3. Your role guide:
@@ -16,7 +15,6 @@ If you are new to the project, read these in order.
    - API (Francis): [Backend guide](guides/04-backend-guide.md)
 4. [Changing the API contract](guides/05-api-contract-workflow.md): how the frontend and backend stay in agreement.
 5. [Git and pull requests](guides/06-git-and-pull-requests.md): how we save and share work.
-6. [Using Claude Code](guides/07-using-claude-code.md): the four review lenses.
 7. [The TEST environment](guides/09-test-environment.md): the shared online copy every merge deploys to.
 8. [The attendance demo](guides/10-attendance-demo.md): replay 30 days of clock-ins through the real API (the Phase 2 exit demo).
 9. [Glossary](guides/08-glossary.md): every technical word used in this project.

@@ -7,11 +7,7 @@ The senior roles on this project (architect, senior developer, full-stack engine
 | Place | What it does | When it runs |
 |---|---|---|
 | `.github/pull_request_template.md` | The four checklists appear in every pull request, for a person to tick | Every pull request |
-| `.claude/agents/*-lens.md` | Four Claude Code reviewer agents, one per lens | On request |
-| `.claude/skills/lens-review/` | The `/lens-review` command runs all four agents in parallel and combines their verdicts | Before opening or merging a pull request; `/lens-review phase` at a phase gate |
 | `.github/workflows/ci.yml` | Automated checks that no one can forget: lint, contract, types, tests, build, migrations, audit | Every push to a pull request |
-
-How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.md).
 
 ## Lens 1: Architect. Does it still fit the design?
 
@@ -64,7 +60,7 @@ How to use them day to day: [Using Claude Code](../guides/07-using-claude-code.m
 | Repository | Code owners review changes; Dependabot updates pinned Actions; private vulnerability reporting ([SECURITY.md](../../SECURITY.md)) | **Phase 0** (owner settings: see the roadmap) |
 | Mock API | Exists only in development builds; a production build contains no mock code | **Phase 0** |
 | Supply chain | pnpm: package versions under 1 day old refused, versions with a publishing trust downgrade refused, install scripts need approval in `allowBuilds`, git and tarball sources blocked; CI actions pinned to commit SHAs; `pnpm audit` in CI | **Phase 0** |
-| Secrets | `.env` git-ignored; `.env.example` placeholders only; Claude Code settings deny reading `.env` | **Phase 0** |
+| Secrets | `.env` git-ignored; `.env.example` placeholders only | **Phase 0** |
 | Transport | HTTPS only, with HSTS, on the hosted demo | Phase 8 |
 | Passwords | scrypt hashes (settings recorded per hash). 5 wrong passwords for one email lock it for 15 minutes with a `429`, whether or not the account exists, and a stand-in hash keeps the timing identical for unknown emails. The counter is one atomic SQL statement, so parallel guesses cannot slip past it, and the throttle table stores only keyed hashes (HMAC), never emails. | **Phase 1 (built)** |
 | Two-factor authentication | TOTP required for ADMIN and HR_PAYROLL, set up at first sign-in. Challenge and setup tokens expire (5 and 10 minutes), work once and belong to one account; 5 wrong codes cancel a challenge; an accepted code cannot be used again. Wrong codes are **also counted per account**, so signing in again never grants fresh guesses — a leaked password cannot brute-force the 6-digit code. Authenticator secrets are stored AES-256-GCM-encrypted. A lost authenticator is reset by another ADMIN with **reset sign-in**, which clears the password too, so someone holding a stolen password cannot simply ask for "a new phone". Refresh also refuses an ADMIN or HR_PAYROLL account without two-factor, so a promotion can never skip it. | **Phase 1 (built)** |

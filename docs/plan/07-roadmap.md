@@ -12,7 +12,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 - [x] Vite dashboard skeleton with the typed API client, mock API, System Status page and a reference Employees page
 - [x] Prisma schema version 0 (companies, sites, employees, site assignments), first migration and seed data
 - [x] API contract version 0: health, auth, employees and sites
-- [x] Plan and beginner guides committed to `docs/`; four-lens reviewers in `.claude/`
+- [x] Plan and beginner guides committed to `docs/`; the four-lens review checklist in the pull request template
 - [x] Four-lens review of the Phase 0 pull request, with every finding fixed
 
 **Exit demo:** `pnpm dev` starts the API and the dashboard, and the System Status page shows the database as connected. CI is green on a real pull request.
@@ -74,9 +74,9 @@ Added to Phase 1 during the build (needed before the pilot, and by Phase 4's mak
   - [x] Clock in and out: the random head-turn challenge, `POST /kiosk/identify`, the name for two seconds with **Not me**, then `POST /kiosk/confirm`. A printed photograph is refused because it cannot turn its head, and that is a test
   - [x] An administrator signing in on the kiosk: ADMIN only, no refresh token, fifteen minutes, kiosk screens only. Two-factor set-up is refused here — it would mean showing a QR code and a secret key on a screen on a wall
   - [x] Consent and enrollment: the official wording shown exactly as the server sends it, the last four digits of the Ghana Card, three captures with a fresh head turn before each, and a collision that says only "needs an admin review"
-  - [ ] Saving a worker's finger (needs WebAuthn, with the options passed through untouched)
-  - [ ] The staff-number fingerprint fallback and the supervisor's co-sign
-  - [ ] The real Human 3.3.6 engine behind the `FaceEngine` seam, models served from the kiosk's own origin
+  - [x] Saving a worker's finger: the options passed to the sensor untouched, the sealed two-minute ticket sent back as it came, and a `synced` key reported to the administrator
+  - [x] The staff-number fingerprint fallback and the supervisor's co-sign, from the "Another way in" screen after three failed faces, with the audited reason typed on the kiosk
+  - [x] The real Human 3.3.6 engine behind the `FaceEngine` seam, loaded lazily so the everyday bundle stays small, its five models committed with pinned SHA-256s and served from the kiosk's own origin. Left: the on-phone check (a real face accepted, a printed photo refused, the head-turn sign confirmed)
 - [x] Fingerprint through the device's own sensor (passkeys): registration from a sealed ticket, face then finger (`FACE_PASSKEY`), the supervisor's own finger on a co-sign, and staff number then finger (`STAFF_PASSKEY`, flagged and counted by the ghost rules)
 - [x] ZKTeco gateway (`apps/gateway`) with an outbox, and a fake terminal that drives it end to end: the outbox is written before the terminal hears OK (a lost punch is a person quietly not paid), delivery is signed batches of at most 100 with one loud alarm on a 401, the roster diff adds and removes terminal users every five minutes, and photos are dropped whole. The e2e test covers 500 lines into 5 batches, the resend, the outage, the alarm and the unknown serial
 - [x] Roster sync and finger-enrollment windows: `POST /ingest/roster`, `POST /ingest/enrollments` and `POST /devices/{id}/finger-enrollment-windows`, with a terminal that can never enroll anybody by itself

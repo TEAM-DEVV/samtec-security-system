@@ -78,7 +78,7 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | Action pinning | Every GitHub Action is pinned to a full commit SHA |
 | Supply chain | pnpm refuses package versions less than a day old, refuses versions whose publishing trust dropped (for example, provenance suddenly missing), requires approval for install scripts (`allowBuilds`) and blocks packages from git or tarball sources |
 | Commit messages | Conventional Commits (`feat:`, `fix:`, `docs:` and so on) |
-| Reviews | The four-lens checklist in every pull request, plus `/lens-review` in Claude Code |
+| Reviews | The four-lens checklist in every pull request |
 | Code owners | `.github/CODEOWNERS` asks both developers to review changes, including dependencies, CI and migrations |
 | Action updates | Dependabot proposes new versions of the pinned GitHub Actions every week |
 | Shared TEST environment | Dashboard and API on Vercel (the API as a serverless function), database on Supabase, one address via a rewrite ([TEST environment](../guides/09-test-environment.md)). Every merge to `main` deploys automatically. |

@@ -421,7 +421,7 @@ Payroll owns these and nothing else writes to them: `payroll_periods`,
 Every one of them: `company_id`, row-level security switched on, `uuid(7)`
 primary key, timestamps in `timestamptz(3)`, money as `INTEGER` columns whose
 names end in `Pesewas`. Read the generated `migration.sql` before committing
-it (CLAUDE.md rule 9).
+it (project rule 9 in CONTRIBUTING.md).
 
 The rules the **database** must enforce, not just the code:
 
