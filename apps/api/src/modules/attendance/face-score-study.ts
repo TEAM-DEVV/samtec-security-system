@@ -30,15 +30,15 @@ import { FACE_THRESHOLDS } from './face-thresholds.js';
  * Human's formula, turned around: the per-number difference between two
  * templates that scores exactly `score`.
  *
- * The formula is `similarity = (1 − √(25·Σ(aᵢ−bᵢ)²)/100 − 0.2) / 0.6`, so
- * `√Σ(aᵢ−bᵢ)² = 16 − 12·score`, and spreading that evenly over the
+ * The formula is `similarity = (1 - sqrt(25 * sum of squared differences) / 100 - 0.2) / 0.8`, so
+ * `sqrt(sum of squared differences) = 16 - 16 * score`, and spreading that evenly over the
  * template's numbers gives the difference each one carries. It is why a
  * 1,024-number template only ever scores between 0 and 1 for per-number
- * differences between 0.125 and 0.5 — a fact that has caught out more than one
+ * differences between 0 and 0.5 — a fact that has caught out more than one
  * test written with made-up vectors.
  */
 export function offsetForScore(score: number, length = FACE_THRESHOLDS.embeddingLength): number {
-  const totalOffset = 16 - 12 * Math.min(1, Math.max(0, score));
+  const totalOffset = 16 - 16 * Math.min(1, Math.max(0, score));
   return totalOffset / Math.sqrt(length);
 }
 

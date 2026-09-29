@@ -3,11 +3,19 @@
  * A face is never a photo here: it is a list of 1,024 numbers that the kiosk's
  * model (Human) made from the camera picture.
  *
- * The score is Human's own formula, copied to the server so the kiosk and the
+ * The score is Human's own formula with one change, so the kiosk and the
  * server always agree on what "alike" means:
  *
  *   distance   = 25 × Σ(aᵢ − bᵢ)²
- *   similarity = clamp((1 − √distance ÷ 100 − 0.2) ÷ 0.6, 0, 1)
+ *   similarity = clamp((1 − √distance ÷ 100 − 0.2) ÷ 0.8, 0, 1)
+ *
+ * Human divides by 0.6, which makes every pair closer than Σ(aᵢ − bᵢ)² = 16
+ * score a flat 1.0. On the first real phone (29 Sep 2026) two different people
+ * at one kiosk both scored exactly 1.0 against the one enrolled face, because
+ * one camera, one light and one background pull every face inside that flat
+ * top. Dividing by 0.8 instead keeps the same zero point (Σ = 256) but only
+ * identical numbers score 1, so the threshold set `ft-2` can tell those two
+ * people apart. Old scores map to new ones as new = 0.75 × old.
  *
  * It measures plain distance between the two lists (Euclidean), not the angle
  * between them (cosine). 1 means the same numbers; 0 means nothing alike.
@@ -69,7 +77,7 @@ export function similarity(a: readonly number[], b: readonly number[]): number {
   if (!Number.isFinite(distance)) {
     return 0;
   }
-  const scaled = (1 - Math.sqrt(distance) / 100 - 0.2) / 0.6;
+  const scaled = (1 - Math.sqrt(distance) / 100 - 0.2) / 0.8;
   return Math.min(1, Math.max(0, scaled));
 }
 

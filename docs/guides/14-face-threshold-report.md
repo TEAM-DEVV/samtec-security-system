@@ -14,6 +14,14 @@ but they are **not a measurement of real faces**, and they cannot confirm `ft-1`
 for production. Section 9 says exactly what they cannot show, and section 10 says
 what the pilot must do. At a defence, say this before quoting any figure.
 
+**Since this was written (29 September 2026).** The first real-phone test found
+the top of the score scale flat: two different people at one kiosk both scored
+exactly 1.0 against the one enrolled face. The formula's divisor moved from 0.6
+to 0.8 and the set became `ft-2`, every number here times 0.75 (the same
+distances on the opened scale), so the figures below still describe the same
+decisions. The real-phone attempts recorded under `ft-2` are the first
+measurements of real faces this project has, and they set `match` from here on.
+
 **The one result to remember.** Ordinary crowds are comfortable for `ft-1`, and
 a crowd containing **near-twins is not**: two people scoring 0.75 against each
 other, when the same person scores 0.78, defeat the thresholds — 5 clock-ins in

@@ -51,7 +51,7 @@ describe('FaceProvider', () => {
   it('says which model, key version and thresholds it works to', () => {
     expect(provider.model).toBe('human-faceres-1');
     expect(provider.keyVersion).toBe(1);
-    expect(provider.thresholdVersion).toBe('ft-1');
+    expect(provider.thresholdVersion).toBe('ft-2');
   });
 
   it('opens the faces it sealed and names the person at clock-in', () => {
