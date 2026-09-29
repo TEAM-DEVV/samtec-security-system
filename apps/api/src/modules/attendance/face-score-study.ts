@@ -452,16 +452,19 @@ export function separation(spread: ScoreSpread): Separation {
   );
   let bestLine = 0;
   let fewestMistakes = Number.POSITIVE_INFINITY;
-  // Whole steps, not a running total: adding 0.01 a hundred times lands just
-  // beside the round numbers, and a comparison against a score of exactly 0.40
-  // would then fall the wrong way.
+  // Each list is bucketed once, so trying all 101 lines costs one pass over
+  // the scores instead of a filter per line — a big study made the old way
+  // take seconds, and a slow CI runner timed the test out. Whole steps, not a
+  // running total: adding 0.01 a hundred times lands just beside the round
+  // numbers, and a score of exactly 0.40 would then fall the wrong way.
+  const sameBelow = countsBelowEachLine(spread.samePerson);
+  const differentBelow = countsBelowEachLine(spread.differentPerson);
   for (let step = 0; step <= 100; step += 1) {
-    const line = step / 100;
-    const missed = spread.samePerson.filter((score) => score < line).length;
-    const wrong = spread.differentPerson.filter((score) => score >= line).length;
+    const missed = sameBelow[step] ?? 0;
+    const wrong = spread.differentPerson.length - (differentBelow[step] ?? 0);
     if (missed + wrong < fewestMistakes) {
       fewestMistakes = missed + wrong;
-      bestLine = line;
+      bestLine = step / 100;
     }
   }
   return {
@@ -471,6 +474,35 @@ export function separation(spread: ScoreSpread): Separation {
     bestLine,
     mistakesAtBestLine: fewestMistakes === Number.POSITIVE_INFINITY ? 0 : fewestMistakes,
   };
+}
+
+/**
+ * `result[step]` is how many scores are strictly below the line `step / 100`.
+ * One pass: each score lands in its bucket, then a running total rolls up.
+ */
+function countsBelowEachLine(scores: readonly number[]): number[] {
+  const perBucket = new Array<number>(102).fill(0);
+  for (const score of scores) {
+    // The first line the score is strictly below. A score of exactly 0.40 is
+    // *not* below the 0.40 line, so it counts from the next line up — and
+    // because `score * 100` can round a hair's breadth either way (29/100
+    // times 100 is famously 28.999…), the guess is checked against the real
+    // line values and nudged, so this always agrees with `score < step / 100`.
+    let firstLineAbove = Math.min(101, Math.max(0, Math.floor(score * 100) + 1));
+    if (firstLineAbove > 0 && score < (firstLineAbove - 1) / 100) {
+      firstLineAbove -= 1;
+    } else if (firstLineAbove <= 100 && !(score < firstLineAbove / 100)) {
+      firstLineAbove += 1;
+    }
+    perBucket[firstLineAbove] = (perBucket[firstLineAbove] ?? 0) + 1;
+  }
+  const below: number[] = new Array<number>(101);
+  let total = 0;
+  for (let step = 0; step <= 100; step += 1) {
+    total += perBucket[step] ?? 0;
+    below[step] = total;
+  }
+  return below;
 }
 
 /** A pilot export: captures of real volunteers, which never enter this repository. */
