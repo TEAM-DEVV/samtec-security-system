@@ -217,6 +217,7 @@ export function EnrollScreen({
         taken: samples.length,
         instruction: headTurnInstruction(turn),
         turn,
+        hint: null,
       });
       engine.asked?.(turn);
 
