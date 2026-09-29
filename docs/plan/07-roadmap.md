@@ -144,10 +144,10 @@ final visual pass: **Francis**.
 
 ## Phase 8 · Deploy and present (week 15 onwards)
 
-- Demo environment online and seeded (API on Railway or Render, dashboard on Vercel, database on Supabase)
+- [x] Demo environment online and seeded: the TEST environment **is** the demo (dashboard and API on Vercel, database on Supabase, fictional data, auto-deployed from `main` — [docs/guides/09](../guides/09-test-environment.md)). Still owed for phones: the kiosk's own Vercel project (an owner task, because kiosks need a fixed HTTPS address for WebAuthn), and `KIOSK_ORIGINS` set on the API
 - Production settings: `NODE_ENV=production` with `ALLOW_SIMULATOR_DEVICES` left unset (simulators are then refused), and its own `AUTH_SECRET`, never shared with TEST
-- [x] **Defence pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help — [The defence pack](../guides/13-defence-pack.md). It describes what is built today and marks every gap, with its owner, in a box: payroll's run workflow and screens, reports, the kiosk and gateway apps, and the employee forms. It ends with the questions a panel actually asks, each with a short answer. Re-read the gap boxes on the day, because they move
-- Deliver the [Client presentation plan](11-client-presentation-plan.md); defense slides built from this plan
+- [x] **Defence pack for Samuel:** a plain-language breakdown of the whole system, from the database tables to every module, endpoint and screen, so he can learn it and defend it without help — [The defence pack](../guides/13-defence-pack.md), refreshed 2026-09-29 for the finished payroll, reports, employee forms and kiosk. It describes what is built today and marks every remaining gap with its owner. It ends with the questions a panel actually asks, each with a short answer. Re-read the gap boxes on the day, because they move
+- [x] **The defence script:** [the words and the clicks](../guides/15-defence-script.md) for the fifteen-minute defence — the opening said cold, the demo step by step with a fallback for every step, the honest-limits close, the night-before checklist and a one-page cheat sheet. Built from the [Client presentation plan](11-client-presentation-plan.md); the slides come from the same outline
 - **Exit demo:** presentation delivered and a pilot proposal in the client's hands
 - **Then production for the paying client:** a production environment separate from TEST (real client data only there), set up to the security plan
 

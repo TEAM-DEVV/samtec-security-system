@@ -90,17 +90,21 @@ document sits at one of those arrows.
 
 | Part | Folder | What it is | Who built it |
 |---|---|---|---|
-| API | `apps/api` | NestJS 12 on Express 5, Prisma 7, PostgreSQL 17. All rules live here. | Francis |
+| API | `apps/api` | NestJS 12 on Express 5, Prisma 7, PostgreSQL 17. All rules live here. | Francis (payroll and reports modules: Samuel) |
 | Dashboard | `apps/web` | React 19 + Vite 8, Tailwind 4 with shadcn/ui. What office staff see. | Samuel |
-| Contract | `packages/contracts` | `openapi.yaml`: the written agreement between the two. Types are generated from it. | Both |
-| Kiosk app | `apps/kiosk` | The screen a guard faces at the site. **Not built yet.** | Samuel |
+| Kiosk app | `apps/kiosk` | The screen a guard faces at the site. Deliberately tiny — no router, one stylesheet, 72 kB — because it must start fast on a cheap phone screwed to a wall. | Samuel |
+| Contract | `packages/contracts` | `openapi.yaml`: the written agreement between the parts. Types are generated from it. | Both |
 | ZKTeco gateway | `apps/gateway` | Talks to real fingerprint terminals. **Not built yet.** | Samuel |
 
-> **GAP — the kiosk and the gateway apps.** The *API side* of both is finished
-> and tested (`clock-in.controller.ts`, `gateway.controller.ts`,
-> `apps/api/test/gateway.e2e-spec.ts`); what is missing is the screen a guard
-> touches and the small service that talks to ZKTeco hardware. Samuel owns both.
-> For the demo a phone or a laptop **is** the kiosk.
+> **GAP — what the kiosk still lacks, and the gateway.** The kiosk's set-up,
+> clock-in, admin sign-in, consent and face enrollment screens are built and run
+> on any machine with a pretend camera (`pnpm dev:kiosk`). Still to come, listed
+> in `apps/kiosk/README.md`: the fingerprint steps (saving a finger and using it
+> at a clock-in), the staff-number and co-sign fallback screens, and the **real
+> Human face engine** — until that lands, a real phone cannot do a real face
+> clock-in, only the pretend one. The gateway app is not started; its *API side*
+> is finished and tested (`gateway.controller.ts`,
+> `apps/api/test/gateway.e2e-spec.ts`). Samuel owns all of it.
 
 ### Why a company kiosk and not the guard's phone
 
@@ -212,16 +216,13 @@ Two conventions worth stating at the defence:
 | `payroll_lines` | One employee's pay for one run, with **every input copied in**. | So a locked run can be re-checked years later without reading another table. Totals are the sums of the parts printed beside them and net is their difference — a CHECK proves it. The lines freeze the moment the run is **submitted**, before anybody approves it, so the approver and the auditor are looking at the very same figures. |
 | `payslips` | The payslip PDF, as bytes. | Made once, **inside the transaction that locks the run**, so what was sent is exactly what exists. |
 
-> **GAP — payroll is Samuel's, and it is part-built.** The eight tables, the
-> migration, the calculation and the setup endpoints (months, tax table
-> versions, pay terms, payment details) are in, with hand-calculated payslips
-> pinned as tests on both sides. **Calculating a run and reading it back is
-> open as PR #65.** Still to come: submit, approve, reject, mark paid; the
-> payslip PDF; the bank export; and the payroll screens. Every design question
-> is already decided in
-> [docs/plan/09-payroll-engine-ghana.md](../plan/09-payroll-engine-ghana.md) —
-> twenty-six numbered decisions. If asked about a payroll detail, quote the
-> decision.
+**Payroll is complete**, built by Samuel end to end, and every design question
+is decided in
+[docs/plan/09-payroll-engine-ghana.md](../plan/09-payroll-engine-ghana.md) —
+twenty-seven numbered decisions. If asked about a payroll detail, quote the
+decision. Two late additions worth knowing: a closed month is final in the
+database itself (a trigger, not just the code), and decision 27 closed a hole in
+detection rule R3 that comparing minutes alone could not see.
 
 ### 2.7 What to say about the schema at the defence
 
@@ -499,11 +500,25 @@ confirmed shifts.
 - A locked run is immutable in the database, not just in the code. A mistake is
   corrected by an **adjustment line** that points at the line it adjusts.
 
-> **GAP — what is built and what is not.** Built: the tables and migration, the
-> calculation (with hand-calculated payslips as tests), and the setup endpoints.
-> Open as PR #65: calculating a run and reading it back. Not built yet: submit,
-> approve, reject, mark paid, the payslip PDF, the bank export and the screens.
-> **Samuel owns all of it.**
+**The whole module is built, by Samuel.** The endpoints: the setup
+(`GET/POST /payroll/periods`, `POST /payroll/periods/{id}/close`,
+`GET/POST /payroll/tax-tables`, pay terms and payment details on
+`/employees/{id}/…`), the run itself (`GET/POST /payroll/runs`, one run, its
+lines, its statutory summary), the four decisions (`POST /payroll/runs/{id}/
+submit`, `/approve`, `/reject`, `/mark-paid`), the money leaving
+(`GET /payroll/runs/{id}/bank-export` and `/summary.pdf`), and a worker's own
+payslips (`GET /payroll/payslips`, one payslip, its PDF — **the one page of the
+money a GUARD may read**, and only their own).
+
+**Two details a panel will enjoy:**
+
+- **The payslip PDF is written by hand** — the bytes of the PDF format directly,
+  no PDF library — so the repository gained no new dependency for it. The module
+  README explains how.
+- **The bank file is a money instruction, so it is escaped like one** (decision
+  23), and it marks any account whose details changed *after* the run was
+  approved, so a destination that moved is seen instead of quietly paid
+  (decision 22).
 
 ### 3.6 reporting — summaries and exports
 
@@ -514,10 +529,13 @@ they apply the same role and site restrictions as the data they summarise; and
 an export never contains biometric data, and contains Ghana Card numbers only for
 roles that need them.
 
-> **GAP — Phase 6 is not started.** The folder holds only its README. Planned:
-> attendance and payroll-cost summaries, CSV and PDF exports, and a guard's own
-> payslip. **Samuel owns it.** Francis's final visual pass over every screen is
-> the last build step of the project, after this.
+**The module is built, by Samuel:** `GET /reports/overview` (the key figures),
+`GET /reports/attendance.csv` and `GET /reports/payroll-cost.csv`. Because it
+owns no tables, every figure is **counted from the same tables the screens
+already read** — so a report can never disagree with the page beside it, which
+is a sentence worth saying at the defence. The payroll run summary PDF and a
+guard's own payslips live in the payroll module (section 3.5), where the money
+is.
 
 ---
 
@@ -550,6 +568,7 @@ an error state**; that is a repository rule, not a nicety.
 | Overview | `overview-page.tsx` | everyone | Where to start: a card per area this role may open. |
 | Employees | `employees-page.tsx` | ADMIN, HR, SUPERVISOR | Guards and staff, with their posting and whether they are enrolled. A supervisor sees only their sites. |
 | One employee | `employee-detail-page.tsx` | as above (a guard sees their own) | The record, employment history, postings — and the **Biometrics panel** (`components/biometrics-panel.tsx`): consent, the enrolled face, fingerprint keys, revoke, withdraw, exemptions. |
+| New / edit / terminate employee | `new-employee-page.tsx`, `edit-employee-page.tsx`, `terminate-employee-page.tsx` | ADMIN, HR | The forms behind the employee record, sharing `components/employee-form.tsx`. Terminating also switches off the person's sign-in. |
 | Sites | `sites-page.tsx` | ADMIN, HR, SUPERVISOR | Client locations, who is on post, which sites are active. |
 | Attendance | `attendance-page.tsx` | ADMIN, HR, SUPERVISOR | Clock-ins paired into worked shifts, by day and site. |
 | My attendance | `my-attendance-page.tsx` | GUARD | Your own shifts, and nobody else's. |
@@ -570,7 +589,16 @@ an error state**; that is a repository rule, not a nicety.
 | New user | `new-user-page.tsx` | ADMIN | Creates one; the person chooses their own password from a one-time link. |
 | One user | `user-detail-page.tsx` | ADMIN | Change the role, deactivate, reactivate, reset a sign-in, **confirm an administrator**. |
 
-### 4.4 Ghost detection
+### 4.4 Payroll and reports
+
+| Screen | File | Who | What it shows |
+|---|---|---|---|
+| Payroll | `payroll-page.tsx` | ADMIN, HR | The months and their runs. A supervisor runs the roster, never the money. |
+| One run | `payroll-run-page.tsx` | ADMIN, HR | The lines, the statutory summary, and the decision: submit, then approve or reject (**a different person than the one who calculated it** — the API refuses otherwise), then mark paid. The bank file and the summary PDF download from here. |
+| My payslips | `my-payslips-page.tsx` | GUARD (and ADMIN, HR) | A worker's own pay, month by month, with the PDF. **The one money page a guard may open**, and only for themselves. |
+| Reports | `reports-page.tsx` | ADMIN, HR, SUPERVISOR | Who is present, absence, and what payroll costs — with the CSV downloads. Counted from the same tables the other pages read, so a report can never disagree with the page beside it. |
+
+### 4.5 Ghost detection
 
 | Screen | File | Who | What it shows |
 |---|---|---|---|
@@ -581,7 +609,7 @@ an error state**; that is a repository rule, not a nicety.
 Every label on these screens comes from `apps/web/src/lib/detection.ts`, so the
 words in the report match the words on the screen.
 
-### 4.5 Housekeeping screens
+### 4.6 Housekeeping screens
 
 | Screen | File | What it does |
 |---|---|---|
@@ -590,20 +618,34 @@ words in the report match the words on the screen.
 | Not allowed | `forbidden-page.tsx` | A page this role may not open — the same wording as the API's 403. |
 | Something broke | `route-error-page.tsx` | Shown when a page crashes, instead of a blank screen. |
 
-### 4.6 What is not on the dashboard yet
+### 4.7 The kiosk's screens (`apps/kiosk`)
 
-> **GAP — three things.**
-> 1. **Payroll screens** (Phase 4, Samuel). The sidebar already carries a
->    Payroll entry marked unavailable, with the phase that brings it. The mock
->    API and the hand-calculated payslips are already in
->    `apps/web/src/mocks/handlers/payroll.ts`, so the screens have something to
->    be built against.
-> 2. **Reports screens** (Phase 6, Samuel), likewise marked unavailable.
-> 3. **The employee create / edit / terminate forms.** The API endpoints exist
->    and are tested; the forms do not.
->
-> Also outside the dashboard: **the kiosk app** (`apps/kiosk`) and the **ZKTeco
-> gateway** (`apps/gateway`), both Samuel's, both with their API side finished.
+The kiosk is its own tiny app — no router, one stylesheet, nobody signed in for
+the everyday screen — because a phone on a wall at a gate is the least private
+computer in the company. It runs on any machine with a pretend camera
+(`pnpm dev:kiosk`).
+
+| Screen | File | Who | What it does |
+|---|---|---|---|
+| Set-up | `screens/pairing-screen.tsx` | an ADMIN, once | Pastes the device ID and secret from the dashboard's Devices page. The secret becomes a key the browser will not hand back — a test proves exporting it fails. |
+| Clock in / out | `screens/clock-screen.tsx` | anyone at the gate | The random head-turn challenge, the name for two seconds with a **Not me** button, then confirm. Three failures point at the fallbacks. **No score, no look-alike name, ever** — a test reads the whole screen and refuses to find one. |
+| Admin sign-in | `screens/admin-sign-in-screen.tsx` | ADMIN | Email, password and the 6-digit code; fifteen minutes, no refresh token, kiosk screens only. Two-factor *setup* is refused here on purpose — never a QR code on a wall. |
+| Consent + enrollment | `screens/enroll-screen.tsx` | ADMIN with the worker | The exact consent wording from the server, the Ghana Card check, then three face captures with a fresh head turn before each. A collision says only "needs an admin review". |
+
+### 4.8 What is still to build
+
+> **GAP — the last build items, all known and all listed.**
+> 1. **Kiosk fingerprint steps** (Samuel): saving a worker's finger, using it on
+>    a clock-in, and the staff-number and co-sign fallback screens — all
+>    WebAuthn. Listed in order in `apps/kiosk/README.md`.
+> 2. **The real Human face engine in the kiosk** (Samuel): today the camera is a
+>    pretend one, so a real phone cannot yet do a real face clock-in. The seam
+>    (`lib/face.ts`) is built so it drops in without a screen changing.
+> 3. **The ZKTeco gateway** (`apps/gateway`, Samuel) with its fake terminal; the
+>    API side is finished and tested.
+> 4. **The final visual pass** (Francis) — one pass over every screen against
+>    the design foundation, after everything works end to end. The last build
+>    step of the whole project.
 
 ---
 
@@ -723,9 +765,13 @@ it can lose, it runs on one laptop, and the drill has not yet been run against
 the hosted database.
 
 **"What is not finished?"**
-Payroll's run workflow, the payslip PDF, the bank export and the payroll screens;
-reports; the kiosk and gateway apps; and the final visual pass. Every one has a
-written design and an owner. *(Update this answer on the day — check
+Four things, each with a written design and an owner: the kiosk's fingerprint
+steps and its fallback screens; the real face engine in the kiosk — today's
+camera is a pretend one for development; the ZKTeco gateway, whose API side is
+finished and whose hardware waits for a paying client; and the final visual pass
+over every screen. Everything else — sign-in to attendance to biometrics to
+payroll to reports to ghost detection — is built, tested and deployed. *(Update
+this answer on the day — check
 [docs/plan/07-roadmap.md](../plan/07-roadmap.md).)*
 
 **"What would you do differently?"**
@@ -752,3 +798,4 @@ and none of them showed up in an ordinary test.
 | The security chapter of the report | [The security chapter, drafted](12-security-chapter.md) |
 | What is done and what is next | [docs/plan/07-roadmap.md](../plan/07-roadmap.md) |
 | A word you do not know | [Glossary](08-glossary.md) |
+| The talk itself — words, clicks, fallbacks | [The defence script](15-defence-script.md) |
