@@ -94,17 +94,16 @@ document sits at one of those arrows.
 | Dashboard | `apps/web` | React 19 + Vite 8, Tailwind 4 with shadcn/ui. What office staff see. | Samuel |
 | Kiosk app | `apps/kiosk` | The screen a guard faces at the site. Deliberately tiny — no router, one stylesheet, 72 kB — because it must start fast on a cheap phone screwed to a wall. | Samuel |
 | Contract | `packages/contracts` | `openapi.yaml`: the written agreement between the parts. Types are generated from it. | Both |
-| ZKTeco gateway | `apps/gateway` | Talks to real fingerprint terminals. **Not built yet.** | Samuel |
+| ZKTeco gateway | `apps/gateway` | The small always-on service at a site that speaks to fingerprint terminals: a SQLite outbox written before a terminal ever hears OK, signed batches, the roster diff. Node built-ins only. | Francis |
 
-> **GAP — what the kiosk still lacks, and the gateway.** The kiosk's set-up,
-> clock-in, admin sign-in, consent and face enrollment screens are built and run
-> on any machine with a pretend camera (`pnpm dev:kiosk`). Still to come, listed
-> in `apps/kiosk/README.md`: the fingerprint steps (saving a finger and using it
-> at a clock-in), the staff-number and co-sign fallback screens, and the **real
-> Human face engine** — until that lands, a real phone cannot do a real face
-> clock-in, only the pretend one. The gateway app is not started; its *API side*
-> is finished and tested (`gateway.controller.ts`,
-> `apps/api/test/gateway.e2e-spec.ts`). Samuel owns all of it.
+> **Every part is now built.** The kiosk has all six flows — set-up,
+> clock-in with the real Human camera, admin sign-in, consent and face
+> enrollment, saving a finger, and the two fallbacks — and the gateway has its
+> outbox, delivery, roster sync and a fake terminal that drives it end to end.
+> What remains is **checking, not building**: the on-phone check (real faces
+> accepted, a printed photo refused, the head-turn direction confirmed —
+> `docs/plan/13` §7), the end-to-end test you are both about to run, and the
+> final visual pass.
 
 ### Why a company kiosk and not the guard's phone
 
@@ -622,30 +621,34 @@ words in the report match the words on the screen.
 
 The kiosk is its own tiny app — no router, one stylesheet, nobody signed in for
 the everyday screen — because a phone on a wall at a gate is the least private
-computer in the company. It runs on any machine with a pretend camera
-(`pnpm dev:kiosk`).
+computer in the company. In production it runs the real Human camera, with the
+model files served from its own origin and their hashes pinned;
+`pnpm dev:kiosk` keeps a pretend camera so it develops on any machine.
 
 | Screen | File | Who | What it does |
 |---|---|---|---|
 | Set-up | `screens/pairing-screen.tsx` | an ADMIN, once | Pastes the device ID and secret from the dashboard's Devices page. The secret becomes a key the browser will not hand back — a test proves exporting it fails. |
 | Clock in / out | `screens/clock-screen.tsx` | anyone at the gate | The random head-turn challenge, the name for two seconds with a **Not me** button, then confirm. Three failures point at the fallbacks. **No score, no look-alike name, ever** — a test reads the whole screen and refuses to find one. |
 | Admin sign-in | `screens/admin-sign-in-screen.tsx` | ADMIN | Email, password and the 6-digit code; fifteen minutes, no refresh token, kiosk screens only. Two-factor *setup* is refused here on purpose — never a QR code on a wall. |
-| Consent + enrollment | `screens/enroll-screen.tsx` | ADMIN with the worker | The exact consent wording from the server, the Ghana Card check, then three face captures with a fresh head turn before each. A collision says only "needs an admin review". |
+| Consent + enrollment | `screens/enroll-screen.tsx` | ADMIN with the worker | The exact consent wording from the server, the Ghana Card check, then three face captures with a fresh head turn before each. A collision says only "needs an admin review". Also saves a worker's **fingerprint**: the server's options to the phone's own sensor, only the public half ever comes back. |
+| Another way in | `screens/fallback-screen.tsx` | after three failed faces | The staff-number-plus-finger fallback (flagged `STAFF_PASSKEY`) and the supervisor's co-sign (`PIN_FALLBACK`, with the audited reason typed here). One neutral refusal for every reason. |
 
-### 4.8 What is still to build
+### 4.8 What is left, and it is not building
 
-> **GAP — the last build items, all known and all listed.**
-> 1. **Kiosk fingerprint steps** (Samuel): saving a worker's finger, using it on
->    a clock-in, and the staff-number and co-sign fallback screens — all
->    WebAuthn. Listed in order in `apps/kiosk/README.md`.
-> 2. **The real Human face engine in the kiosk** (Samuel): today the camera is a
->    pretend one, so a real phone cannot yet do a real face clock-in. The seam
->    (`lib/face.ts`) is built so it drops in without a screen changing.
-> 3. **The ZKTeco gateway** (`apps/gateway`, Samuel) with its fake terminal; the
->    API side is finished and tested.
-> 4. **The final visual pass** (Francis) — one pass over every screen against
->    the design foundation, after everything works end to end. The last build
->    step of the whole project.
+> **GAP — three checks and one polish, each with an owner.**
+> 1. **The on-phone check** (both, at the test meetup): on a real Android
+>    phone and an iPhone at the deployed kiosk, a real face is accepted, a
+>    printed photo is refused, and the head-turn direction matches the
+>    instruction (`YAW_SIGN` in `apps/kiosk/src/lib/face-human.ts` is the one
+>    value this check exists to confirm; flipping it is one line).
+> 2. **The end-to-end test** of every flow, which is what the meetup is for.
+> 3. **The face pilot** with real volunteers before any paying client
+>    ([the threshold report](14-face-threshold-report.md), section 10).
+> 4. **The final visual pass** over every screen (Francis) — the last build
+>    step of the whole project, after the test.
+>
+> Beyond the project itself: the production environment for a paying client,
+> separate from TEST, and the ZKTeco hardware that waits for that client.
 
 ---
 
@@ -765,13 +768,15 @@ it can lose, it runs on one laptop, and the drill has not yet been run against
 the hosted database.
 
 **"What is not finished?"**
-Four things, each with a written design and an owner: the kiosk's fingerprint
-steps and its fallback screens; the real face engine in the kiosk — today's
-camera is a pretend one for development; the ZKTeco gateway, whose API side is
-finished and whose hardware waits for a paying client; and the final visual pass
-over every screen. Everything else — sign-in to attendance to biometrics to
-payroll to reports to ghost detection — is built, tested and deployed. *(Update
-this answer on the day — check
+Every feature is built — sign-in to attendance to biometrics to payroll to
+reports to ghost detection, the kiosk with its real camera, and the gateway
+with its fake terminal. What remains is proving and polishing, and each item
+is written down with an owner: the on-phone face check, the whole-team
+end-to-end test, the face pilot with real volunteers before a paying client,
+the final visual pass, and a production environment separate from TEST when a
+client signs. The ZKTeco hardware itself waits for that client — which is a
+business decision, not a technical gap, and the fake terminal proves the path
+meanwhile. *(Update this answer on the day — check
 [docs/plan/07-roadmap.md](../plan/07-roadmap.md).)*
 
 **"What would you do differently?"**
