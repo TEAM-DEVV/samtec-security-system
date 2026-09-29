@@ -109,6 +109,10 @@ export function EnrollScreen({
   const cancelled = useRef(false);
 
   useEffect(() => {
+    // Re-armed on every mount: development StrictMode mounts, cleans up and
+    // mounts again, and a flag left true from the first pass silently
+    // swallowed every flow of the second.
+    cancelled.current = false;
     return () => {
       cancelled.current = true;
       engine.stop();
@@ -198,6 +202,8 @@ export function EnrollScreen({
         await engine.start(video.current);
       }
     } catch {
+      // Whatever the camera managed to open before failing goes off again.
+      engine.stop();
       setStage({ name: 'failed', message: 'The camera would not start. Try again.' });
       return;
     }

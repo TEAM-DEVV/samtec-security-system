@@ -3,7 +3,6 @@ import type {
   KioskFingerprintOptionsResponse,
   KioskIdentifyResponse,
   KioskPunchResponse,
-  KioskWorker,
 } from '@samtec/contracts';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { BrandMark } from '@/components/brand-mark';
@@ -28,19 +27,32 @@ import {
 } from '@/lib/passkeys';
 
 const READ_EVERY_MILLISECONDS = 200;
-/** The contract's shape of a staff number, checked before a request is made. */
-const STAFF_NUMBER = /^[A-Z]{2,4}-\d{2,6}$/;
+/** The contract's `StaffNumber`: `SMT-` and five digits, as printed on ID cards. */
+const STAFF_NUMBER = /^SMT-\d{5}$/;
+/** An attempt lives 60 seconds on the server; past ~55 a retry is pointless. */
+const ATTEMPT_FRESH_MILLISECONDS = 55_000;
+/** An idle fallback screen clears itself: it is a screen on a wall. */
+const CLEAR_WHEN_IDLE_MILLISECONDS = 60_000;
 
 /** Where the fallback is, on its way to one punch. */
 type Stage =
   | { name: 'choosing' }
   | { name: 'number-form' }
-  | { name: 'sensor'; worker: KioskWorker; attemptId: string }
+  | { name: 'sensor' }
   | { name: 'cosign-form' }
   | { name: 'cosign-challenge'; turn: HeadTurn; turned: boolean }
   | { name: 'asking' }
   | { name: 'recording' }
   | { name: 'failed'; message: string; canRetrySensor?: boolean };
+
+/** What a cancelled sensor read may pick up again, while the attempt lives. */
+interface PendingFinger {
+  attemptId: string;
+  options: RequestOptionsJson;
+  /** Which endpoint the finger belongs to: a confirm, or a co-sign punch. */
+  flow: 'confirm' | 'cosign';
+  startedAt: number;
+}
 
 interface FallbackScreenProps {
   device: PairedDevice;
@@ -66,8 +78,10 @@ interface FallbackScreenProps {
  *
  * The server owns every rule — who is unlocked, who qualifies, who may
  * co-sign — and refuses everything else with one neutral answer, which this
- * screen shows word for word. Like the clock screen, nothing here ever shows a
- * score or says who a face looked like.
+ * screen shows word for word. Like the clock screen, nothing here ever shows
+ * a score, says who a face looked like, **or turns a typed staff number into
+ * a name**: anyone can stand at a kiosk and type numbers, so a name appears
+ * only once a punch has actually been recorded.
  */
 export function FallbackScreen({
   device,
@@ -82,26 +96,38 @@ export function FallbackScreen({
   const [reason, setReason] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
-  const cancelled = useRef(false);
-  // Held outside the stage: a sensor retry needs the same attempt and options,
-  // and a co-sign confirmation needs the attempt after the stage moved on.
-  const pending = useRef<{ attemptId: string; options: RequestOptionsJson } | null>(null);
+  /** The living flow, as on the clock screen: every await re-checks it. */
+  const run = useRef(0);
+  const pending = useRef<PendingFinger | null>(null);
 
   useEffect(() => {
+    run.current += 1;
     return () => {
-      cancelled.current = true;
+      run.current += 1;
       engine.stop();
     };
   }, [engine]);
+
+  // A wall screen clears itself. Typing stages are exempt — a person is
+  // mid-thought there — but a waiting sensor, an untouched chooser or a
+  // refusal must not sit forever with the last worker's business on show.
+  useEffect(() => {
+    if (stage.name !== 'sensor' && stage.name !== 'failed' && stage.name !== 'choosing') {
+      return;
+    }
+    const timer = setTimeout(onCancel, CLEAR_WHEN_IDLE_MILLISECONDS);
+    return () => clearTimeout(timer);
+  }, [stage, onCancel]);
 
   /** The staff-number path: who they are, then the finger. */
   async function askForOptions(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const typed = staffNumber.trim().toUpperCase();
     if (!STAFF_NUMBER.test(typed)) {
-      setProblem('Type the staff number as it is on the ID card, like GA-0007.');
+      setProblem('Type the staff number as it is on the ID card, like SMT-00042.');
       return;
     }
+    const mine = ++run.current;
     setProblem(null);
     setStage({ name: 'asking' });
     try {
@@ -110,41 +136,54 @@ export function FallbackScreen({
         'kiosk/fingerprint-options',
         { staffNumber: typed, direction },
       );
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
-      // The contract's PasskeyRequestOptions is deliberately opaque; the JSON
-      // shape it carries is the WebAuthn one `lib/passkeys.ts` translates.
       pending.current = {
         attemptId: answer.attemptId,
         options: requestOptionsFrom(answer.options),
+        flow: 'confirm',
+        startedAt: Date.now(),
       };
-      setStage({ name: 'sensor', worker: answer.worker, attemptId: answer.attemptId });
-      await readTheFinger(answer.attemptId, requestOptionsFrom(answer.options));
+      setStage({ name: 'sensor' });
+      await readTheFinger(mine, pending.current);
     } catch (error) {
+      if (run.current !== mine) {
+        return;
+      }
       setStage(failedFrom(error));
     }
   }
 
   /** One sensor read, then the punch. Retryable while the attempt is fresh. */
-  async function readTheFinger(attemptId: string, options: RequestOptionsJson) {
+  async function readTheFinger(mine: number, finger: PendingFinger) {
     try {
-      const assertion = await getAssertion(options);
-      if (cancelled.current) {
+      const assertion = await getAssertion(finger.options);
+      if (run.current !== mine) {
         return;
       }
       setStage({ name: 'recording' });
-      const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', {
-        attemptId,
-        assertion,
-      });
-      onDone(punch);
+      const punch =
+        finger.flow === 'confirm'
+          ? await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', {
+              attemptId: finger.attemptId,
+              assertion,
+            })
+          : await callSigned<KioskPunchResponse>(device, 'kiosk/assisted-punches', {
+              coSignAttemptId: finger.attemptId,
+              assertion,
+              reason: reason.trim(),
+            });
+      if (run.current !== mine) {
+        return;
+      }
+      finish(punch);
     } catch (error) {
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
       if (error instanceof FingerprintRefused && error.cancelled) {
-        // The attempt is only good for 60 seconds, so a retry is offered rather
+        // The attempt is only good for a minute, so a retry is offered rather
         // than looped into: the person decides, not a timer.
         setStage({ name: 'failed', message: error.message, canRetrySensor: true });
         return;
@@ -158,7 +197,7 @@ export function FallbackScreen({
     event.preventDefault();
     const typed = staffNumber.trim().toUpperCase();
     if (!STAFF_NUMBER.test(typed)) {
-      setProblem('Type the worker’s staff number, like GA-0007.');
+      setProblem('Type the worker’s staff number, like SMT-00042.');
       return;
     }
     if (reason.trim().length < 3) {
@@ -166,7 +205,7 @@ export function FallbackScreen({
       return;
     }
     setProblem(null);
-    cancelled.current = false;
+    const mine = ++run.current;
     const turn = randomHeadTurn();
     setStage({ name: 'cosign-challenge', turn, turned: false });
     try {
@@ -175,18 +214,26 @@ export function FallbackScreen({
       }
       engine.asked?.(turn);
     } catch {
+      engine.stop();
+      if (run.current !== mine) {
+        return;
+      }
       setStage({ name: 'failed', message: 'The camera would not start. Tell your supervisor.' });
       return;
     }
-    await superviserChallenge(typed, turn);
+    if (run.current !== mine) {
+      engine.stop();
+      return;
+    }
+    await superviserChallenge(mine, typed, turn);
   }
 
   /** The same head turn a clock-in asks for, done by the supervisor. */
-  async function superviserChallenge(workerStaffNumber: string, turn: HeadTurn) {
+  async function superviserChallenge(mine: number, workerStaffNumber: string, turn: HeadTurn) {
     const deadline = Date.now() + challengeSeconds * 1000;
     let turned = false;
     while (Date.now() < deadline) {
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
       let reading: Awaited<ReturnType<FaceEngine['read']>>;
@@ -194,6 +241,9 @@ export function FallbackScreen({
         reading = await engine.read();
       } catch {
         engine.stop();
+        if (run.current !== mine) {
+          return;
+        }
         setStage({ name: 'failed', message: 'The camera stopped working. Start again.' });
         return;
       }
@@ -201,12 +251,15 @@ export function FallbackScreen({
         turned = true;
         setStage({ name: 'cosign-challenge', turn, turned: true });
       } else if (turned && readingIsUsable(reading)) {
-        await identifySupervisor(workerStaffNumber, reading.sample);
+        await identifySupervisor(mine, workerStaffNumber, reading.sample);
         return;
       }
       await wait(READ_EVERY_MILLISECONDS);
     }
     engine.stop();
+    if (run.current !== mine) {
+      return;
+    }
     setStage({
       name: 'failed',
       message: 'That did not work. The supervisor should stand square to the screen and try again.',
@@ -214,6 +267,7 @@ export function FallbackScreen({
   }
 
   async function identifySupervisor(
+    mine: number,
     workerStaffNumber: string,
     sample: NonNullable<Awaited<ReturnType<FaceEngine['read']>>['sample']>,
   ) {
@@ -226,7 +280,7 @@ export function FallbackScreen({
         sample,
       });
       engine.stop();
-      if (cancelled.current) {
+      if (run.current !== mine) {
         return;
       }
       if (answer.outcome !== 'MATCHED' || answer.worker === null) {
@@ -239,60 +293,65 @@ export function FallbackScreen({
         pending.current = {
           attemptId: answer.attemptId,
           options: requestOptionsFrom(answer.fingerprint.options),
+          flow: 'cosign',
+          startedAt: Date.now(),
         };
-        setStage({ name: 'sensor', worker: answer.worker, attemptId: answer.attemptId });
-        await coSignWithFinger(answer.attemptId, requestOptionsFrom(answer.fingerprint.options));
+        setStage({ name: 'sensor' });
+        await readTheFinger(mine, pending.current);
         return;
       }
-      await recordCoSign(answer.attemptId, undefined);
-    } catch (error) {
-      engine.stop();
-      setStage(failedFrom(error));
-    }
-  }
-
-  async function coSignWithFinger(coSignAttemptId: string, options: RequestOptionsJson) {
-    try {
-      const assertion = await getAssertion(options);
-      if (cancelled.current) {
-        return;
-      }
-      await recordCoSign(coSignAttemptId, assertion);
-    } catch (error) {
-      if (cancelled.current) {
-        return;
-      }
-      if (error instanceof FingerprintRefused && error.cancelled) {
-        setStage({ name: 'failed', message: error.message, canRetrySensor: true });
-        return;
-      }
-      setStage(failedFrom(error));
-    }
-  }
-
-  async function recordCoSign(coSignAttemptId: string, assertion: unknown) {
-    setStage({ name: 'recording' });
-    try {
+      setStage({ name: 'recording' });
       const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/assisted-punches', {
-        coSignAttemptId,
-        ...(assertion === undefined ? {} : { assertion }),
+        coSignAttemptId: answer.attemptId,
         reason: reason.trim(),
       });
-      onDone(punch);
+      if (run.current !== mine) {
+        return;
+      }
+      finish(punch);
     } catch (error) {
+      engine.stop();
+      if (run.current !== mine) {
+        return;
+      }
       setStage(failedFrom(error));
     }
   }
 
-  /** Offered only after the sensor itself was cancelled, while the attempt is fresh. */
+  /**
+   * Offered only after the sensor itself was cancelled. The retry re-enters
+   * the flow the attempt belongs to — a co-sign's finger goes back to the
+   * co-sign punch, never to `kiosk/confirm` — and only while the attempt is
+   * still fresh on the server; after that, back to the start honestly.
+   */
   async function retrySensor() {
     const held = pending.current;
-    if (held === null) {
+    if (held === null || Date.now() - held.startedAt > ATTEMPT_FRESH_MILLISECONDS) {
+      pending.current = null;
       setStage({ name: 'choosing' });
       return;
     }
-    setStage({ name: 'asking' });
-    await readTheFinger(held.attemptId, held.options);
+    const mine = ++run.current;
+    setStage({ name: 'sensor' });
+    await readTheFinger(mine, held);
+  }
+
+  /** One exit for a recorded punch: nothing typed here outlives it. */
+  function finish(punch: KioskPunchResponse) {
+    setStaffNumber('');
+    setReason('');
+    pending.current = null;
+    onDone(punch);
+  }
+
+  /** One exit for walking away: nothing typed here survives on the wall. */
+  function leave() {
+    run.current += 1;
+    engine.stop();
+    setStaffNumber('');
+    setReason('');
+    pending.current = null;
+    onCancel();
   }
 
   return (
@@ -343,7 +402,7 @@ export function FallbackScreen({
             >
               A supervisor clocks me in
             </button>
-            <button type="button" className="button button--quiet" onClick={onCancel}>
+            <button type="button" className="button button--quiet" onClick={leave}>
               Back
             </button>
           </div>
@@ -360,7 +419,7 @@ export function FallbackScreen({
               className="mono"
               autoComplete="off"
               autoCapitalize="characters"
-              placeholder="GA-0007"
+              placeholder="SMT-00042"
               value={staffNumber}
               onChange={(event) => setStaffNumber(event.target.value)}
             />
@@ -397,7 +456,7 @@ export function FallbackScreen({
               className="mono"
               autoComplete="off"
               autoCapitalize="characters"
-              placeholder="GA-0007"
+              placeholder="SMT-00042"
               value={staffNumber}
               onChange={(event) => setStaffNumber(event.target.value)}
             />
@@ -447,7 +506,7 @@ export function FallbackScreen({
               type="button"
               className="button button--quiet"
               onClick={() => {
-                cancelled.current = true;
+                run.current += 1;
                 engine.stop();
                 setStage({ name: 'choosing' });
               }}
@@ -459,12 +518,12 @@ export function FallbackScreen({
       )}
 
       {stage.name === 'sensor' && (
-        <>
-          <p className="greeting" role="status">
-            {stage.worker.displayName}
-          </p>
-          <p className="notice notice--wait">Touch the fingerprint sensor on this phone.</p>
-        </>
+        // No name here, on purpose: a typed number must never become a name
+        // on a wall. The name appears once the punch is recorded, when the
+        // person has proved a finger — not merely guessed a number.
+        <p className="notice notice--wait" role="status">
+          Touch the fingerprint sensor on this phone.
+        </p>
       )}
 
       {stage.name === 'asking' && (
@@ -496,7 +555,7 @@ export function FallbackScreen({
             <button type="button" className="button" onClick={() => setStage({ name: 'choosing' })}>
               Start again
             </button>
-            <button type="button" className="button button--quiet" onClick={onCancel}>
+            <button type="button" className="button button--quiet" onClick={leave}>
               Back
             </button>
           </div>

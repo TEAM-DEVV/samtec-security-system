@@ -266,6 +266,9 @@ importers:
 
   apps/kiosk:
     dependencies:
+      '@vladmandic/human':
+        specifier: 3.3.6
+        version: 3.3.6
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -2629,6 +2632,10 @@ packages:
 
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
+
+  '@vladmandic/human@3.3.6':
+    resolution: {integrity: sha512-Nr5mPfq1gQ+uKeXY5uM3Fj8UxvF5CEh2s6txM5wRThqaW0mF9huooOuZSrT8hhGho0hGaXLFdAwfD/2+teCv6A==}
+    engines: {node: '>=14.0.0'}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -7335,6 +7342,8 @@ snapshots:
       '@vitest/pretty-format': 4.1.11
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
+
+  '@vladmandic/human@3.3.6': {}
 
   accepts@2.0.0:
     dependencies:

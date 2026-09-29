@@ -12,7 +12,8 @@
       "!packages/contracts/src/generated",
       "!apps/web/public/mockServiceWorker.js",
       "!apps/web/src/components/ui",
-      "!docs/build-map.html"
+      "!docs/build-map.html",
+      "!apps/kiosk/public/models"
     ]
   },
   "formatter": {

@@ -106,16 +106,16 @@ export async function getAssertion(options: RequestOptionsJson): Promise<Asserti
   const credential = await askTheSensor(() =>
     navigator.credentials.get({
       publicKey: {
+        // Everything the server sent rides along ("pass them unchanged");
+        // only the fields the browser wants as bytes are translated.
+        ...(options as object),
         challenge: fromBase64Url(options.challenge),
-        rpId: options.rpId,
-        timeout: options.timeout,
-        userVerification: options.userVerification,
         allowCredentials: options.allowCredentials?.map((allowed) => ({
           id: fromBase64Url(allowed.id),
           type: 'public-key' as const,
           transports: allowed.transports as AuthenticatorTransport[] | undefined,
         })),
-      },
+      } as unknown as PublicKeyCredentialRequestOptions,
     }),
   );
   const response = credential.response as AuthenticatorAssertionResponse;
@@ -142,23 +142,20 @@ export async function createPasskey(options: CreationOptionsJson): Promise<Regis
   const credential = await askTheSensor(() =>
     navigator.credentials.create({
       publicKey: {
+        // Everything the server sent rides along ("pass them unchanged");
+        // only the fields the browser wants as bytes are translated.
+        ...(options as object),
         challenge: fromBase64Url(options.challenge),
-        rp: options.rp,
         user: {
+          ...options.user,
           id: fromBase64Url(options.user.id),
-          name: options.user.name,
-          displayName: options.user.displayName,
         },
-        pubKeyCredParams: options.pubKeyCredParams,
-        timeout: options.timeout,
         excludeCredentials: options.excludeCredentials?.map((excluded) => ({
           id: fromBase64Url(excluded.id),
           type: 'public-key' as const,
           transports: excluded.transports as AuthenticatorTransport[] | undefined,
         })),
-        authenticatorSelection: options.authenticatorSelection,
-        attestation: options.attestation,
-      },
+      } as unknown as PublicKeyCredentialCreationOptions,
     }),
   );
   const response = credential.response as AuthenticatorAttestationResponse;
@@ -191,7 +188,13 @@ async function askTheSensor(call: () => Promise<Credential | null>): Promise<Pub
       throw new FingerprintRefused('The fingerprint was not read. Try again.', true);
     }
     if (error instanceof DOMException && error.name === 'InvalidStateError') {
-      throw new FingerprintRefused('This key is already saved on this phone.', false);
+      // For create() this means the key already exists; for get() it usually
+      // means another sensor request is still open. One honest message covers
+      // both without guessing.
+      throw new FingerprintRefused(
+        'The sensor is busy or this key already exists. Try again.',
+        true,
+      );
     }
     throw new FingerprintRefused('The fingerprint sensor would not start.', false);
   }
