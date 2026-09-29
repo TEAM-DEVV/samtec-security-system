@@ -19,6 +19,13 @@ import {
   readingIsLive,
   readingIsUsable,
 } from '@/lib/face';
+import {
+  FingerprintRefused,
+  getAssertion,
+  type RequestOptionsJson,
+  requestOptionsFrom,
+} from '@/lib/passkeys';
+import { FallbackScreen } from '@/screens/fallback-screen';
 
 /** How long the name stays on screen before the punch is recorded. */
 const SHOW_THE_NAME_MILLISECONDS = 2000;
@@ -41,10 +48,30 @@ type Stage =
   | { name: 'challenging'; direction: KioskDirection; turn: HeadTurn; turned: boolean }
   | { name: 'asking'; direction: KioskDirection }
   | { name: 'greeting'; attemptId: string; displayName: string; direction: KioskDirection }
+  | {
+      /**
+       * Matched, and this worker has a fingerprint key on this kiosk, so the
+       * server will refuse a confirmation without it. The finger press is the
+       * confirmation, so there is no two-second timer here — and "Not me"
+       * stays on screen, because a fingerprint proves a saved finger, never a
+       * named person.
+       */
+      name: 'fingerprinting';
+      attemptId: string;
+      displayName: string;
+      direction: KioskDirection;
+    }
   | { name: 'cancelling' }
   | { name: 'recording' }
   | { name: 'done'; punch: KioskPunchResponse }
-  | { name: 'refused'; message: string; offerFallback: boolean; offerSetUpAgain?: boolean };
+  | {
+      name: 'refused';
+      message: string;
+      offerFallback: boolean;
+      direction?: KioskDirection;
+      offerSetUpAgain?: boolean;
+    }
+  | { name: 'fallback'; direction: KioskDirection };
 
 interface ClockScreenProps {
   device: PairedDevice;
@@ -188,24 +215,25 @@ export function ClockScreen({
         // AMBIGUOUS, NOT_RECOGNISED and LOW_LIVENESS all say the same thing to
         // the person standing there. Telling them apart would tell a stranger
         // something about the faces we hold.
-        countFailure('Not recognised. Please try again.');
+        countFailure('Not recognised. Please try again.', direction);
         return;
       }
       if (answer.fingerprint !== null) {
-        // This worker has a fingerprint key on this kiosk, so the server will
-        // refuse a confirmation that does not carry the assertion from it. That
-        // work is not built yet, so say so rather than showing the name and
-        // then failing: the guard would have no idea what went wrong, and the
-        // server's refusal deliberately tells them nothing.
-        //
-        // Do not fall back to confirming without it. The server refuses anyway,
-        // and a fallback here would be a fallback around a second factor.
+        // Face, then finger (`FACE_PASSKEY`): this worker has a key on this
+        // kiosk, and the server will refuse a confirmation without the
+        // assertion from it. Never confirm without one — the server refuses
+        // anyway, and it would be a fallback around a second factor.
         setStage({
-          name: 'refused',
-          message:
-            'This kiosk cannot take your fingerprint yet. Ask your supervisor to clock you in.',
-          offerFallback: false,
+          name: 'fingerprinting',
+          attemptId: answer.attemptId,
+          displayName: answer.worker.displayName,
+          direction,
         });
+        await fingerThenConfirm(
+          answer.attemptId,
+          requestOptionsFrom(answer.fingerprint.options),
+          direction,
+        );
         return;
       }
       setStage({
@@ -220,11 +248,41 @@ export function ClockScreen({
     }
   }
 
-  /** The guard said nothing, so the punch goes in. */
-  async function confirm(attemptId: string) {
+  /**
+   * The device's sensor, then the punch. The options are the server's,
+   * unchanged; a cancelled or unread finger counts as a failure like a missed
+   * head turn, so three of them still open the fallbacks.
+   */
+  async function fingerThenConfirm(
+    attemptId: string,
+    options: RequestOptionsJson,
+    direction: KioskDirection,
+  ) {
+    try {
+      const assertion = await getAssertion(options);
+      if (cancelled.current) {
+        return;
+      }
+      await confirm(attemptId, assertion);
+    } catch (error) {
+      if (cancelled.current) {
+        return;
+      }
+      countFailure(
+        error instanceof FingerprintRefused ? error.message : 'Please try again.',
+        direction,
+      );
+    }
+  }
+
+  /** The guard said nothing (or proved their finger), so the punch goes in. */
+  async function confirm(attemptId: string, assertion?: unknown) {
     setStage({ name: 'recording' });
     try {
-      const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', { attemptId });
+      const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', {
+        attemptId,
+        ...(assertion === undefined ? {} : { assertion }),
+      });
       setFailures(0);
       setStage({ name: 'done', punch });
     } catch (error) {
@@ -241,24 +299,31 @@ export function ClockScreen({
    * the timer fired and clocked in the very person who had just said this is not
    * them. That is the one outcome this button exists to prevent.
    */
-  async function notMe(attemptId: string) {
+  async function notMe(attemptId: string, direction?: KioskDirection) {
+    // Leaving the greeting first is what clears the confirm timer; a finger
+    // sheet that is still open simply fails once the attempt is cancelled.
     setStage({ name: 'cancelling' });
+    // Also stops a fingerprint read that is still waiting on the sensor: its
+    // result must not confirm an attempt the guard has just disowned. `begin`
+    // clears this again, the same as after "Cancel".
+    cancelled.current = true;
     try {
       await callSigned<void>(device, 'kiosk/not-me', { attemptId });
     } catch {
       // Recording the "not me" is useful but not essential; the guard still
       // needs to get on with their shift either way.
     }
-    countFailure('Sorry about that. Please try again.');
+    countFailure('Sorry about that. Please try again.', direction);
   }
 
-  function countFailure(message: string) {
+  function countFailure(message: string, direction?: KioskDirection) {
     const nowFailed = failures + 1;
     setFailures(nowFailed);
     setStage({
       name: 'refused',
       message,
       offerFallback: nowFailed >= FAILURES_BEFORE_FALLBACK,
+      direction,
     });
   }
 
@@ -266,6 +331,24 @@ export function ClockScreen({
     cancelled.current = true;
     engine.stop();
     setStage({ name: 'resting' });
+  }
+
+  if (stage.name === 'fallback') {
+    // Its own screen, with its own camera element: the fallback may need the
+    // supervisor's face, and mixing two flows into one stage machine is how
+    // the wrong button ends up on the wrong screen.
+    return (
+      <FallbackScreen
+        device={device}
+        engine={engine}
+        direction={stage.direction}
+        onDone={(punch) => {
+          setFailures(0);
+          setStage({ name: 'done', punch });
+        }}
+        onCancel={rest}
+      />
+    );
   }
 
   return (
@@ -316,6 +399,7 @@ export function ClockScreen({
         onBegin={begin}
         onConfirm={confirm}
         onNotMe={notMe}
+        onFallback={(direction) => setStage({ name: 'fallback', direction })}
         onRest={rest}
         onSetUpAgain={onSetUpAgain}
       />
@@ -328,7 +412,8 @@ interface BodyProps {
   showTheNameFor: number;
   onBegin: (direction: KioskDirection) => void;
   onConfirm: (attemptId: string) => void;
-  onNotMe: (attemptId: string) => void;
+  onNotMe: (attemptId: string, direction?: KioskDirection) => void;
+  onFallback: (direction: KioskDirection) => void;
   onRest: () => void;
   onSetUpAgain?: () => void;
 }
@@ -339,6 +424,7 @@ function Body({
   onBegin,
   onConfirm,
   onNotMe,
+  onFallback,
   onRest,
   onSetUpAgain,
 }: BodyProps) {
@@ -426,7 +512,26 @@ function Body({
             <button
               type="button"
               className="button button--quiet"
-              onClick={() => onNotMe(stage.attemptId)}
+              onClick={() => onNotMe(stage.attemptId, stage.direction)}
+            >
+              Not me
+            </button>
+          </div>
+        </>
+      );
+
+    case 'fingerprinting':
+      return (
+        <>
+          <p className="greeting" role="status">
+            Hello, {stage.displayName}
+          </p>
+          <p className="notice notice--wait">Touch the fingerprint sensor on this phone.</p>
+          <div className="buttons">
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => onNotMe(stage.attemptId, stage.direction)}
             >
               Not me
             </button>
@@ -474,11 +579,18 @@ function Body({
             {stage.message}
           </p>
           {stage.offerFallback && (
-            <p className="notice notice--wait">
-              Still not working? Ask your supervisor to help you clock in.
-            </p>
+            <p className="notice notice--wait">Still not working? There are two other ways in.</p>
           )}
           <div className="buttons">
+            {stage.offerFallback && stage.direction !== undefined && (
+              <button
+                type="button"
+                className="button button--in"
+                onClick={() => onFallback(stage.direction as KioskDirection)}
+              >
+                Another way in
+              </button>
+            )}
             <button type="button" className="button" onClick={onRest}>
               Start again
             </button>
@@ -527,6 +639,7 @@ function guideFor(stage: Stage): { state: GuideState; turn?: HeadTurn | null } {
     case 'cancelling':
       return { state: 'centre' };
     case 'greeting':
+    case 'fingerprinting':
       return { state: 'good' };
     case 'refused':
       return { state: 'bad' };
