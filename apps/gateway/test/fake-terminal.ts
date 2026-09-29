@@ -21,14 +21,15 @@ export interface FakeTerminal {
   uploadPunchBurst: (count: number, day?: string) => Promise<string>;
   /** Polls for one command; `OK` means the queue is empty. */
   pollCommand: () => Promise<string>;
-  acknowledge: (commandId: number) => Promise<string>;
+  acknowledge: (commandId: number, returnCode?: number) => Promise<string>;
 }
 
 /** A terminal at `gateway`, claiming `serial`. */
-export function fakeTerminal(gateway: string, serial: string): FakeTerminal {
+export function fakeTerminal(gateway: string, serial: string, commKey?: string): FakeTerminal {
   const base = gateway.replace(/\/+$/, '');
+  const key = commKey === undefined ? '' : `&pushcommkey=${commKey}`;
   const ask = async (path: string, body?: string): Promise<string> => {
-    const response = await fetch(`${base}${path}`, {
+    const response = await fetch(`${base}${path}${key}`, {
       method: body === undefined ? 'GET' : 'POST',
       ...(body === undefined ? {} : { body }),
     });
@@ -49,8 +50,10 @@ export function fakeTerminal(gateway: string, serial: string): FakeTerminal {
       return ask(`/iclock/cdata?SN=${serial}&table=ATTLOG&Stamp=9999`, `${lines.join('\r\n')}\r\n`);
     },
     pollCommand: () => ask(`/iclock/getrequest?SN=${serial}`),
-    acknowledge: (commandId) =>
-      ask(`/iclock/devicecmd?SN=${serial}`, `ID=${commandId}&Return=0&CMD=DATA`),
+    // Real firmware batches acknowledgements, one per line, and `returnCode`
+    // 0 is success — anything else tells the gateway the command failed.
+    acknowledge: (commandId, returnCode = 0) =>
+      ask(`/iclock/devicecmd?SN=${serial}`, `ID=${commandId}&Return=${returnCode}&CMD=DATA\r\n`),
   };
 }
 

@@ -38,13 +38,19 @@ export interface TerminalConfig {
   allowedIps: string[];
   deviceId: string;
   secret: string;
-  /** The firmware's comm key, checked when the terminal sends one. */
+  /** The firmware's comm key. When configured it is required on every request. */
   commKey?: string;
 }
 
 export interface GatewayConfig {
   apiUrl: string;
   port: number;
+  /**
+   * The address to listen on. Set it to the LAN address the terminals reach,
+   * so the door never faces a network it was not meant for; left out, every
+   * interface is bound, which is only right on a machine with one network.
+   */
+  host?: string;
   outboxFile: string;
   terminals: TerminalConfig[];
 }
@@ -64,7 +70,14 @@ export function loadConfig(path = defaultConfigPath()): GatewayConfig {
         'apps/gateway/src/config.ts) or point SAMTEC_GATEWAY_CONFIG at it.',
     );
   }
-  const parsed: unknown = JSON.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Never rethrow the parser's own message: V8 quotes the source text
+    // around the problem, and this file holds device secrets.
+    throw new Error(`The gateway configuration at ${path} is not valid JSON.`);
+  }
   return checkedConfig(parsed, path);
 }
 
@@ -74,11 +87,22 @@ export function checkedConfig(parsed: unknown, source = 'the configuration'): Ga
     throw new Error(`${source} is not a JSON object.`);
   }
   const config = parsed as Partial<GatewayConfig>;
-  if (typeof config.apiUrl !== 'string' || !config.apiUrl.startsWith('http')) {
+  if (
+    typeof config.apiUrl !== 'string' ||
+    !(config.apiUrl.startsWith('http://') || config.apiUrl.startsWith('https://'))
+  ) {
     throw new Error(`${source}: "apiUrl" must be the API's address, ending /api/v1.`);
   }
-  if (typeof config.port !== 'number' || !Number.isInteger(config.port)) {
-    throw new Error(`${source}: "port" must be a whole number (the design says 8081).`);
+  if (
+    typeof config.port !== 'number' ||
+    !Number.isInteger(config.port) ||
+    config.port < 0 ||
+    config.port > 65535
+  ) {
+    throw new Error(`${source}: "port" must be a port number (the design says 8081).`);
+  }
+  if (config.host !== undefined && (typeof config.host !== 'string' || config.host === '')) {
+    throw new Error(`${source}: "host", when given, must be the address to listen on.`);
   }
   if (typeof config.outboxFile !== 'string' || config.outboxFile === '') {
     throw new Error(`${source}: "outboxFile" must be a file path for the outbox database.`);
@@ -92,9 +116,16 @@ export function checkedConfig(parsed: unknown, source = 'the configuration'): Ga
         throw new Error(`${source}: every terminal needs a "${field}".`);
       }
     }
-    if (!Array.isArray(terminal.allowedIps)) {
-      throw new Error(`${source}: terminal ${terminal.serial} needs "allowedIps" (a list).`);
+    if (
+      !Array.isArray(terminal.allowedIps) ||
+      terminal.allowedIps.some((ip) => typeof ip !== 'string' || ip === '')
+    ) {
+      throw new Error(`${source}: terminal ${terminal.serial} needs "allowedIps" (addresses).`);
     }
+  }
+  const serials = config.terminals.map((terminal) => terminal.serial);
+  if (new Set(serials).size !== serials.length) {
+    throw new Error(`${source}: two terminals share a serial number.`);
   }
   return config as GatewayConfig;
 }
