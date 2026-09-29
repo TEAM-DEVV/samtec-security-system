@@ -46,9 +46,8 @@ We aim to acknowledge reports within three days.
    package version in Phase 0 (see the decision log in
    `docs/plan/02-stack-decisions.md`).
 6. **Review through the security lens.** Every pull request completes the
-   security checklist in the pull request template. `.github/CODEOWNERS` asks
-   both developers to review sensitive files such as dependencies, CI and
-   database migrations.
+   security checklist in the pull request template, and both developers review
+   every change, including dependencies, CI, the contract and database migrations.
 7. **Logs hold IDs, not people.** Never log request bodies, query strings,
    names, phone numbers, Ghana Card numbers or tokens. Log the `traceId` and
    record IDs instead.
