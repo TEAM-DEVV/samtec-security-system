@@ -32,7 +32,7 @@ export function NewDevicePage() {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [siteId, setSiteId] = useState('');
-  const [kind, setKind] = useState<DeviceKind>('ZKTECO');
+  const [kind, setKind] = useState<DeviceKind>('FACE_KIOSK');
   const [mistake, setMistake] = useState<string | null>(null);
   const [registered, setRegistered] = useState<DeviceWithSecret | null>(null);
 
@@ -173,6 +173,11 @@ export function NewDevicePage() {
                     </option>
                   ))}
                 </SelectField>
+                <p className="text-sm text-muted-foreground">
+                  A phone running the SAMTEC kiosk is a face kiosk. ZKTeco is only for a fingerprint
+                  terminal behind the gateway. The kind cannot be changed later: if it is wrong,
+                  register the device again.
+                </p>
 
                 {mistake && (
                   <Alert variant="destructive">

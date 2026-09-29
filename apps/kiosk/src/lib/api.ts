@@ -96,11 +96,40 @@ export async function callSigned<Answer>(
     // `detail` is optional in the contract, so there is always a fallback.
     throw new KioskRequestFailed(
       response.status,
-      (isProblem(answer) ? answer.detail : undefined) ?? refusalFor(response.status),
+      messageFor(response.status, answer),
       isProblem(answer) ? answer.traceId : undefined,
     );
   }
   return answer as Answer;
+}
+
+/**
+ * What an administrator can check when the server refuses this kiosk. The
+ * server answers every device failure with one sentence on purpose (a wrong
+ * secret, a device switched off, a device of the wrong kind all read the
+ * same), so the kiosk has to name the two things a person can actually fix.
+ */
+export const KIOSK_REFUSED =
+  'The system refused this kiosk. On the dashboard, under Devices, check that this device is switched on (another administrator does that) and that its kind is Face kiosk. Then set this phone up again with its Device ID and secret.';
+
+/**
+ * The words a refusal shows: a field's own message first (the digits of a
+ * Ghana Card, for one), then the server's detail, then a plain fallback.
+ */
+function messageFor(status: number, answer: unknown): string {
+  if (status === 401) {
+    return KIOSK_REFUSED;
+  }
+  if (isProblem(answer)) {
+    const field = (answer as { errors?: { message?: unknown }[] }).errors?.[0]?.message;
+    if (typeof field === 'string' && field.length > 0) {
+      return field;
+    }
+    if (answer.detail) {
+      return answer.detail;
+    }
+  }
+  return refusalFor(status);
 }
 
 /**

@@ -50,10 +50,12 @@ async function callAuth<Answer>(path: string, body: unknown, token?: string): Pr
   });
   const answer: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
-    const problem = answer as { detail?: string; traceId?: string } | undefined;
+    const problem = answer as
+      | { detail?: string; traceId?: string; errors?: { message?: string }[] }
+      | undefined;
     throw new KioskRequestFailed(
       response.status,
-      problem?.detail ?? refusalFor(response.status),
+      problem?.errors?.[0]?.message ?? problem?.detail ?? refusalFor(response.status),
       problem?.traceId,
     );
   }

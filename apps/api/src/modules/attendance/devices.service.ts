@@ -17,7 +17,6 @@ import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { AppConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Device, Prisma } from '../../generated/prisma/client.js';
-import { mayUseAccount } from '../identity/account-rules.js';
 import { AuditService } from '../identity/audit.service.js';
 import { openSecret, sealSecret } from '../identity/secret-box.js';
 import { EmployeesService } from '../workforce/employees.service.js';
@@ -269,27 +268,21 @@ export class DevicesService {
       // seed's), or somebody else issued the key. Both are fine.
       return { columns: { activatedByUserId: viewer.userId, activatedAt: now }, auditDetail: {} };
     }
-    // **Who could actually do it instead.** An administrator waiting for
-    // confirmation of their own account cannot sign in at all, so counting
-    // them would refuse this switch-on and name a person who is unable to
-    // help — leaving the device stuck until a third administrator appears.
-    const others = await tx.user.findMany({
+    // **Does another administrator's row exist**, the same question the
+    // account rules ask (users.service.ts). Counting only the ones who could
+    // sign in right now left a hole: switching an administrator off needs
+    // nobody's approval, so the key's issuer could switch their colleague off,
+    // count as the only administrator, and switch their own key on alone.
+    // A colleague who cannot sign in yet still blocks the shortcut; the key
+    // waits until they can.
+    const others = await tx.user.count({
       where: {
         companyId: viewer.companyId,
         role: 'ADMIN',
-        isActive: true,
         id: { not: viewer.userId },
       },
-      select: {
-        isActive: true,
-        passwordHash: true,
-        role: true,
-        twoFactorEnabledAt: true,
-        adminRequestedAt: true,
-        adminConfirmedAt: true,
-      },
     });
-    if (others.some((account) => mayUseAccount(account))) {
+    if (others > 0) {
       throw new ConflictException(
         'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
       );

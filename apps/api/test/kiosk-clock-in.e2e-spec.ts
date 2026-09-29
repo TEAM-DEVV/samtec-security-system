@@ -210,7 +210,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       });
       expect(attempt.outcome).toBe('MATCHED');
       expect(attempt.employeeId).toBe(worker.id);
-      expect(attempt.thresholdVersion).toBe('ft-1');
+      expect(attempt.thresholdVersion).toBe('ft-2');
       expect(attempt.bestScore).toBeGreaterThan(0.9);
     });
 
@@ -761,7 +761,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
           direction: 'IN',
           outcome,
           employeeId: outcome === 'MATCHED' ? employeeId : null,
-          thresholdVersion: 'ft-1',
+          thresholdVersion: 'ft-2',
           attemptedAt: new Date(Date.now() - secondsAgo * 1000),
         },
         select: { id: true },
@@ -797,7 +797,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
             purpose: 'CLOCK',
             direction: 'IN',
             outcome: 'NOT_RECOGNISED',
-            thresholdVersion: 'ft-1',
+            thresholdVersion: 'ft-2',
             attemptedAt: new Date(Date.now() - (300 + n) * 1000),
           },
         });

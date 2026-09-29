@@ -249,7 +249,7 @@ describe('ClockScreen', () => {
     expect(await screen.findByText('Sorry about that. Please try again.')).toBeInTheDocument();
   });
 
-  it("shows the server's own words when it refuses", async () => {
+  it('tells an administrator what to check when the server refuses this phone', async () => {
     answers = [
       {
         status: 401,
@@ -266,7 +266,9 @@ describe('ClockScreen', () => {
     await renderScreen();
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
 
-    expect(await screen.findByText('This kiosk has been switched off.')).toBeInTheDocument();
+    // The server's one sentence for every device failure is not repeated: the
+    // kiosk names what an administrator can check instead.
+    expect(await screen.findByText(/refused this kiosk/)).toBeInTheDocument();
   });
 
   it('says a repeat was already recorded rather than pretending it is new', async () => {

@@ -72,8 +72,9 @@ export function PairingScreen({ onPaired }: PairingScreenProps) {
 
       <h1>Set this phone up</h1>
       <p className="muted" style={{ maxWidth: '30rem' }}>
-        An administrator registers this kiosk on the dashboard, under Devices. The secret is shown
-        once there — paste it here. Nobody signs in on this phone.
+        An administrator registers this kiosk on the dashboard, under Devices, with the kind Face
+        kiosk. The secret is shown once there: paste it here. Another administrator must switch the
+        device on before it works. Nobody signs in on this phone.
       </p>
 
       {/* noValidate: the screen's own messages are clearer than the browser's,
