@@ -4,9 +4,10 @@
  * it uploads its logs and polls for commands; the gateway only ever answers.
  *
  * Two checks stand in front of everything: the serial number must be listed,
- * and the caller's address must be listed for that serial. A stray phone on
- * the site's Wi-Fi gets a refusal that names nothing. Where the firmware
- * sends its comm key, that is checked too.
+ * and the caller's address must be listed for that serial. Where a comm key
+ * is configured it is **required**, not merely checked when offered — a key
+ * that can be skipped is a decoration. Every refusal is the same one word,
+ * so a stray phone on the site's Wi-Fi can map nothing.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GatewayConfig, TerminalConfig } from './config.ts';
@@ -27,14 +28,24 @@ export function startServer(
   config: GatewayConfig,
   outbox: Outbox,
   log: (line: string) => void = console.log,
+  /** What the health line may add — the alarmed serials, from delivery. */
+  alarms: () => string[] = () => [],
 ): Promise<GatewayServer> {
   const server = createServer((request, response) => {
-    void handle(config, outbox, log, request, response).catch(() => {
+    void handle(config, outbox, log, alarms, request, response).catch((error: unknown) => {
+      // A store failure here is the one failure that threatens "never lose a
+      // punch", so it is the one 500 that must reach the log — the message
+      // only, never the body.
+      log(
+        `ERROR answering ${request.url ?? '?'}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
       respond(response, 500, 'ERROR');
     });
   });
   return new Promise((resolve) => {
-    server.listen(config.port, () => {
+    // Bound to the configured address; the README says never the internet,
+    // and a config can now say which network card the site's terminals reach.
+    server.listen(config.port, config.host, () => {
       resolve({
         server,
         port: () => {
@@ -51,21 +62,29 @@ async function handle(
   config: GatewayConfig,
   outbox: Outbox,
   log: (line: string) => void,
+  alarms: () => string[],
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://gateway.invalid');
 
-  // The one unauthenticated line: is this gateway alive, and how far behind.
+  // The one unauthenticated line: is this gateway alive. Counts and serials
+  // stay out of it — an unlisted caller on the site network learns nothing
+  // beyond "something answers here".
   if (url.pathname === '/health') {
-    respond(response, 200, JSON.stringify({ status: 'ok', waiting: outbox.unsentCount() }));
+    const alarmed = alarms().length;
+    respond(
+      response,
+      200,
+      JSON.stringify({ status: alarmed === 0 ? 'ok' : 'alarm', alarmedTerminals: alarmed }),
+    );
     return;
   }
 
   const terminal = trustedTerminal(config, url, request);
   if (terminal === null) {
     // One refusal for every reason — an unknown serial, a wrong address, a
-    // wrong key — so nothing on the site's network can map what is listed.
+    // missing or wrong key — so nothing can map what is listed.
     respond(response, 403, 'DENIED');
     return;
   }
@@ -83,10 +102,25 @@ async function handle(
     }
     const table = url.searchParams.get('table') ?? '';
     const parsed = parseUpload(terminal.serial, table, body);
-    // On disk first, then OK — the ordering is the gateway's whole promise.
-    outbox.store(terminal.serial, parsed.punches, parsed.enrollments);
-    if (parsed.brokenLines > 0) {
-      log(`${terminal.serial}: ${parsed.brokenLines} line(s) could not be read and were dropped.`);
+    if (
+      parsed.punches.length === 0 &&
+      parsed.enrollments.length === 0 &&
+      parsed.broken.length === 0 &&
+      !['ATTLOG', 'OPERLOG', 'ATTPHOTO', 'BIOPHOTO', 'BIODATA'].includes(table)
+    ) {
+      // A table this gateway does not speak. The name is worth a log line —
+      // it is how a firmware quirk is discovered — but never the body.
+      log(`${terminal.serial}: upload for unknown table "${table.slice(0, 32)}" ignored.`);
+    }
+    // On disk first — the readable and the broken alike — then OK. The
+    // ordering is the gateway's whole promise, and a broken line is kept in
+    // the quarantine because a terminal that hears OK never resends it.
+    outbox.store(terminal.serial, parsed.punches, parsed.enrollments, parsed.broken, table);
+    if (parsed.broken.length > 0) {
+      log(
+        `${terminal.serial}: ${parsed.broken.length} line(s) could not be read; ` +
+          'kept in the quarantine.',
+      );
     }
     respond(response, 200, `OK: ${parsed.punches.length + parsed.enrollments.length}`);
     return;
@@ -99,11 +133,21 @@ async function handle(
   }
 
   if (url.pathname === '/iclock/devicecmd' && request.method === 'POST') {
-    // The terminal acknowledges `C:<id>:…` with `ID=<id>&Return=0&…`.
+    // The terminal acknowledges `C:<id>:…` with `ID=<id>&Return=<code>&…`,
+    // and real firmware batches several acknowledgements, one per line.
+    // `Return=0` is success; anything else reopens the command, so a failed
+    // add is served again rather than assumed done.
     const body = (await readBody(request)) ?? '';
-    const id = Number(new URLSearchParams(body.trim()).get('ID') ?? url.searchParams.get('ID'));
-    if (Number.isInteger(id)) {
-      outbox.finishCommand(id);
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.replace(/\r$/, '').trim();
+      if (line === '') {
+        continue;
+      }
+      const fields = new URLSearchParams(line);
+      const id = Number(fields.get('ID'));
+      if (Number.isInteger(id)) {
+        outbox.finishCommand(terminal.serial, id, (fields.get('Return') ?? '0') === '0');
+      }
     }
     respond(response, 200, 'OK');
     return;
@@ -129,9 +173,11 @@ function trustedTerminal(
   if (!terminal.allowedIps.includes(address)) {
     return null;
   }
-  const sentKey = url.searchParams.get('pushcommkey') ?? url.searchParams.get('key');
-  if (terminal.commKey !== undefined && sentKey !== null && sentKey !== terminal.commKey) {
-    return null;
+  if (terminal.commKey !== undefined) {
+    const sentKey = url.searchParams.get('pushcommkey') ?? url.searchParams.get('key');
+    if (sentKey !== terminal.commKey) {
+      return null;
+    }
   }
   return terminal;
 }

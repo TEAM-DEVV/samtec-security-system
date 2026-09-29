@@ -14,6 +14,14 @@
  */
 import { createHash } from 'node:crypto';
 
+/**
+ * What a terminal user number may look like before it goes anywhere: the
+ * API's own rule (printable ASCII, 1 to 32) tightened to what staff numbers
+ * actually are, so a hostile line can never smuggle a tab, a newline or a
+ * NUL into a stored payload or a terminal command.
+ */
+export const SAFE_USER_REF = /^[A-Za-z0-9-]{1,32}$/;
+
 /** One attendance line, translated to the API's language. */
 export interface TranslatedPunch {
   deviceEventId: string;
@@ -35,8 +43,12 @@ export interface TranslatedEnrollment {
 export interface ParsedUpload {
   punches: TranslatedPunch[];
   enrollments: TranslatedEnrollment[];
-  /** Lines that parsed as nothing. Counted, never stored: they may be anything. */
-  brokenLines: number;
+  /**
+   * Lines that parsed as nothing, capped short, for the quarantine. A
+   * terminal that hears `OK` never resends, so dropping a broken line
+   * silently would lose whatever punch it was trying to be.
+   */
+  broken: string[];
 }
 
 /**
@@ -72,7 +84,7 @@ export function parseAttendanceLine(serial: string, line: string): TranslatedPun
   const time = deviceTimeToUtc(parts[1]?.trim() ?? '');
   const status = parts[2]?.trim() ?? '';
   const verify = parts[3]?.trim() ?? '';
-  if (user === '' || time === null) {
+  if (!SAFE_USER_REF.test(user) || time === null) {
     return null;
   }
   return {
@@ -102,13 +114,14 @@ export function parseOperationLine(line: string): TranslatedEnrollment | null {
   }
   const enrolledAt = deviceTimeToUtc(parts[2]?.trim() ?? '');
   const user = parts[3]?.trim() ?? '';
-  const finger = Number(parts[4]?.trim());
-  if (user === '' || enrolledAt === null) {
+  // A single digit, spelt out: Number('') is 0, which would invent a finger.
+  const fingerText = parts[4]?.trim() ?? '';
+  if (!SAFE_USER_REF.test(user) || enrolledAt === null) {
     return null;
   }
   return {
     deviceUserRef: user,
-    ...(Number.isInteger(finger) && finger >= 0 && finger <= 9 ? { fingerIndex: finger } : {}),
+    ...(/^[0-9]$/.test(fingerText) ? { fingerIndex: Number(fingerText) } : {}),
     enrolledAt,
   };
 }
@@ -120,7 +133,7 @@ export function parseOperationLine(line: string): TranslatedEnrollment | null {
  * would be a copy.
  */
 export function parseUpload(serial: string, table: string, body: string): ParsedUpload {
-  const parsed: ParsedUpload = { punches: [], enrollments: [], brokenLines: 0 };
+  const parsed: ParsedUpload = { punches: [], enrollments: [], broken: [] };
   if (table === 'ATTPHOTO' || table === 'BIOPHOTO' || table === 'BIODATA') {
     return parsed;
   }
@@ -132,7 +145,7 @@ export function parseUpload(serial: string, table: string, body: string): Parsed
     if (table === 'ATTLOG') {
       const punch = parseAttendanceLine(serial, line);
       if (punch === null) {
-        parsed.brokenLines += 1;
+        parsed.broken.push(line.slice(0, 512));
       } else {
         parsed.punches.push(punch);
       }
@@ -143,7 +156,7 @@ export function parseUpload(serial: string, table: string, body: string): Parsed
       }
       // Other operation lines are the terminal's diary: not broken, not kept.
     } else {
-      parsed.brokenLines += 1;
+      parsed.broken.push(line.slice(0, 512));
     }
   }
   return parsed;
@@ -159,8 +172,25 @@ export function deviceTimeToUtc(text: string): string | null {
   if (match === null) {
     return null;
   }
-  const iso = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}.000+00:00`;
-  return Number.isNaN(Date.parse(iso)) ? null : iso;
+  // Every field has to survive a real calendar. `Date.parse` quietly rolls an
+  // impossible date over (2026-02-30 becomes March 2nd), the API then rejects
+  // the text, and one such line could wedge a whole batch — so each field is
+  // checked against what the Date actually became.
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const at = new Date(
+    Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0, second ?? 0),
+  );
+  if (
+    at.getUTCFullYear() !== year ||
+    at.getUTCMonth() !== (month ?? 1) - 1 ||
+    at.getUTCDate() !== day ||
+    at.getUTCHours() !== hour ||
+    at.getUTCMinutes() !== minute ||
+    at.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}.000+00:00`;
 }
 
 /**
@@ -185,17 +215,35 @@ export function handshakeReply(serial: string): string {
   ].join('\n');
 }
 
-/** A user command for the terminal's queue, in the terminal's own words. */
-export function addUserCommand(id: number, deviceUserRef: string, displayName: string): string {
+/**
+ * A user command's payload, without its id: the queue's own row id becomes
+ * the `C:<id>:` prefix at serve time, so the number the terminal
+ * acknowledges is always the number the queue knows.
+ *
+ * The user ref is checked, not trusted: it is interpolated into a line the
+ * terminal executes, and a tab in it would inject fields (`Pri=14` is an
+ * administrator). Refs come from our own API, but "from our own API" is an
+ * observation, not a rule.
+ */
+export function addUserPayload(deviceUserRef: string, displayName: string): string {
+  if (!SAFE_USER_REF.test(deviceUserRef)) {
+    throw new Error('That user number is not safe for a terminal command.');
+  }
   // Privilege 0 is an ordinary user; the name is display-only on the terminal.
-  return `C:${id}:DATA USER PIN=${deviceUserRef}\tName=${sanitised(displayName)}\tPri=0`;
+  return `DATA USER PIN=${deviceUserRef}	Name=${sanitised(displayName)}\tPri=0`;
 }
 
-export function deleteUserCommand(id: number, deviceUserRef: string): string {
-  return `C:${id}:DATA DELETE USERINFO PIN=${deviceUserRef}`;
+export function deleteUserPayload(deviceUserRef: string): string {
+  if (!SAFE_USER_REF.test(deviceUserRef)) {
+    throw new Error('That user number is not safe for a terminal command.');
+  }
+  return `DATA DELETE USERINFO PIN=${deviceUserRef}`;
 }
 
 /** A name as the terminal may hold it: no tabs, no line breaks, short. */
 function sanitised(name: string): string {
-  return name.replace(/[\t\r\n]+/g, ' ').slice(0, 24);
+  // By characters, not code units, so a name never loses half an emoji.
+  return Array.from(name.replace(/[\t\r\n]+/g, ' '))
+    .slice(0, 24)
+    .join('');
 }
