@@ -113,6 +113,7 @@ export function EnrollScreen({
     // mounts again, and a flag left true from the first pass silently
     // swallowed every flow of the second.
     cancelled.current = false;
+    void engine.prepare?.().catch(() => undefined);
     return () => {
       cancelled.current = true;
       engine.stop();

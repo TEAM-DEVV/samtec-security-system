@@ -47,8 +47,13 @@ export interface FaceReading {
 
 /** A camera the kiosk can read faces from. */
 export interface FaceEngine {
-  /** Loads the models. Called once, before the camera is shown. */
+  /** Opens the camera and loads the models. Called once, before the camera is shown. */
   start: (video: HTMLVideoElement) => Promise<void>;
+  /**
+   * Downloads the models ahead of time, so the first `start()` is not also the
+   * first download. Optional: the pretend camera has nothing to fetch.
+   */
+  prepare?: () => Promise<void>;
   /**
    * Which way the screen has just asked the head to turn.
    *

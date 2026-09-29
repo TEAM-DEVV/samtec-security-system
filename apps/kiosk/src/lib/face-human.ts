@@ -135,45 +135,82 @@ export class HumanFaceEngine implements FaceEngine {
    * a camera on for a screen that already left.
    */
   private generation = 0;
+  /** The one download of the models, shared by `prepare()` and `start()`. */
+  private loading: Promise<void> | null = null;
 
   constructor(modelBasePath = '/models') {
     this.modelBasePath = modelBasePath;
   }
 
+  /**
+   * Downloads and compiles the models once, ahead of time. The Ready screen
+   * calls it as soon as the kiosk is paired, so the first "Start shift" does
+   * not begin with a ten-megabyte download. A failed attempt is forgotten, so
+   * the next call tries again instead of replaying the same error.
+   */
+  async prepare(): Promise<void> {
+    if (this.human !== null) {
+      return;
+    }
+    if (this.loading === null) {
+      this.loading = this.loadModels().catch((error: unknown) => {
+        this.loading = null;
+        throw error;
+      });
+    }
+    await this.loading;
+  }
+
+  private async loadModels(): Promise<void> {
+    const { default: Human } = await import('@vladmandic/human');
+    const human = new Human({
+      // WebGL runs on every phone the kiosk is meant for. Left to choose, the
+      // library picks WebGPU where the browser offers it, and its built-in
+      // warm-up then sat for over half a minute before the camera was ever
+      // asked for, which a guard saw as "the camera does not work".
+      backend: 'webgl',
+      warmup: 'none',
+      modelBasePath: this.modelBasePath,
+      // The camera image goes to the model as the camera saw it. Filters are
+      // beautification; a matcher must not be fed a beautified face.
+      filter: { enabled: false },
+      face: {
+        enabled: true,
+        detector: { modelPath: 'blazeface.json', maxDetected: 2, rotation: true },
+        mesh: { enabled: true },
+        iris: { enabled: false },
+        description: { enabled: true, modelPath: 'faceres.json' },
+        emotion: { enabled: false },
+        antispoof: { enabled: true, modelPath: 'antispoof.json' },
+        liveness: { enabled: true, modelPath: 'liveness.json' },
+      },
+      body: { enabled: false },
+      hand: { enabled: false },
+      object: { enabled: false },
+      segmentation: { enabled: false },
+      gesture: { enabled: false },
+    });
+    await human.load();
+    // The first detection compiles the shaders, which takes seconds on a
+    // phone. Spending them here, on a blank frame, means the guard never
+    // waits for them in the middle of a head turn.
+    const blank = document.createElement('canvas');
+    blank.width = 640;
+    blank.height = 480;
+    try {
+      await human.detect(blank);
+    } catch {
+      // Then the first real frame compiles them instead.
+    }
+    // The loaded models are kept whatever happened meanwhile: they carry no
+    // camera. Only the stream answers to the generation.
+    this.human = human as unknown as LoadedHuman;
+  }
+
   async start(video: HTMLVideoElement): Promise<void> {
     const mine = this.generation;
-    if (this.human === null) {
-      const { default: Human } = await import('@vladmandic/human');
-      const human = new Human({
-        modelBasePath: this.modelBasePath,
-        // The camera image goes to the model as the camera saw it. Filters are
-        // beautification; a matcher must not be fed a beautified face.
-        filter: { enabled: false },
-        face: {
-          enabled: true,
-          detector: { modelPath: 'blazeface.json', maxDetected: 2, rotation: true },
-          mesh: { enabled: true },
-          iris: { enabled: false },
-          description: { enabled: true, modelPath: 'faceres.json' },
-          emotion: { enabled: false },
-          antispoof: { enabled: true, modelPath: 'antispoof.json' },
-          liveness: { enabled: true, modelPath: 'liveness.json' },
-        },
-        body: { enabled: false },
-        hand: { enabled: false },
-        object: { enabled: false },
-        segmentation: { enabled: false },
-        gesture: { enabled: false },
-      });
-      await human.load();
-      await human.warmup();
-      // The loaded models are kept whatever happened meanwhile — they carry
-      // no camera. Only the stream below answers to the generation.
-      this.human = human as unknown as LoadedHuman;
-    }
-    if (this.generation !== mine) {
-      throw new Error('The camera was stopped while it was starting.');
-    }
+    // The camera first: the browser's permission prompt and the live preview
+    // appear at once, and the models download behind them, not in front.
     if (this.stream === null) {
       const opened = await navigator.mediaDevices.getUserMedia({
         // The guard-facing camera, at a size the models are comfortable with.
@@ -199,6 +236,11 @@ export class HumanFaceEngine implements FaceEngine {
       this.stop();
       throw error;
     }
+    if (this.generation !== mine) {
+      this.stop();
+      throw new Error('The camera was stopped while it was starting.');
+    }
+    await this.prepare();
     if (this.generation !== mine) {
       this.stop();
       throw new Error('The camera was stopped while it was starting.');
