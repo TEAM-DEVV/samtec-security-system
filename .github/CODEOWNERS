@@ -11,7 +11,6 @@
 /pnpm-workspace.yaml                @AnnorFrancis @ALPHA-TEAM-dev
 /pnpm-lock.yaml                     @AnnorFrancis @ALPHA-TEAM-dev
 /.github/                           @AnnorFrancis @ALPHA-TEAM-dev
-/.claude/                           @AnnorFrancis @ALPHA-TEAM-dev
 /apps/api/prisma/migrations/        @AnnorFrancis @ALPHA-TEAM-dev
 /packages/contracts/openapi.yaml    @AnnorFrancis @ALPHA-TEAM-dev
 /SECURITY.md                        @AnnorFrancis @ALPHA-TEAM-dev

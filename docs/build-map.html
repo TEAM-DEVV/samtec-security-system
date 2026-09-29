@@ -240,20 +240,16 @@
 
   <section id="lenses">
     <div class="sec-head"><span class="eyebrow">03</span><h2>The four lenses</h2><span class="hint">every merge · every phase exit</span></div>
-    <p class="lede">The senior roles are wired into the repository, not left as advice. Each pull request and each phase exit is reviewed through all four lenses — by people with the checklist, and by Claude Code with the reviewer agents.</p>
+    <p class="lede">The senior roles are wired into the repository, not left as advice. Each pull request and each phase exit is reviewed through all four lenses, by a person with the checklist.</p>
     <div class="lenses">
       <div class="lens"><span class="role">Lens 1 · Architect</span><span class="q">Does it still fit the design?</span>
-        <ul><li>Right module, no cross-module table writes</li><li>Contract updated before code</li><li>No new tool without a logged decision</li><li>Data invariants untouched or amended consciously</li></ul>
-        <span class="agent">.claude/agents/architect-lens.md</span></div>
+        <ul><li>Right module, no cross-module table writes</li><li>Contract updated before code</li><li>No new tool without a logged decision</li><li>Data invariants untouched or amended consciously</li></ul></div>
       <div class="lens"><span class="role">Lens 2 · Senior dev</span><span class="q">Is it built well?</span>
-        <ul><li>Strict types, Zod at every boundary</li><li>Errors mapped, none swallowed</li><li>Payroll &amp; detection logic tested to the pesewa</li><li>Safe migrations, explicit units in names</li></ul>
-        <span class="agent">.claude/agents/senior-dev-lens.md</span></div>
+        <ul><li>Strict types, Zod at every boundary</li><li>Errors mapped, none swallowed</li><li>Payroll &amp; detection logic tested to the pesewa</li><li>Safe migrations, explicit units in names</li></ul></div>
       <div class="lens"><span class="role">Lens 3 · Full-stack</span><span class="q">Does the seam hold?</span>
-        <ul><li>Generated API client only, no hand fetches</li><li>Mock handlers match the contract</li><li>Loading / empty / error states on every screen</li><li>UTC stored, Accra rendered</li></ul>
-        <span class="agent">.claude/agents/fullstack-lens.md</span></div>
+        <ul><li>Generated API client only, no hand fetches</li><li>Mock handlers match the contract</li><li>Loading / empty / error states on every screen</li><li>UTC stored, Accra rendered</li></ul></div>
       <div class="lens"><span class="role">Lens 4 · Security analyst</span><span class="q">What would I attack?</span>
-        <ul><li>Record-level access tested (guard A ≠ guard B)</li><li>Maker–checker unbypassable via raw API</li><li>No PII in logs; templates encrypted, never images</li><li>Supply chain: provenance, release age, install scripts</li></ul>
-        <span class="agent">.claude/agents/security-lens.md</span></div>
+        <ul><li>Record-level access tested (guard A ≠ guard B)</li><li>Maker–checker unbypassable via raw API</li><li>No PII in logs; templates encrypted, never images</li><li>Supply chain: provenance, release age, install scripts</li></ul></div>
     </div>
     <div class="wired">
       <div><b>Pull request template</b>The four checklists in every PR</div>

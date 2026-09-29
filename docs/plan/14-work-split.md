@@ -237,7 +237,6 @@ these by eye after every merge from `main`.
 | `apps/web/src/mocks/handlers/index.ts` | — | Keep both imports and both spreads |
 | `apps/web/src/test/setup.ts` | A missing reset makes an **unrelated** test flake later | Keep both imports and both calls |
 | `docs/plan/07-roadmap.md`, `04-data-model.md` | Adjacent lines | Edit only your own phase's lines |
-| `CLAUDE.md` | Both sessions rewrite "Current phase" | It is now one line per area. Edit **only your own line** |
 
 ## 2. Migrations: "it merged cleanly" means nothing
 
@@ -254,7 +253,7 @@ conflicts — and the problem only appears when the SQL actually runs.
   safe in any order. Do not over-engineer around this.
 - Danger only appears when they share something: the same new value on an
   existing enum, a trigger function with the same name, or a new column on a
-  shared table like `employees`. CLAUDE.md rule 9 says read every generated
+  shared table like `employees`. Project rule 9 (CONTRIBUTING.md) says read every generated
   `migration.sql` — this is why.
 - After pulling `main` with the other person's migration, run `pnpm db:reset`
   rather than carrying on with a local database that applied them in the other
@@ -284,7 +283,7 @@ is the worst place to find it.
 
 ## 5. The contract, when it has to change
 
-Rule 1 of the root `CLAUDE.md`, and the only rule that can cost a day:
+Project rule 1 (CONTRIBUTING.md), and the only rule that can cost a day:
 
 1. Change `packages/contracts/openapi.yaml` **first**, inside your banner.
 2. Run `pnpm contracts:generate`.

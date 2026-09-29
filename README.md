@@ -34,7 +34,7 @@ pnpm install
 
 ## Samuel: start here
 
-Your first session is scripted for you: [Frontend kickoff](docs/guides/00-frontend-kickoff.md) — three commands, one prompt to paste into Claude Code, and it sets your machine up and starts your first task with you. Your task list lives in [`apps/web/CLAUDE.md`](apps/web/CLAUDE.md), and Claude Code loads it automatically when you work in this repository.
+New to the project? Start with [How the system works](docs/guides/01-how-the-system-works.md), then [Set up your computer](docs/guides/02-setup-on-windows.md). The dashboard's task history is in the pull requests.
 
 To just see the dashboard run:
 

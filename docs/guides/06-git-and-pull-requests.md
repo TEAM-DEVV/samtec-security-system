@@ -79,7 +79,7 @@ gh pr create --fill
 
 - Fill in the template: what changed, and how to test it.
 - Add screenshots for any screen change.
-- Go through the **four-lens checklist**. If you use Claude Code, run `/lens-review` first ([Using Claude Code](07-using-claude-code.md)).
+- Go through the **four-lens checklist** in the template.
 - Wait for CI to turn green. If it fails, click the failed check to read the log, fix the problem, commit and push again.
 
 ## Reviewing the other person's pull request
@@ -142,4 +142,4 @@ The repository organization (TEAM-DEVV — both developers are owners) should sw
 | CI fails only on GitHub | Run `pnpm check` locally. Read the failed step's log on GitHub. |
 | `git push` is rejected | Someone pushed to your branch. Run `git pull`, fix any conflict, and push again. |
 
-Related: [Using Claude Code](07-using-claude-code.md) · [Security and review gates](../plan/06-security-and-review-gates.md)
+Related: [Security and review gates](../plan/06-security-and-review-gates.md)

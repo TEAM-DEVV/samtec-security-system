@@ -5,7 +5,7 @@
  * the database and gets back a decision, never the numbers.
  *
  * It keeps no state between requests beyond the key, which suits the hosting.
- * It never logs: templates and samples must not reach a log (CLAUDE.md rule 8),
+ * It never logs: templates and samples must not reach a log (project rule 8, CONTRIBUTING.md),
  * so unreadable rows are counted and reported by id for the caller to log.
  */
 import { Injectable } from '@nestjs/common';

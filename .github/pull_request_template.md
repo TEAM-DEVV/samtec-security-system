@@ -15,7 +15,7 @@
 ## Four-lens review
 
 Tick every box that is true. If you cannot tick one, explain why under it.
-Details: `docs/plan/06-security-and-review-gates.md`. In Claude Code, run `/lens-review` for an automated pass.
+Details: `docs/plan/06-security-and-review-gates.md`.
 
 ### 1. Architect: does it still fit the design?
 

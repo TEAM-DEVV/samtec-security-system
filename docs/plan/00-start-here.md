@@ -34,7 +34,6 @@ New to the project? Read [How the system works](../guides/01-how-the-system-work
 | `apps/api` | The API (NestJS) and the database schema (Prisma) | Francis |
 | `packages/contracts` | The API contract (`openapi.yaml`) and the types generated from it | Both |
 | `docs` | This plan and the step-by-step guides | Both |
-| `.claude` | Claude Code review lenses and shared settings | Both |
 | `.github` | The CI pipeline and the pull request template | Both |
 
 ## Ground rules
