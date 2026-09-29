@@ -78,7 +78,7 @@ function refuseAClosedMonth(
 ): void {
   if (run.period.status === 'CLOSED') {
     throw new ConflictException(
-      `This month is closed, so the run cannot be ${attempted}. Re-open the month first.`,
+      `This month is closed, so the run cannot be ${attempted}. A closed month is final.`,
     );
   }
 }

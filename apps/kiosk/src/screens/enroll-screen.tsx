@@ -20,6 +20,7 @@ import {
   type FaceEngine,
   type HeadTurn,
   headTurnInstruction,
+  hintFor,
   randomHeadTurn,
   readingIsLive,
   readingIsUsable,
@@ -44,7 +45,7 @@ type Stage =
   | { name: 'choosing' }
   | { name: 'consenting' }
   | { name: 'recording-consent' }
-  | { name: 'capturing'; taken: number; instruction: string; turn: HeadTurn }
+  | { name: 'capturing'; taken: number; instruction: string; turn: HeadTurn; hint: string | null }
   | { name: 'sending' }
   | { name: 'enrolled'; result: FaceEnrollmentResult }
   | { name: 'finger-asking' }
@@ -317,8 +318,16 @@ export function EnrollScreen({
       }
       if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
         turned = true;
+        setStage((current) =>
+          current.name === 'capturing' ? { ...current, hint: null } : current,
+        );
       } else if (turned && readingIsUsable(reading)) {
         return reading.sample;
+      } else {
+        const hint = hintFor(reading, turned);
+        setStage((current) =>
+          current.name === 'capturing' && current.hint !== hint ? { ...current, hint } : current,
+        );
       }
       await wait(READ_EVERY_MILLISECONDS);
     }
@@ -503,6 +512,11 @@ export function EnrollScreen({
             Capture {stage.taken + 1} of {CAPTURES_NEEDED}. Follow the instruction on the camera,
             then look straight ahead.
           </p>
+          {stage.hint !== null && (
+            <p className="muted" role="status">
+              {stage.hint}
+            </p>
+          )}
         </>
       )}
 

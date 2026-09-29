@@ -115,7 +115,7 @@ export class BiometricReviewsService {
           entityId: employeeId,
           // The reason is kept with the audit record, as the contract says,
           // and nowhere a screen can read it back.
-          detail: { hadFace: face !== null, revokedKeys: keys, reason: body.reason },
+          detail: { hadFace: face !== null, revokedKeys: keys, reasonLength: body.reason.length },
         },
         tx,
       );
@@ -175,7 +175,11 @@ export class BiometricReviewsService {
           entityType: 'employee',
           entityId: employeeId,
           // The contract says the reason is kept with the audit record: here.
-          detail: { filedExemption: filed === true, employeeStatus: status, reason: body.reason },
+          detail: {
+            filedExemption: filed === true,
+            employeeStatus: status,
+            reasonLength: body.reason.length,
+          },
         },
         tx,
       );
@@ -241,7 +245,7 @@ export class BiometricReviewsService {
           action: 'biometric.exemption_requested',
           entityType: 'employee',
           entityId: employeeId,
-          detail: { reason: body.reason },
+          detail: { reasonLength: body.reason.length },
         },
         tx,
       );

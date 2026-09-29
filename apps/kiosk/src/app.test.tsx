@@ -154,7 +154,7 @@ describe('App', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: 'Start shift' }));
-    await screen.findByText('This device is not switched on.', {}, { timeout: 8000 });
+    await screen.findByText(/refused this kiosk/, {}, { timeout: 8000 });
 
     // A well-formed but wrong secret pairs happily and then fails every request.
     // Without this the phone has no way back at all.

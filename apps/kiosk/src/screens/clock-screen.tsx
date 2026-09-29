@@ -15,6 +15,7 @@ import {
   type FaceEngine,
   type HeadTurn,
   headTurnInstruction,
+  hintFor,
   randomHeadTurn,
   readingIsLive,
   readingIsUsable,
@@ -58,6 +59,8 @@ type Stage =
       turned: boolean;
       /** False until the camera is open and the models are in: the wait is named on screen. */
       ready: boolean;
+      /** What the camera wants corrected right now, or null. */
+      hint: string | null;
     }
   | { name: 'asking'; direction: KioskDirection }
   | { name: 'greeting'; attemptId: string; displayName: string; direction: KioskDirection }
@@ -156,7 +159,7 @@ export function ClockScreen({
   async function begin(direction: KioskDirection) {
     const mine = ++run.current;
     const turn = randomHeadTurn();
-    setStage({ name: 'challenging', direction, turn, turned: false, ready: false });
+    setStage({ name: 'challenging', direction, turn, turned: false, ready: false, hint: null });
     try {
       if (video.current !== null) {
         await engine.start(video.current);
@@ -166,7 +169,7 @@ export function ClockScreen({
       // challenge could never be answered outside a test.
       engine.asked?.(turn);
       if (run.current === mine) {
-        setStage({ name: 'challenging', direction, turn, turned: false, ready: true });
+        setStage({ name: 'challenging', direction, turn, turned: false, ready: true, hint: null });
       }
     } catch {
       // Whatever the camera managed to open before failing goes off again.
@@ -199,6 +202,7 @@ export function ClockScreen({
   async function runChallenge(mine: number, direction: KioskDirection, turn: HeadTurn) {
     const deadline = Date.now() + challengeSeconds * 1000;
     let turned = false;
+    let lastHint: string | null = null;
 
     while (Date.now() < deadline) {
       if (run.current !== mine) {
@@ -227,11 +231,18 @@ export function ClockScreen({
       // supply the face a moment later.
       if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
         turned = true;
-        setStage({ name: 'challenging', direction, turn, turned: true, ready: true });
+        lastHint = null;
+        setStage({ name: 'challenging', direction, turn, turned: true, ready: true, hint: null });
       } else if (turned && readingIsUsable(reading)) {
         // Turned, then came back to centre, and this frame is good enough.
         await identify(mine, direction, reading.sample);
         return;
+      } else {
+        const hint = hintFor(reading, turned);
+        if (hint !== lastHint) {
+          lastHint = hint;
+          setStage({ name: 'challenging', direction, turn, turned, ready: true, hint });
+        }
       }
       await wait(READ_EVERY_MILLISECONDS);
     }
@@ -556,6 +567,11 @@ function Body({
                 ? 'Good. Look straight ahead and hold still.'
                 : 'Follow the instruction on the camera.'}
           </p>
+          {stage.hint !== null && (
+            <p className="muted" role="status">
+              {stage.hint}
+            </p>
+          )}
           <div className="buttons">
             {/* Twenty seconds is a long time to stand in the rain in front of a
                 screen that has decided to wait. */}

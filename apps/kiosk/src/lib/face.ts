@@ -98,6 +98,31 @@ export function readingIsLive(reading: FaceReading): reading is UsableReading {
   );
 }
 
+/**
+ * One short line for the person in front of the camera, or null when there is
+ * nothing to correct. It never explains a refusal in numbers; it says what to
+ * do next. The first real-phone test stood for twenty seconds in front of a
+ * camera that wanted a closer face and said nothing.
+ */
+export function hintFor(reading: FaceReading, turned: boolean): string | null {
+  if (reading.problem !== null) {
+    return reading.problem;
+  }
+  if (reading.facePixels > 0 && reading.facePixels < MIN_FACE_PIXELS) {
+    return 'Come closer to the phone.';
+  }
+  if (
+    reading.sample !== null &&
+    (reading.sample.real < MIN_ANTI_SPOOFING || reading.sample.live < MIN_ANTI_SPOOFING)
+  ) {
+    return 'Find better light, with the light on your face.';
+  }
+  if (turned && reading.turnedTo !== null) {
+    return 'Now look straight at the camera and hold still.';
+  }
+  return null;
+}
+
 /** True when a reading is live **and** looking straight ahead, so it can be sent. */
 export function readingIsUsable(reading: FaceReading): reading is UsableReading {
   return readingIsLive(reading) && reading.turnedTo === null;

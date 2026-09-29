@@ -15,6 +15,7 @@ import {
   type FaceEngine,
   type HeadTurn,
   headTurnInstruction,
+  hintFor,
   randomHeadTurn,
   readingIsLive,
   readingIsUsable,
@@ -40,7 +41,7 @@ type Stage =
   | { name: 'number-form' }
   | { name: 'sensor' }
   | { name: 'cosign-form' }
-  | { name: 'cosign-challenge'; turn: HeadTurn; turned: boolean }
+  | { name: 'cosign-challenge'; turn: HeadTurn; turned: boolean; hint: string | null }
   | { name: 'asking' }
   | { name: 'recording' }
   | { name: 'failed'; message: string; canRetrySensor?: boolean };
@@ -207,7 +208,7 @@ export function FallbackScreen({
     setProblem(null);
     const mine = ++run.current;
     const turn = randomHeadTurn();
-    setStage({ name: 'cosign-challenge', turn, turned: false });
+    setStage({ name: 'cosign-challenge', turn, turned: false, hint: null });
     try {
       if (video.current !== null) {
         await engine.start(video.current);
@@ -249,10 +250,17 @@ export function FallbackScreen({
       }
       if (!turned && reading.turnedTo === turn && readingIsLive(reading)) {
         turned = true;
-        setStage({ name: 'cosign-challenge', turn, turned: true });
+        setStage({ name: 'cosign-challenge', turn, turned: true, hint: null });
       } else if (turned && readingIsUsable(reading)) {
         await identifySupervisor(mine, workerStaffNumber, reading.sample);
         return;
+      } else {
+        const hint = hintFor(reading, turned);
+        setStage((current) =>
+          current.name === 'cosign-challenge' && current.hint !== hint
+            ? { ...current, hint }
+            : current,
+        );
       }
       await wait(READ_EVERY_MILLISECONDS);
     }
@@ -372,7 +380,8 @@ export function FallbackScreen({
         />
         {stage.name === 'cosign-challenge' && (
           <p className="camera__instruction">
-            {stage.turned ? 'Now look straight ahead' : headTurnInstruction(stage.turn)}
+            {stage.hint ??
+              (stage.turned ? 'Now look straight ahead' : headTurnInstruction(stage.turn))}
           </p>
         )}
       </div>
