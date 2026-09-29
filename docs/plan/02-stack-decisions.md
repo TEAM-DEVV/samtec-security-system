@@ -79,7 +79,7 @@ Details are in [Biometric integration](10-biometric-integration.md).
 | Supply chain | pnpm refuses package versions less than a day old, refuses versions whose publishing trust dropped (for example, provenance suddenly missing), requires approval for install scripts (`allowBuilds`) and blocks packages from git or tarball sources |
 | Commit messages | Conventional Commits (`feat:`, `fix:`, `docs:` and so on) |
 | Reviews | The four-lens checklist in every pull request |
-| Code owners | `.github/CODEOWNERS` asks both developers to review changes, including dependencies, CI and migrations |
+| Reviews | Both developers review every change, including dependencies, CI and the contract |
 | Action updates | Dependabot proposes new versions of the pinned GitHub Actions every week |
 | Shared TEST environment | Dashboard and API on Vercel (the API as a serverless function), database on Supabase, one address via a rewrite ([TEST environment](../guides/09-test-environment.md)). Every merge to `main` deploys automatically. |
 | Production hosting (Phase 8) | Decided when the client signs: either the same Vercel+Supabase layout, or the API as a long-running server on Railway or Render if Phase 2's device ingestion needs it. Production gets its own separate projects and secrets. |

@@ -19,7 +19,7 @@ This page is the authoritative checklist for every phase. The timing assumes par
 
 **Outside the repository.** These tasks need a person, not a pull request, and they do not block Phase 1:
 
-- [ ] Repository owner: protect `main`, require code owner review, and turn on private vulnerability reporting and Dependabot alerts ([Git and pull requests](../guides/06-git-and-pull-requests.md#protecting-the-main-branch-repository-owner-once))
+- [ ] Repository owner: protect `main`, require a reviewer's approval, and turn on private vulnerability reporting and Dependabot alerts ([Git and pull requests](../guides/06-git-and-pull-requests.md#protecting-the-main-branch-repository-owner-once))
 - [ ] **ZKTeco device:** bought when a client pays (owner decision, Phase 3). Until then the gateway is proven against the fake terminal, and a phone is the kiosk.
 
 ## Phase 1 · Identity and workforce (weeks 2 and 3)

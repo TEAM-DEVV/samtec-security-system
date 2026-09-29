@@ -128,7 +128,7 @@ The repository organization (TEAM-DEVV — both developers are owners) should sw
 1. Open the repository on GitHub, then **Settings → Rules → Rulesets → New ruleset → New branch ruleset**.
 2. Name it `protect main`, set **Enforcement status** to **Active**, and target the default branch.
 3. Tick **Restrict deletions** and **Block force pushes**.
-4. Tick **Require a pull request before merging**, with **1** required approval, and tick **Require review from Code Owners**. `.github/CODEOWNERS` lists both developers, so every change needs the other person's approval.
+4. Tick **Require a pull request before merging**, with **1** required approval, so every change needs the other person's approval.
 5. Tick **Require status checks to pass**, and add the CI checks after the first CI run.
 6. Save.
 7. Open **Settings → Advanced Security** (called **Code security** on some accounts) and turn on **Private vulnerability reporting** and **Dependabot alerts**. `SECURITY.md` sends people to the private report form.
