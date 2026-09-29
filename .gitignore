@@ -31,11 +31,6 @@ Thumbs.db
 # Obsidian workspace state (the notes in docs/ ARE committed)
 .obsidian/
 
-# Personal Claude Code settings (shared ones live in .claude/settings.json)
-.claude/settings.local.json
-# Personal dev-server launch config for the Claude Code browser pane
-.claude/launch.json
-
 # Database backups: the whole company in one file. The backup script refuses
 # to write inside the repository, and this is the second lock on that door.
 *.ndjson

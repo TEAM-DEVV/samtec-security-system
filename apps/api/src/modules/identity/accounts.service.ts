@@ -12,7 +12,7 @@ export const PASSWORD_SETUP_HOURS = 72;
  * The account building blocks that sign-in, user management and the
  * workforce module share, so each rule lives in exactly one place. Only the
  * identity module writes the account tables; other modules call these
- * methods instead (the module rule in CLAUDE.md).
+ * methods instead (project rule 4, CONTRIBUTING.md).
  */
 @Injectable()
 export class AccountsService {
