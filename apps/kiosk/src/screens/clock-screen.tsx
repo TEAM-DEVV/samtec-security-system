@@ -5,6 +5,9 @@ import type {
   KioskPunchResponse,
 } from '@samtec/contracts';
 import { useEffect, useRef, useState } from 'react';
+import { BrandMark } from '@/components/brand-mark';
+import { FaceGuide, type GuideState } from '@/components/face-guide';
+import { OutcomeMark } from '@/components/outcome-mark';
 import { callSigned, KioskRequestFailed } from '@/lib/api';
 import type { PairedDevice } from '@/lib/device';
 import {
@@ -268,7 +271,10 @@ export function ClockScreen({
   return (
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
-        <strong>SAMTEC</strong>
+        <strong>
+          <BrandMark />
+          SAMTEC
+        </strong>
         {/* The way in for an administrator. Deliberately plain and small: it is
             not a secret door — the sign-in behind it is the real gate, and only
             an ADMIN can get through it — but a guard clocking in should never
@@ -291,8 +297,12 @@ export function ClockScreen({
       {/* The camera element stays mounted through every stage. Remounting it
           makes Android drop and re-request the camera, which takes seconds and
           sometimes asks permission again. */}
-      <div className="camera" hidden={stage.name === 'resting' || stage.name === 'done'}>
+      <div
+        className={`camera${stage.name === 'asking' || stage.name === 'recording' ? ' camera--reading' : ''}`}
+        hidden={stage.name === 'resting' || stage.name === 'done'}
+      >
         <video ref={video} playsInline muted autoPlay />
+        <FaceGuide {...guideFor(stage)} />
         {stage.name === 'challenging' && (
           <p className="camera__instruction">
             {stage.turned ? 'Now look straight ahead' : headTurnInstruction(stage.turn)}
@@ -435,6 +445,7 @@ function Body({
     case 'done':
       return (
         <>
+          <OutcomeMark outcome="good" />
           <h1>{stage.punch.direction === 'IN' ? 'Shift started' : 'Shift ended'}</h1>
           <p className="notice notice--good" role="status">
             Recorded for {stage.punch.worker.displayName}{' '}
@@ -458,6 +469,7 @@ function Body({
     case 'refused':
       return (
         <>
+          <OutcomeMark outcome="bad" />
           <p className="notice notice--bad" role="alert">
             {stage.message}
           </p>
@@ -497,6 +509,30 @@ function refusalFrom(error: unknown): Extract<Stage, { name: 'refused' }> {
     offerFallback: false,
     offerSetUpAgain: error instanceof KioskRequestFailed && error.status === 401,
   };
+}
+
+/**
+ * What the guide draws, for each stage of the flow.
+ *
+ * Kept as one function rather than conditions in the markup: the guide is the
+ * only instruction a guard who does not read the sentence will get, so getting
+ * the wrong shape on screen is worse than getting the wrong word.
+ */
+function guideFor(stage: Stage): { state: GuideState; turn?: HeadTurn | null } {
+  switch (stage.name) {
+    case 'challenging':
+      return stage.turned ? { state: 'centre' } : { state: 'turn', turn: stage.turn };
+    case 'asking':
+    case 'recording':
+    case 'cancelling':
+      return { state: 'centre' };
+    case 'greeting':
+      return { state: 'good' };
+    case 'refused':
+      return { state: 'bad' };
+    default:
+      return { state: 'waiting' };
+  }
 }
 
 function wait(milliseconds: number): Promise<void> {

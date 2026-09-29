@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { BrandMark } from '@/components/brand-mark';
 import { type PairedDevice, pairDevice } from '@/lib/device';
 
 /** The contract's device id and secret shapes, checked before anything is stored. */
@@ -62,7 +63,10 @@ export function PairingScreen({ onPaired }: PairingScreenProps) {
   return (
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
-        <strong>SAMTEC</strong>
+        <strong>
+          <BrandMark />
+          SAMTEC
+        </strong>
         <span>Kiosk set-up</span>
       </div>
 
