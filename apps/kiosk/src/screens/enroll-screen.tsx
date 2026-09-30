@@ -539,7 +539,11 @@ export function EnrollScreen({
             role="status"
           >
             {stage.result.dedupe === 'PASSED'
-              ? `${chosen?.fullName ?? 'This worker'} can now clock in with their face.`
+              ? `${chosen?.fullName ?? 'This worker'} can now clock in with their face.${
+                  passkeysAvailable()
+                    ? ' Save their fingerprint now: without it, they clock in on face alone.'
+                    : ''
+                }`
               : // Never who it looked like. Whoever is standing here must not learn
                 // who else works for this company.
                 'This face needs a second administrator to look at it on the dashboard before it can be used. Nothing else to do here.'}
