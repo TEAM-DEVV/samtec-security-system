@@ -17,6 +17,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { DetectionRuleCode, DetectionSeverity } from '../../generated/prisma/enums.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
+import { BiometricRetentionService } from '../attendance/biometric-retention.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { deriveKey } from '../identity/secret-box.js';
 import { type PaidLine, PayrollFactsService } from '../payroll/payroll-facts.service.js';
@@ -118,6 +119,7 @@ export class DetectionService {
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceFactsService,
+    private readonly retention: BiometricRetentionService,
     private readonly payroll: PayrollFactsService,
     private readonly config: AppConfig,
   ) {}
@@ -192,6 +194,19 @@ export class DetectionService {
       try {
         await this.sweepCompany(company.companyId, null, now);
         companiesSwept += 1;
+        // Biometric retention used to run only on a device heartbeat, so a
+        // company whose devices were all switched off never wiped a leaver's
+        // face on time. The nightly sweep is the guarantee now. A failure here
+        // is logged with ids only and never blocks the detection sweep.
+        try {
+          await this.retention.sweep(company.companyId, now);
+        } catch (error) {
+          this.logger.warn({
+            reason: 'retention_sweep_failed',
+            companyId: company.companyId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       } catch (error) {
         // **One company's failure never becomes a silent skip.** The claim
         // already moved the bookmark, so without putting it back this company
