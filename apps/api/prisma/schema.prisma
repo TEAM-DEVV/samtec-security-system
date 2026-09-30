@@ -684,6 +684,7 @@ model WorkSegment {
   /// A pair of punches makes at most one row, ever.
   @@unique([clockInPunchId, clockOutPunchId])
   @@index([employeeId, startedAt])
+  @@index([employeeId, workDate])
   @@index([companyId, workDate])
   @@index([siteId, workDate])
   @@map("work_segments")

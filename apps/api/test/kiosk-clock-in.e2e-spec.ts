@@ -185,6 +185,37 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
   });
 
   describe('identify', () => {
+    it('does not recognise a worker posted to another site, so nobody is greeted and then refused', async () => {
+      const elsewhere = await newWorker('ACTIVE', false);
+      await prisma.siteAssignment.create({
+        data: {
+          companyId: company.companyId,
+          employeeId: elsewhere.id,
+          siteId: company.siteB,
+          startsOn: new Date('2026-01-05T00:00:00Z'),
+        },
+      });
+      await giveFace(elsewhere.id, 5.5);
+      const seen = await identify({
+        purpose: 'CLOCK',
+        direction: 'IN',
+        sample: sampleAt(5.5),
+      }).expect(200);
+      expect(seen.body.outcome).toBe('NOT_RECOGNISED');
+    });
+
+    it('does not recognise a suspended worker whose face is still on file', async () => {
+      const suspended = await newWorker();
+      await prisma.employee.update({ where: { id: suspended.id }, data: { status: 'SUSPENDED' } });
+      await giveFace(suspended.id, 6.6);
+      const seen = await identify({
+        purpose: 'CLOCK',
+        direction: 'IN',
+        sample: sampleAt(6.6),
+      }).expect(200);
+      expect(seen.body.outcome).toBe('NOT_RECOGNISED');
+    });
+
     it('names the worker it recognises, and never how close anyone was', async () => {
       const worker = await newWorker();
       await giveFace(worker.id, 4.4);

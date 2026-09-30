@@ -14,7 +14,7 @@ import type {
   PunchDirection,
 } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
-import { EmployeesService } from '../workforce/employees.service.js';
+import { currentAssignmentFilter, EmployeesService } from '../workforce/employees.service.js';
 import type {
   AssistedPunchBody,
   FingerprintOptionsBody,
@@ -124,6 +124,15 @@ export class ClockInService {
         status: 'ACTIVE',
         wipedAt: null,
         dedupe: { in: ['PASSED', 'CLEARED'] },
+        // Only a face that may punch here today is a candidate: an active
+        // worker posted to the site this kiosk stands on. Anyone else is
+        // "not recognised". Matching first and refusing at the punch greeted
+        // a suspended worker, or one from another site, by name on a screen
+        // anybody can read, and a leaver's face still on file named them too.
+        employee: {
+          status: 'ACTIVE',
+          assignments: { some: { siteId: device.siteId, ...currentAssignmentFilter() } },
+        },
       },
       select: {
         id: true,
