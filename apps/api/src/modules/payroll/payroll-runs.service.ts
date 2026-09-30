@@ -206,7 +206,13 @@ export class PayrollRunsService {
     // The rates that applied on the last day of the month being paid, never
     // today's rates: a run for last March is worked out at last March's rates.
     const taxTable = await this.prisma.taxTable.findFirst({
-      where: { companyId: viewer.companyId, effectiveFrom: { lte: period.endsOn } },
+      where: {
+        companyId: viewer.companyId,
+        effectiveFrom: { lte: period.endsOn },
+        // A table that ended before the month is not the month's table, even
+        // when no newer one exists: better to refuse than to price at old rates.
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endsOn } }],
+      },
       orderBy: { effectiveFrom: 'desc' },
       include: { bands: { orderBy: { ordinal: 'asc' } } },
     });

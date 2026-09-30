@@ -76,6 +76,6 @@ import { PasskeysService } from './passkeys.service.js';
       },
     },
   ],
-  exports: [BIOMETRIC_PROVIDER, FaceProvider, AttendanceFactsService],
+  exports: [BIOMETRIC_PROVIDER, FaceProvider, AttendanceFactsService, BiometricRetentionService],
 })
 export class AttendanceModule {}

@@ -373,14 +373,14 @@ ask for and decide an exemption, and the duplicate queue
   company, the employee and the credential, so a row cannot be moved to another
   person.
 - To identify someone the server compares against every enrolled face in the
-  company (**1:N**) and needs two things: a similarity of at least **0.60**, and
-  a **lead of 0.05** over the runner-up. A close second means "not sure", not a
+  company (**1:N**) and needs two things: a similarity of at least **0.45** (threshold set `ft-2`), and
+  a **lead of 0.0375** over the runner-up. A close second means "not sure", not a
   guess.
-- Three camera frames must agree with each other (0.70), and an anti-spoofing
+- Three camera frames must agree with each other (0.525), and an anti-spoofing
   score must pass (0.60) — a photo held up to the camera fails.
 - At enrollment a **more suspicious** check looks for a face that is already
-  somebody else's. Its number is **lower** — 0.50, not 0.60 — and that makes it
-  catch *more*, not less: anything reaching 0.50 is held as a **possible
+  somebody else's. Its number is **lower** — 0.375, not 0.45 — and that makes it
+  catch *more*, not less: anything reaching 0.375 is held as a **possible
   duplicate** for a second administrator to decide. Being asked about a stranger
   costs a minute; a ghost getting in costs a salary every month, so this is the
   one place the system deliberately errs towards asking.
@@ -641,11 +641,16 @@ model files served from its own origin and their hashes pinned;
 ### 4.8 What is left, and it is not building
 
 > **GAP — three checks and one polish, each with an owner.**
-> 1. **The on-phone check** (both, at the test meetup): on a real Android
->    phone and an iPhone at the deployed kiosk, a real face is accepted, a
->    printed photo is refused, and the head-turn direction matches the
->    instruction (`YAW_SIGN` in `apps/kiosk/src/lib/face-human.ts` is the one
->    value this check exists to confirm; flipping it is one line).
+> 1. **The on-phone check** (started 29 September on two Android phones at
+>    the deployed kiosk: a real face is accepted and the head turn works; the
+>    printed-photo refusal and the turn direction are still to be confirmed.
+>    `YAW_SIGN` in `apps/kiosk/src/lib/face-human.ts` is the one value the
+>    direction check exists to confirm; flipping it is one line). That day
+>    also found three things, all fixed the same evening: the camera was
+>    asked for only after a ten-megabyte model download that showed nothing
+>    on screen; a device registered as ZKTeco answered every kiosk call with
+>    the same one-line refusal; and the flat top of the face score (the
+>    threshold question in section 5).
 > 2. **The end-to-end test** of every flow, which is what the meetup is for.
 > 3. **The face pilot** with real volunteers before any paying client
 >    ([the threshold report](14-face-threshold-report.md), section 10).
@@ -688,22 +693,28 @@ and payment details are never on a list a supervisor can read.
 
 **"What stops a guard clocking in for a friend?"**
 The face is matched 1:N against everyone enrolled, needing both a similarity of
-0.60 and a clear lead of 0.05 over the runner-up, with three frames agreeing and
+0.45 and a clear lead of 0.0375 over the runner-up (threshold set `ft-2`), with three frames agreeing and
 an anti-spoofing check that a held-up photo fails. If a fingerprint is used it is
 never alone — it is tied to the face or to a typed staff number, and the method
 is stamped on the punch. The one case it does not settle is two nearly identical
 faces; see the twins question below.
 
-**"Where did 0.60 come from? Why not 0.5 or 0.8?"**
-They start as the Human library's suggested working points, and they are named
-`ft-1` and stored on every attempt, so a later change can never make an old
-attempt look as if it were judged by new numbers. A study measures what each one
-would decide — [the threshold report](14-face-threshold-report.md). Its useful
-result: on a crowd with look-alikes, removing the lead rule matches four clock-ins
-in two hundred to the *wrong person*, and 0.05 turns all four into a second try;
-raising `match` above 0.65 only starts refusing honest guards. The honest part of
-that answer is that the study uses generated faces, so the pilot with real
-volunteers is still owed before a paying client.
+**"Where did 0.45 come from? Why not 0.5 or 0.8?"**
+The formula is the Human library's own, with one change made on the first day
+the kiosk met real phones (29 September 2026). Two different people at one kiosk
+both scored a flat 1.0 against the one enrolled face: the library's scale gives
+every pair closer than a fixed distance the top mark, and one camera, one light
+and one background pull every face inside it. Opening the top of the scale
+(dividing by 0.8 instead of 0.6) keeps the same distances and the same decisions,
+only identical faces score 1, and every attempt now records a real number. The
+set is named `ft-2` and stamped on every attempt, so a later change can never
+make an old attempt look as if it were judged by new numbers. The study on
+generated faces ([the threshold report](14-face-threshold-report.md)) still
+shows how the decisions move as the numbers move: removing the lead rule matches
+four clock-ins in two hundred to the wrong person. The honest part of the answer:
+the first real-phone attempts are the first measurements of real faces this
+project has, `match` is set from them, and the pilot with volunteers is still
+owed before a paying client.
 
 **"What about identical twins?"** — and expect this one, because it is the
 sharpest question available about any face system.
