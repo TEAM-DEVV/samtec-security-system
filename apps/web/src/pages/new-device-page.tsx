@@ -1,7 +1,7 @@
 import type { DeviceKind, DeviceWithSecret } from '@samtec/contracts';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { ArrowLeft, Check, Copy } from 'lucide-react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 import { routes } from '@/app/routes';
 import { PageHeader } from '@/components/page-header';
@@ -14,13 +14,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { $api } from '@/lib/api';
-import { DEVICE_KINDS, deviceKindLabels, isDeviceKind } from '@/lib/attendance';
+import { DEVICE_KINDS, deviceKindHelp, deviceKindLabels, isDeviceKind } from '@/lib/attendance';
 import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
 
 // The contract's limits (`RegisterDeviceRequest`).
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 60;
+
+type CopyState = 'idle' | 'copied' | 'failed';
+
+/** Copies plain text (not a secret) to the clipboard, for the Copy buttons below. */
+async function copyText(value: string, setState: (state: CopyState) => void) {
+  try {
+    await navigator.clipboard.writeText(value);
+    setState('copied');
+  } catch {
+    setState('failed');
+  }
+}
 
 /**
  * Registers a clock-in device (ADMIN only). The API answers with the
@@ -35,6 +47,7 @@ export function NewDevicePage() {
   const [kind, setKind] = useState<DeviceKind>('FACE_KIOSK');
   const [mistake, setMistake] = useState<string | null>(null);
   const [registered, setRegistered] = useState<DeviceWithSecret | null>(null);
+  const [idCopyState, setIdCopyState] = useState<CopyState>('idle');
 
   const register = $api.useMutation('post', '/devices', {
     // The response holds the secret: forget it the moment this page closes.
@@ -84,21 +97,56 @@ export function NewDevicePage() {
               <CardDescription>{deviceKindLabels[registered.device.kind]}</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
+              <ol className="grid gap-3 rounded-xl border bg-muted/30 p-4 text-sm">
+                <RegisterStep step={1} title="Register" done>
+                  Done — here are the device's ID and secret, below.
+                </RegisterStep>
+                <RegisterStep step={2} title="Set up the kiosk">
+                  Type them in on the phone.
+                </RegisterStep>
+                <RegisterStep step={3} title="Switch it on">
+                  On the dashboard, on{' '}
+                  <Link
+                    to={routes.device(registered.device.id)}
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    this device's page
+                  </Link>
+                  .
+                </RegisterStep>
+              </ol>
+
               {/* A kiosk needs both halves to pair, and the ID used to appear
                   only in the address bar — so setting one up meant copying a
                   UUID out of the browser's URL. It is not a secret; it is shown
                   plainly, beside the secret that is. */}
               <div className="grid gap-1.5">
                 <Label htmlFor="device-id">Device ID</Label>
-                <Input
-                  id="device-id"
-                  readOnly
-                  value={registered.device.id}
-                  onFocus={(event) => event.currentTarget.select()}
-                  className="font-mono text-xs"
-                />
-                <p className="text-muted-foreground text-xs">
-                  A kiosk asks for this and the secret below. Not secret on its own.
+                <div className="flex gap-2">
+                  <Input
+                    id="device-id"
+                    readOnly
+                    value={registered.device.id}
+                    onFocus={(event) => event.currentTarget.select()}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void copyText(registered.device.id, setIdCopyState)}
+                  >
+                    {idCopyState === 'copied' ? (
+                      <Check aria-hidden="true" />
+                    ) : (
+                      <Copy aria-hidden="true" />
+                    )}
+                    {idCopyState === 'copied' ? 'Copied' : 'Copy'}
+                  </Button>
+                </div>
+                <p role="status" className="text-muted-foreground text-xs">
+                  {idCopyState === 'failed'
+                    ? 'Copying did not work here. Tap the box, select it all and copy it yourself.'
+                    : 'A kiosk asks for this and the secret below. Not secret on its own.'}
                 </p>
               </div>
 
@@ -116,6 +164,7 @@ export function NewDevicePage() {
                     register.reset();
                     setRegistered(null);
                     setName('');
+                    setIdCopyState('idle');
                   }}
                 >
                   Register another
@@ -162,6 +211,7 @@ export function NewDevicePage() {
                   id="device-kind"
                   label="Kind"
                   value={kind}
+                  describedBy="device-kind-help"
                   onChange={(value) => {
                     if (isDeviceKind(value)) setKind(value);
                   }}
@@ -173,10 +223,9 @@ export function NewDevicePage() {
                     </option>
                   ))}
                 </SelectField>
-                <p className="text-sm text-muted-foreground">
-                  A phone running the SAMTEC kiosk is a face kiosk. ZKTeco is only for a fingerprint
-                  terminal behind the gateway. The kind cannot be changed later: if it is wrong,
-                  register the device again.
+                <p id="device-kind-help" className="text-sm text-muted-foreground">
+                  {deviceKindHelp[kind]} The kind cannot be changed later: if it is wrong, register
+                  the device again.
                 </p>
 
                 {mistake && (
@@ -207,5 +256,33 @@ export function NewDevicePage() {
         </>
       )}
     </div>
+  );
+}
+
+interface RegisterStepProps {
+  step: number;
+  title: string;
+  /** True once this step is already done, shown with a tick instead of its number. */
+  done?: boolean;
+  children: ReactNode;
+}
+
+/** One row of the "what happens next" list shown after a device is registered. */
+function RegisterStep({ step, title, done, children }: RegisterStepProps) {
+  return (
+    <li className="flex gap-3">
+      <span
+        aria-hidden="true"
+        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+          done ? 'bg-emerald-600 text-white' : 'bg-muted-foreground/20 text-muted-foreground'
+        }`}
+      >
+        {done ? <Check className="size-3.5" /> : step}
+      </span>
+      <div>
+        <p className="font-medium">{title}</p>
+        <p className="text-muted-foreground">{children}</p>
+      </div>
+    </li>
   );
 }
