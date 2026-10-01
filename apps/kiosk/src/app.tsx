@@ -190,7 +190,9 @@ export function App({ engine }: AppProps = {}) {
   }
 
   if (adminScreen === 'settings' && admin !== null) {
-    return <KioskSettingsScreen onBack={() => setAdminScreen('menu')} />;
+    return (
+      <KioskSettingsScreen onBack={() => setAdminScreen('menu')} onDeviceChanged={setDevice} />
+    );
   }
 
   if (adminScreen === 'enrolling' && admin !== null) {
@@ -216,8 +218,10 @@ export function App({ engine }: AppProps = {}) {
       onSetUpAgain={() => {
         // Offered only when the server has refused this phone's key (a 401).
         // A well-formed but wrong secret pairs happily and then fails every
-        // request, and without this the phone has no way back at all.
-        void forgetDevice().then(() => setDevice(null));
+        // request, and without this the phone has no way back at all. If
+        // another device is still stored here, forgetting this one falls
+        // back to it rather than forcing the set-up form unnecessarily.
+        void forgetDevice().then(setDevice);
       }}
     />
   );

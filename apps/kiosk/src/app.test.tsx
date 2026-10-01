@@ -19,10 +19,16 @@ import { importSigningKey } from '@/lib/signing';
  */
 const loadDevice = vi.hoisted(() => vi.fn());
 const forgetDevice = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/device', () => ({ loadDevice, forgetDevice }));
+// Settings needs these two as well, but only the switching test below gives
+// them anything to do — every other test never opens kiosk settings.
+const listDevices = vi.hoisted(() => vi.fn());
+const switchDevice = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/device', () => ({ loadDevice, forgetDevice, listDevices, switchDevice }));
 
 let answers: { status: number; body: unknown }[] = [];
 let sent: string[] = [];
+/** Which device signed each heartbeat, in order — for the device-switch test only. */
+let heartbeatDeviceIds: string[] = [];
 
 async function aPairedKiosk(): Promise<PairedDevice> {
   return {
@@ -30,6 +36,16 @@ async function aPairedKiosk(): Promise<PairedDevice> {
     name: 'Main Gate kiosk',
     key: await importSigningKey('sk_test_only_not_a_real_device_secret'),
     pairedAt: '2026-09-26T06:00:00.000Z',
+  };
+}
+
+/** A second device, stored on the same phone, this kiosk is not acting as yet. */
+async function aSecondStoredKiosk(): Promise<PairedDevice> {
+  return {
+    deviceId: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c09',
+    name: 'Side gate kiosk',
+    key: await importSigningKey('sk_test_only_not_a_real_device_secret_two'),
+    pairedAt: '2026-09-27T06:00:00.000Z',
   };
 }
 
@@ -73,14 +89,24 @@ const ADMIN_SESSION = {
 beforeEach(() => {
   answers = [];
   sent = [];
+  heartbeatDeviceIds = [];
   loadDevice.mockReset();
   forgetDevice.mockReset();
-  forgetDevice.mockResolvedValue(undefined);
-  vi.stubGlobal('fetch', (url: string) => {
+  // `forgetDevice` now reports the device it leaves this phone acting as —
+  // `null` once nothing is left, which is also what sends the app back to the
+  // set-up form (`app.tsx` passes this straight to `setDevice`).
+  forgetDevice.mockResolvedValue(null);
+  listDevices.mockReset();
+  listDevices.mockResolvedValue([]);
+  switchDevice.mockReset();
+  vi.stubGlobal('fetch', (url: string, init: RequestInit = {}) => {
     sent.push(url);
     // The heartbeat starts as soon as the app pairs, and it is not what these
     // tests are about, so it always succeeds.
     if (url.includes('/ingest/heartbeat')) {
+      const headers = (init.headers ?? {}) as Record<string, string>;
+      // Only the switching test reads this; every other test ignores it.
+      heartbeatDeviceIds.push(headers['X-Samtec-Device'] ?? '');
       return Promise.resolve(
         new Response(JSON.stringify({ serverTime: '2026-09-26T06:00:01.000Z' }), { status: 200 }),
       );
@@ -232,5 +258,43 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Back to clock-in' }));
     expect(await screen.findByRole('heading', { name: 'Ready' })).toBeInTheDocument();
     expect(sent.some((url) => url.includes('/auth/logout'))).toBe(true);
+  });
+
+  it('switches which device the heartbeat follows, and never runs two at once', async () => {
+    // Nothing else deletes old biometrics or repairs a forgotten clock-out,
+    // so a switch that left the old interval running, or failed to start a
+    // new one, would be silently serious rather than loudly broken.
+    const gateA = await aPairedKiosk();
+    const gateB = await aSecondStoredKiosk();
+    loadDevice.mockResolvedValue(gateA);
+    listDevices.mockResolvedValue([
+      { deviceId: gateA.deviceId, name: gateA.name, pairedAt: gateA.pairedAt, active: true },
+      { deviceId: gateB.deviceId, name: gateB.name, pairedAt: gateB.pairedAt, active: false },
+    ]);
+    switchDevice.mockResolvedValue(gateB);
+    const user = userEvent.setup();
+    render(<App />);
+
+    // The first heartbeat, for the device the phone started as.
+    await vi.waitFor(() => expect(heartbeatDeviceIds).toContain(gateA.deviceId));
+    const heartbeatsBeforeSwitch = heartbeatDeviceIds.length;
+
+    await signInAsAdmin(user);
+    await user.click(await screen.findByRole('button', { name: 'Kiosk settings' }));
+    await user.click(await screen.findByRole('button', { name: /Switch to Side gate kiosk/ }));
+
+    expect(switchDevice).toHaveBeenCalledWith(gateB.deviceId);
+    // Switching fires a new heartbeat straight away (`startHeartbeat`'s own
+    // "counted as seen without waiting a minute"), so one more call is the new
+    // device's, not a second one from the old interval still running.
+    await vi.waitFor(() =>
+      expect(heartbeatDeviceIds.length).toBeGreaterThan(heartbeatsBeforeSwitch),
+    );
+    // Only ever one device at a time — the old interval must not still be
+    // ticking alongside the new one, which a stuck interval would show as a
+    // second A arriving after B's first heartbeat.
+    const afterSwitch = heartbeatDeviceIds.slice(heartbeatsBeforeSwitch);
+    expect(afterSwitch.every((id) => id === gateB.deviceId)).toBe(true);
+    expect(heartbeatDeviceIds.filter((id) => id === gateA.deviceId)).toHaveLength(1);
   });
 });
