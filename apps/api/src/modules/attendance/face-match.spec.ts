@@ -11,45 +11,46 @@ import {
 import { FACE_THRESHOLDS } from './face-thresholds.js';
 
 /**
- * A second, deliberately plain version of Human's formula, written straight
- * from docs/plan/13 section 3. The real one is written for speed; if the two
- * ever disagree, one of them has drifted from the formula the kiosk and the
- * server must share.
+ * A second, deliberately plain version of the cosine, written straight from
+ * its definition. The real one is written for speed; if the two ever
+ * disagree, one of them has drifted.
  */
-function humanSimilarity(a: number[], b: number[]): number {
-  const sumOfSquares = a
-    .map((value, index) => (value - (b[index] as number)) ** 2)
-    .reduce((total, value) => total + value, 0);
-  const distance = 25 * sumOfSquares;
-  return Math.max(0, Math.min(1, (1 - Math.sqrt(distance) / 100 - 0.2) / 0.8));
+function plainCosine(a: number[], b: number[]): number {
+  const dot = a.reduce((total, value, i) => total + value * (b[i] as number), 0);
+  const length = (v: number[]) => Math.sqrt(v.reduce((total, value) => total + value * value, 0));
+  return Math.max(0, Math.min(1, dot / (length(a) * length(b))));
 }
 
 /**
- * A face is 1,024 numbers. These test faces are flat lists (every number the
- * same), so the score follows one simple line: with 1,024 numbers a step of
- * `d` between two faces scores `1 - 2 * d`. That makes 1 only at a step of
- * 0, 0.45 (the clock-in threshold) at 0.275, 0.375 (the duplicate threshold)
- * at 0.3125, and 0 at 0.5 and beyond.
+ * Directions at exact right angles to each other, 1,024 numbers each, built
+ * from uneven numbers (Gram–Schmidt) so that pairing the wrong numbers would
+ * show. Any face can then be made at an exact similarity to any of them:
+ * `x·A + y·B + √(1 − x² − y²)·C` scores exactly x against A and y against B.
  */
-function faceAt(level: number): number[] {
-  return Array.from({ length: FACE_THRESHOLDS.embeddingLength }, () => level);
+function directions(count: number): number[][] {
+  const length = FACE_THRESHOLDS.embeddingLength;
+  const made: number[][] = [];
+  for (let k = 0; k < count; k += 1) {
+    let v = Array.from(
+      { length },
+      (_, i) => Math.sin(1.7 * k + i * 0.731) + Math.cos(i * 0.113 * (k + 1)),
+    );
+    for (const previous of made) {
+      const along = v.reduce((total, value, i) => total + value * (previous[i] as number), 0);
+      v = v.map((value, i) => value - along * (previous[i] as number));
+    }
+    const size = Math.sqrt(v.reduce((total, value) => total + value * value, 0));
+    made.push(v.map((value) => value / size));
+  }
+  return made;
 }
 
-/** The score two flat faces this far apart will get, worked out by hand. */
-function scoreForStep(step: number): number {
-  return Math.max(0, Math.min(1, 1 - 2 * step));
-}
+const [A, B, C, D] = directions(4) as [number[], number[], number[], number[]];
 
-/**
- * A face whose numbers are all different from each other, so that comparing
- * the wrong pairs of numbers would give a different answer. Flat faces cannot
- * catch that mistake, because every number in them is the same.
- */
-function unevenFace(seed: number): number[] {
-  return Array.from(
-    { length: FACE_THRESHOLDS.embeddingLength },
-    (_, index) => Math.sin(seed + index * 0.7) / 2,
-  );
+/** A face scoring exactly `x` against A, `y` against B (and the rest along C). */
+function faceAgainst(x: number, y = 0): number[] {
+  const rest = Math.sqrt(Math.max(0, 1 - x * x - y * y));
+  return A.map((a, i) => x * a + y * (B[i] as number) + rest * (C[i] as number));
 }
 
 const sampleOf = (face: number[], extra: Partial<FaceSample> = {}): FaceSample => ({
@@ -61,57 +62,55 @@ const sampleOf = (face: number[], extra: Partial<FaceSample> = {}): FaceSample =
 });
 
 describe('similarity', () => {
-  it('gives 1 for the same face and 0 for two faces far apart', () => {
-    const face = faceAt(0);
-
-    expect(similarity(face, face)).toBe(1);
-    expect(similarity(face, faceAt(1))).toBe(0);
+  it('gives 1 for the same face and 0 for faces at right angles', () => {
+    expect(similarity(A, A)).toBeCloseTo(1, 12);
+    expect(similarity(A, B)).toBeCloseTo(0, 12);
   });
 
-  it('matches the formula the kiosk uses, at every distance in between', () => {
-    for (const step of [0, 0.1, 0.125, 0.2, 0.275, 0.3125, 0.4, 0.49, 0.5, 0.8]) {
-      const score = similarity(faceAt(0), faceAt(step));
-
-      expect(score).toBeCloseTo(humanSimilarity(faceAt(0), faceAt(step)), 12);
-      expect(score).toBeCloseTo(scoreForStep(step), 12);
+  it('is the cosine, at every angle in between', () => {
+    for (const x of [0.05, 0.3, 0.5, 0.7, 0.75, 0.8, 0.9, 0.99]) {
+      const face = faceAgainst(x);
+      expect(similarity(A, face)).toBeCloseTo(x, 12);
+      expect(similarity(A, face)).toBeCloseTo(plainCosine(A, face), 12);
     }
   });
 
-  it('compares number with matching number, on faces that are not flat', () => {
-    const first = unevenFace(0);
-    const second = unevenFace(0.35);
-
-    expect(similarity(first, second)).toBeCloseTo(humanSimilarity(first, second), 12);
-    expect(similarity(first, first)).toBe(1);
-    // Comparing the same face against itself backwards is a different face:
-    // this is what a mix-up in the pairing would look like.
-    expect(similarity(first, [...first].reverse())).toBeLessThan(1);
+  it('ignores how big the numbers are, which is the whole point', () => {
+    // Light, distance and framing scale a face's numbers up and down
+    // together. The old distance formula read that as a different face; the
+    // angle does not move.
+    const brighter = A.map((value) => value * 3.7);
+    const dimmer = A.map((value) => value * 0.2);
+    expect(similarity(A, brighter)).toBeCloseTo(1, 12);
+    expect(similarity(dimmer, brighter)).toBeCloseTo(1, 12);
   });
 
-  it('works out the formula by hand, as a check on both versions', () => {
-    // Two numbers, 3 apart each: Σ(a−b)² = 18, distance = 25 × 18 = 450,
-    // similarity = (1 - sqrt(450) / 100 - 0.2) / 0.8.
-    const expected = (1 - Math.sqrt(450) / 100 - 0.2) / 0.8;
-
-    expect(expected).toBeCloseTo(0.7348, 4);
-    expect(similarity([0, 0], [3, 3])).toBeCloseTo(expected, 12);
-    // Very close is still not "the same face": only identical numbers score 1,
-    // which is the whole point of ft-2.
-    expect(similarity([0, 0], [0.1, 0.1])).toBeCloseTo(0.9912, 3);
-    expect(similarity([0, 0], [0.1, 0.1])).toBeLessThan(1);
+  it('compares number with matching number', () => {
+    // The same face backwards is a different face: this is what a mix-up in
+    // the pairing would look like.
+    expect(similarity(A, [...A].reverse())).toBeLessThan(0.5);
   });
 
-  it('never answers on lists of different lengths, or on nothing', () => {
+  it('works out the cosine by hand, as a check on both versions', () => {
+    // [3, 4] and [4, 3]: dot 24, lengths 5 and 5, cosine 24 / 25.
+    expect(similarity([3, 4], [4, 3])).toBeCloseTo(0.96, 12);
+    // Opposite directions are reported as nothing alike, never below it.
+    expect(similarity([1, 0], [-1, 0])).toBe(0);
+  });
+
+  it('never answers on lists of different lengths, on nothing, or on no direction', () => {
     expect(similarity([1, 2, 3], [1, 2])).toBe(0);
     // The short list first is the dangerous way round: comparing only as far
     // as it goes would call two different faces the same face.
     expect(similarity([1, 2], [1, 2, 3])).toBe(0);
     expect(similarity([], [])).toBe(0);
+    // A list of zeros points nowhere, so it is like nobody — not like everybody.
+    expect(similarity([0, 0, 0], [1, 2, 3])).toBe(0);
   });
 });
 
 describe('sampleProblem', () => {
-  const face = faceAt(0.01);
+  const face = faceAgainst(0.9);
 
   it('accepts a sound sample', () => {
     expect(sampleProblem(sampleOf(face))).toBeNull();
@@ -120,7 +119,7 @@ describe('sampleProblem', () => {
   it('refuses another model, the wrong number of numbers, and numbers that are not numbers', () => {
     expect(sampleProblem(sampleOf(face, { model: 'other-model-1' }))).toBe('WRONG_MODEL');
     expect(sampleProblem(sampleOf([0.1, 0.2]))).toBe('WRONG_SHAPE');
-    const broken = faceAt(0.01);
+    const broken = [...face];
     broken[3] = Number.NaN;
     expect(sampleProblem(sampleOf(broken))).toBe('WRONG_SHAPE');
   });
@@ -134,45 +133,51 @@ describe('sampleProblem', () => {
 });
 
 describe('identifyFace', () => {
+  // Kwame is direction A, Ama is direction B: two people at right angles.
   const faces: KnownFace[] = [
-    { credentialId: 'face-kwame', employeeId: 'kwame', embedding: faceAt(0) },
-    { credentialId: 'face-ama', employeeId: 'ama', embedding: faceAt(0.6) },
+    { credentialId: 'face-kwame', employeeId: 'kwame', embedding: A },
+    { credentialId: 'face-ama', employeeId: 'ama', embedding: B },
   ];
 
   it('names the person when the face is close enough and clearly ahead', () => {
-    // 0.2 from Kwame's face (0.6), 0.4 from Ama's (0.2): a clear lead.
-    const result = identifyFace(sampleOf(faceAt(0.2)), faces);
+    const result = identifyFace(sampleOf(faceAgainst(0.9, 0.2)), faces);
 
     expect(result.outcome).toBe('MATCHED');
     expect(result.outcome === 'MATCHED' && result.employeeId).toBe('kwame');
-    expect(result.scores.best).toBeCloseTo(0.6, 12);
-    expect(result.scores.best - result.scores.runnerUp).toBeGreaterThanOrEqual(
-      FACE_THRESHOLDS.lead,
-    );
+    expect(result.scores.best).toBeCloseTo(0.9, 12);
+    expect(result.scores.runnerUp).toBeCloseTo(0.2, 12);
+  });
+
+  it('refuses the only enrolled worker to anyone who is not close enough', () => {
+    // The real-phone failure: one worker on file, a stranger at the kiosk. No
+    // runner-up exists, so the lead rule cannot help — the match line alone
+    // must refuse. A stranger as alike as the most alike pair in the photo
+    // test (0.79) is refused.
+    const onlyKwame = faces.slice(0, 1);
+    expect(identifyFace(sampleOf(faceAgainst(0.79)), onlyKwame).outcome).toBe('NOT_RECOGNISED');
+    expect(identifyFace(sampleOf(faceAgainst(0.9)), onlyKwame).outcome).toBe('MATCHED');
   });
 
   it('says "not sure" when two people are too close together', () => {
     const twin: KnownFace = {
       credentialId: 'face-twin',
       employeeId: 'twin',
-      embedding: faceAt(0.01),
+      embedding: faceAgainst(0.995),
     };
-
-    // 0.62 for the twin against 0.6 for Kwame: both good scores, no lead.
-    const result = identifyFace(sampleOf(faceAt(0.2)), [...faces, twin]);
+    const result = identifyFace(sampleOf(faceAgainst(0.9)), [...faces, twin]);
 
     expect(result.outcome).toBe('AMBIGUOUS');
     expect(result.scores.best - result.scores.runnerUp).toBeLessThan(FACE_THRESHOLDS.lead);
   });
 
   it('does not recognise a stranger, or anyone in an empty company', () => {
-    expect(identifyFace(sampleOf(faceAt(1.2)), faces).outcome).toBe('NOT_RECOGNISED');
-    expect(identifyFace(sampleOf(faceAt(0)), []).outcome).toBe('NOT_RECOGNISED');
+    expect(identifyFace(sampleOf(D), faces).outcome).toBe('NOT_RECOGNISED');
+    expect(identifyFace(sampleOf(A), []).outcome).toBe('NOT_RECOGNISED');
   });
 
   it('refuses the sample before comparing anyone, and says why, with no scores', () => {
-    const poorFace = identifyFace(sampleOf(faceAt(0), { live: 0.1 }), faces);
-    const wrongModel = identifyFace(sampleOf(faceAt(0), { model: 'another-model' }), faces);
+    const poorFace = identifyFace(sampleOf(A, { live: 0.1 }), faces);
+    const wrongModel = identifyFace(sampleOf(A, { model: 'another-model' }), faces);
 
     expect(poorFace.outcome).toBe('REFUSED');
     expect(poorFace.outcome === 'REFUSED' && poorFace.problem).toBe('LOW_LIVENESS');
@@ -186,53 +191,55 @@ describe('identifyFace', () => {
     const olderFace: KnownFace = {
       credentialId: 'face-kwame-old',
       employeeId: 'kwame',
-      embedding: faceAt(0.01),
+      embedding: faceAgainst(0.99),
     };
 
-    const result = identifyFace(sampleOf(faceAt(0.2)), [...faces, olderFace]);
+    const result = identifyFace(sampleOf(faceAgainst(0.98, 0.1)), [...faces, olderFace]);
 
     expect(result.outcome).toBe('MATCHED');
     expect(result.outcome === 'MATCHED' && result.employeeId).toBe('kwame');
-    // The closer of Kwame's two faces is the one named, so the attempt row
-    // points at the face that actually matched.
-    expect(result.outcome === 'MATCHED' && result.credentialId).toBe('face-kwame-old');
-    // Ama, not Kwame's older face, is the runner-up.
-    expect(result.scores.runnerUp).toBeCloseTo(scoreForStep(0.4), 12);
+    // Ama, not Kwame's other face, is the runner-up.
+    expect(result.scores.runnerUp).toBeCloseTo(0.1, 12);
+  });
+
+  it('draws the clock-in line where the threshold says', () => {
+    const line = FACE_THRESHOLDS.match;
+    expect(identifyFace(sampleOf(faceAgainst(line + 0.001)), faces).outcome).toBe('MATCHED');
+    expect(identifyFace(sampleOf(faceAgainst(line - 0.001)), faces).outcome).toBe('NOT_RECOGNISED');
   });
 });
 
 describe('findDuplicateFace', () => {
   const faces: KnownFace[] = [
-    { credentialId: 'face-guard', employeeId: 'guard', embedding: faceAt(0) },
-    { credentialId: 'face-other', employeeId: 'other', embedding: faceAt(0.6) },
+    { credentialId: 'face-guard', employeeId: 'guard', embedding: A },
+    { credentialId: 'face-other', employeeId: 'other', embedding: B },
   ];
 
   it('reports the closest record when the new face is close enough to review', () => {
-    const found = findDuplicateFace(sampleOf(faceAt(0.2)), faces, 'newcomer');
+    const found = findDuplicateFace(sampleOf(faceAgainst(0.9)), faces, 'newcomer');
 
     expect(found?.employeeId).toBe('guard');
     expect(found?.credentialId).toBe('face-guard');
-    expect(found?.score).toBeGreaterThanOrEqual(FACE_THRESHOLDS.duplicate);
+    expect(found?.score).toBeCloseTo(0.9, 12);
     // The answer carries ids and a score, never a template.
     expect(Object.keys(found ?? {}).sort()).toEqual(['credentialId', 'employeeId', 'score']);
   });
 
   it('reports nobody for a new face, and never for a sample that cannot be used', () => {
-    expect(findDuplicateFace(sampleOf(faceAt(1.2)), faces, 'newcomer')).toBeNull();
-    expect(findDuplicateFace(sampleOf(faceAt(0)), [], 'newcomer')).toBeNull();
-    expect(findDuplicateFace(sampleOf(faceAt(0), { real: 0.2 }), faces, 'newcomer')).toBeNull();
+    expect(findDuplicateFace(sampleOf(D), faces, 'newcomer')).toBeNull();
+    expect(findDuplicateFace(sampleOf(A), [], 'newcomer')).toBeNull();
+    expect(findDuplicateFace(sampleOf(A, { real: 0.2 }), faces, 'newcomer')).toBeNull();
   });
 
   it('never makes a worker their own duplicate, even enrolling the same face again', () => {
     // The guard's own record is left out; nobody else is close.
-    expect(findDuplicateFace(sampleOf(faceAt(0)), faces, 'guard')).toBeNull();
+    expect(findDuplicateFace(sampleOf(A), faces, 'guard')).toBeNull();
     // Someone else enrolling that same face is still caught.
-    expect(findDuplicateFace(sampleOf(faceAt(0)), faces, 'ghost')?.employeeId).toBe('guard');
+    expect(findDuplicateFace(sampleOf(A), faces, 'ghost')?.employeeId).toBe('guard');
   });
 
   it('asks about a face it would not let clock in, because the check is looser', () => {
-    // 0.29 away scores 0.42: too far to clock in, close enough to ask an ADMIN.
-    const middling = sampleOf(faceAt(0.29));
+    const middling = sampleOf(faceAgainst(0.75));
     const found = findDuplicateFace(middling, faces, 'newcomer');
 
     expect(found?.score).toBeGreaterThanOrEqual(FACE_THRESHOLDS.duplicate);
@@ -240,54 +247,46 @@ describe('findDuplicateFace', () => {
     expect(identifyFace(middling, faces).outcome).toBe('NOT_RECOGNISED');
   });
 
-  it('draws both lines where the thresholds say', () => {
-    // These samples sit on the far side of the guard's face, so the other
-    // worker is nowhere near and only the threshold decides. A step of 0.3125
-    // scores exactly 0.375 (the duplicate threshold), and a score on the line
-    // counts. A step of 0.275 works out to 0.45 (the clock-in threshold) minus
-    // five millionths of a millionth, because adding up 1,024 numbers leaves
-    // a rounding error that small, so the samples either side of that line
-    // are a hair away from it. No camera can tell faces apart that finely,
-    // and either answer on the line itself is a safe one.
-    // Exactly on the duplicate line the sum of 1,024 squares lands a rounding
-    // error below 0.375, so the line itself is tested a hair either side.
-    expect(findDuplicateFace(sampleOf(faceAt(-0.312)), faces, 'newcomer')?.employeeId).toBe(
-      'guard',
-    );
-    expect(findDuplicateFace(sampleOf(faceAt(-0.313)), faces, 'newcomer')).toBeNull();
-    expect(identifyFace(sampleOf(faceAt(-0.2749)), faces).outcome).toBe('MATCHED');
-    expect(identifyFace(sampleOf(faceAt(-0.2751)), faces).outcome).toBe('NOT_RECOGNISED');
+  it('draws the duplicate line where the threshold says', () => {
+    const line = FACE_THRESHOLDS.duplicate;
+    expect(
+      findDuplicateFace(sampleOf(faceAgainst(line + 0.001)), faces, 'newcomer')?.employeeId,
+    ).toBe('guard');
+    expect(findDuplicateFace(sampleOf(faceAgainst(line - 0.001)), faces, 'newcomer')).toBeNull();
   });
 });
 
 describe('framesAgree', () => {
   it('accepts three frames of one person', () => {
-    expect(framesAgree([faceAt(0), faceAt(0.05), faceAt(0.1)])).toBe(true);
+    expect(framesAgree([A, faceAgainst(0.97), faceAgainst(0.95)])).toBe(true);
   });
 
   it('draws the line where the frames threshold says', () => {
-    // A step of 0.23 scores 0.72, a step of 0.24 scores 0.69: a hair either
-    // side of the 0.70 the design asks for.
-    expect(framesAgree([faceAt(0), faceAt(0.23)])).toBe(true);
-    expect(framesAgree([faceAt(0), faceAt(0.24)])).toBe(false);
+    const line = FACE_THRESHOLDS.frameAgreement;
+    expect(framesAgree([A, faceAgainst(line + 0.001)])).toBe(true);
+    expect(framesAgree([A, faceAgainst(line - 0.001)])).toBe(false);
   });
 
   it('refuses a capture that drifted from one face to another', () => {
-    // Each frame agrees with the next one (0.80), but the first and the last
-    // do not (0.27). Comparing only neighbours would let this through.
-    expect(framesAgree([faceAt(0), faceAt(0.2), faceAt(0.4)])).toBe(false);
+    // Each frame is close to the next (0.9), but the first and the last are
+    // not (0.62): every pair is checked, not only neighbours.
+    const middle = faceAgainst(0.9);
+    const last = faceAgainst(0.62);
+    expect(similarity(A, middle)).toBeGreaterThan(FACE_THRESHOLDS.frameAgreement);
+    expect(similarity(middle, last)).toBeGreaterThan(FACE_THRESHOLDS.frameAgreement);
+    expect(framesAgree([A, middle, last])).toBe(false);
   });
 
   it('refuses frames that are not faces at all', () => {
-    expect(framesAgree([faceAt(0), faceAt(0).slice(0, 512)])).toBe(false);
+    expect(framesAgree([A, A.slice(0, 512)])).toBe(false);
   });
 
   it('refuses a capture where the face changed part way through', () => {
-    expect(framesAgree([faceAt(0), faceAt(0.05), faceAt(0.6)])).toBe(false);
+    expect(framesAgree([A, faceAgainst(0.97), B])).toBe(false);
   });
 
   it('refuses a capture with nothing to compare', () => {
-    expect(framesAgree([faceAt(0)])).toBe(false);
+    expect(framesAgree([A])).toBe(false);
     expect(framesAgree([])).toBe(false);
   });
 });

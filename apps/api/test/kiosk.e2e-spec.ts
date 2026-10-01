@@ -12,6 +12,7 @@ import {
 } from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
+import { faceAt } from './test-faces.js';
 
 /**
  * The kiosk door, on a real database (docs/plan/13 section 2): where a
@@ -391,11 +392,9 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
     }, 60_000);
 
     /**
-     * A face is 1,024 numbers. These are flat lists, where a step of 0.4
-     * between two faces scores about 0.27 — far enough apart to be different
-     * people, while the same level is the same face.
+     * A face is 1,024 numbers (test-faces.ts): the same level is the same
+     * face, and levels 0.4 apart are plainly two different people.
      */
-    const faceAt = (level: number) => Array.from({ length: 1024 }, () => level);
     /** A face nobody else in this test file has. */
     let faces = 0;
     const anotherFace = () => {

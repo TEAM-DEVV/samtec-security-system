@@ -117,6 +117,57 @@ export function readingFrom(faces: readonly DetectedFace[]): FaceReading {
   };
 }
 
+/**
+ * How Human is set up. A function of its own so a test can pin it: the
+ * caching settings below are what stops a stranger clocking in as somebody
+ * else, and nothing else would notice if they were switched back on.
+ */
+export function humanConfig(modelBasePath: string) {
+  return {
+    // WebGL runs on every phone the kiosk is meant for. Left to choose, the
+    // library picks WebGPU where the browser offers it, and its built-in
+    // warm-up then sat for over half a minute before the camera was ever
+    // asked for, which a guard saw as "the camera does not work".
+    backend: 'webgl' as const,
+    warmup: 'none' as const,
+    modelBasePath,
+    // Measure every frame afresh. Left at the library's default (0.7), a
+    // camera picture that barely changes lets it hand back the measurement
+    // it made up to 3 seconds earlier (4 for the liveness scores). In the
+    // head-turn challenge the "look straight" frame comes about a second
+    // after the turn, so the kiosk was sending the face of a turned head —
+    // and turned heads look far more alike between strangers than faces
+    // do — together with liveness scores from an earlier frame. Zero
+    // switches the reuse off everywhere; the skip settings below say the
+    // same for each model, so nobody has to know that a global wins.
+    cacheSensitivity: 0,
+    // The camera image goes to the model as the camera saw it. Filters are
+    // beautification; a matcher must not be fed a beautified face.
+    filter: { enabled: false },
+    face: {
+      enabled: true,
+      detector: {
+        modelPath: 'blazeface.json',
+        maxDetected: 2,
+        rotation: true,
+        skipFrames: 0,
+        skipTime: 0,
+      },
+      mesh: { enabled: true },
+      iris: { enabled: false },
+      description: { enabled: true, modelPath: 'faceres.json', skipFrames: 0, skipTime: 0 },
+      emotion: { enabled: false },
+      antispoof: { enabled: true, modelPath: 'antispoof.json', skipFrames: 0, skipTime: 0 },
+      liveness: { enabled: true, modelPath: 'liveness.json', skipFrames: 0, skipTime: 0 },
+    },
+    body: { enabled: false },
+    hand: { enabled: false },
+    object: { enabled: false },
+    segmentation: { enabled: false },
+    gesture: { enabled: false },
+  };
+}
+
 /** What `start()` needs of Human, loaded lazily and kept for the app's life. */
 interface LoadedHuman {
   detect: (video: HTMLVideoElement) => Promise<{ face: DetectedFace[] }>;
@@ -163,33 +214,7 @@ export class HumanFaceEngine implements FaceEngine {
 
   private async loadModels(): Promise<void> {
     const { default: Human } = await import('@vladmandic/human');
-    const human = new Human({
-      // WebGL runs on every phone the kiosk is meant for. Left to choose, the
-      // library picks WebGPU where the browser offers it, and its built-in
-      // warm-up then sat for over half a minute before the camera was ever
-      // asked for, which a guard saw as "the camera does not work".
-      backend: 'webgl',
-      warmup: 'none',
-      modelBasePath: this.modelBasePath,
-      // The camera image goes to the model as the camera saw it. Filters are
-      // beautification; a matcher must not be fed a beautified face.
-      filter: { enabled: false },
-      face: {
-        enabled: true,
-        detector: { modelPath: 'blazeface.json', maxDetected: 2, rotation: true },
-        mesh: { enabled: true },
-        iris: { enabled: false },
-        description: { enabled: true, modelPath: 'faceres.json' },
-        emotion: { enabled: false },
-        antispoof: { enabled: true, modelPath: 'antispoof.json' },
-        liveness: { enabled: true, modelPath: 'liveness.json' },
-      },
-      body: { enabled: false },
-      hand: { enabled: false },
-      object: { enabled: false },
-      segmentation: { enabled: false },
-      gesture: { enabled: false },
-    });
+    const human = new Human(humanConfig(this.modelBasePath));
     await human.load();
     // The first detection compiles the shaders, which takes seconds on a
     // phone. Spending them here, on a blank frame, means the guard never

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { faceAt } from '../../../test/test-faces.js';
 import { AppConfig } from '../../config/app-config.js';
 import { parseEnv } from '../../config/env.js';
 import { FaceProvider, type SealedFace } from './face-provider.js';
@@ -17,8 +18,8 @@ const config = (authSecret = AUTH_SECRET) =>
   );
 
 const COMPANY = '01927c3e-2222-7aaa-8bbb-000000000001';
-const face = (level: number) =>
-  Array.from({ length: FACE_THRESHOLDS.embeddingLength }, () => level);
+/** Nearby levels are one person; levels 0.2 or more apart are strangers. */
+const face = (level: number) => faceAt(level);
 
 const sample = (level: number, extra: Record<string, unknown> = {}) => ({
   model: FACE_THRESHOLDS.model,
@@ -51,11 +52,11 @@ describe('FaceProvider', () => {
   it('says which model, key version and thresholds it works to', () => {
     expect(provider.model).toBe('human-faceres-1');
     expect(provider.keyVersion).toBe(1);
-    expect(provider.thresholdVersion).toBe('ft-2');
+    expect(provider.thresholdVersion).toBe('ft-3');
   });
 
   it('opens the faces it sealed and names the person at clock-in', () => {
-    const decision = provider.identify(sample(0.2), [kwame, ama]);
+    const decision = provider.identify(sample(0.01), [kwame, ama]);
 
     expect(decision.unreadable).toEqual([]);
     expect(decision.result.outcome).toBe('MATCHED');
@@ -63,7 +64,7 @@ describe('FaceProvider', () => {
   });
 
   it('finds the closest record at enrollment, and nobody for a new face', () => {
-    expect(provider.findDuplicate(sample(0.2), [kwame, ama], 'newcomer').result?.employeeId).toBe(
+    expect(provider.findDuplicate(sample(0.01), [kwame, ama], 'newcomer').result?.employeeId).toBe(
       'kwame',
     );
     expect(provider.findDuplicate(sample(1.2), [kwame, ama], 'newcomer').result).toBeNull();
@@ -75,7 +76,7 @@ describe('FaceProvider', () => {
     // The same sealed bytes, listed under another worker's row.
     const moved: SealedFace = { ...kwame, employeeId: 'ghost', credentialId: 'face-ghost' };
 
-    const decision = provider.identify(sample(0.2), [moved, ama]);
+    const decision = provider.identify(sample(0.01), [moved, ama]);
 
     expect(decision.unreadable).toEqual(['face-ghost']);
     expect(decision.result.outcome).toBe('NOT_RECOGNISED');
@@ -84,7 +85,7 @@ describe('FaceProvider', () => {
   it('opens nothing sealed under another master secret', () => {
     const other = new FaceProvider(config('a-completely-different-secret-32-ch!!'));
 
-    const decision = other.identify(sample(0.2), [kwame, ama]);
+    const decision = other.identify(sample(0.01), [kwame, ama]);
 
     expect(decision.unreadable).toEqual(['face-kwame', 'face-ama']);
     expect(decision.result.outcome).toBe('NOT_RECOGNISED');
@@ -110,7 +111,7 @@ describe('FaceProvider', () => {
     expect(provider.check(sample(0, { live: 0.2 }))).toBe('LOW_LIVENESS');
     expect(provider.check(sample(0, { model: 'another-model' }))).toBe('WRONG_MODEL');
 
-    expect(provider.framesAgree([face(0), face(0.05), face(0.1)])).toBe(true);
+    expect(provider.framesAgree([face(0), face(0.005), face(0.01)])).toBe(true);
     expect(provider.framesAgree([face(0), face(0.6), face(0.1)])).toBe(false);
   });
 
@@ -154,10 +155,10 @@ describe('FaceProvider', () => {
       ];
       const moved: SealedFace = { ...kwame, employeeId: 'ghost', credentialId: 'face-ghost' };
 
-      provider.identify(sample(0.2), [kwame, ama]);
-      provider.identify(sample(0.2), [moved]);
+      provider.identify(sample(0.01), [kwame, ama]);
+      provider.identify(sample(0.01), [moved]);
       provider.identify(sample(0, { live: 0.1 }), [kwame]);
-      provider.findDuplicate(sample(0.2), [kwame, ama], 'newcomer');
+      provider.findDuplicate(sample(0.01), [kwame, ama], 'newcomer');
       provider.seal(face(0.4), {
         companyId: COMPANY,
         employeeId: 'quiet',
@@ -174,7 +175,7 @@ describe('FaceProvider', () => {
 
     it('keeps the numbers out of the one error it can raise', () => {
       const secret = 12.3456789;
-      const broken = face(secret);
+      const broken = Array.from({ length: FACE_THRESHOLDS.embeddingLength }, () => secret);
 
       expect(() =>
         provider.seal(broken.slice(0, 3), {

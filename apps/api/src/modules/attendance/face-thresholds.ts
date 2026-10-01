@@ -7,29 +7,42 @@
  * Nothing else in the code writes a face number of its own.
  */
 export const FACE_THRESHOLDS = {
-  /** The name stored on every attempt. A changed number means a new name. */
-  version: 'ft-2',
+  /**
+   * The name stored on every attempt. A changed number means a new name.
+   *
+   * `ft-3` (1 Oct 2026) compares faces by angle (cosine) instead of distance,
+   * after a stranger clocked in as the only enrolled worker on a real phone.
+   * The numbers below are cosines, so they are not comparable with `ft-1` or
+   * `ft-2` scores; every attempt says which set judged it.
+   */
+  version: 'ft-3',
   /** The model that made the numbers. Faces from two models are never compared. */
   model: 'human-faceres-1',
   /** How many numbers one face template has. */
   embeddingLength: 1024,
   /**
-   * Clock-in: the best score must reach this. `ft-1` said 0.6 on a scale whose
-   * top was flat; `ft-2` says the same distance on the opened scale (0.6 × 0.75),
-   * and the first real-phone attempts, recorded under `ft-2`, decide where it
-   * finally goes (see face-match.ts).
+   * Clock-in: the best score must reach this. On the 43-person photo test the
+   * most stranger-like pair of large, single faces reached 0.707, and small
+   * faces from group photos 0.788; the same person at the same camera sits
+   * well above. 0.80 refuses every stranger that test could find. If honest
+   * guards are refused too often at a real gate, the attempts recorded under
+   * `ft-3` say how far to move it — and it moves as `ft-4`, never in place.
    */
-  match: 0.45,
+  match: 0.8,
   /** ...and lead the next person by this much, or the answer is "not sure". */
-  lead: 0.0375,
+  lead: 0.05,
   /** Anti-spoofing: `real` and `live` must both reach this, at the kiosk and again here. */
   antiSpoofing: 0.6,
-  /** Enrollment: the three frames of one capture must agree with each other this much. */
-  frameAgreement: 0.525,
+  /**
+   * Enrollment: the three frames of one capture must agree with each other
+   * this much. They are seconds apart, of one person looking straight at one
+   * camera, so they agree far more closely than two different days do.
+   */
+  frameAgreement: 0.75,
   /**
    * Enrollment: a new face this close to another record is a COLLISION for a
    * second ADMIN to decide. It is looser than a clock-in match on purpose: at
    * enrollment we would rather ask a person than let a ghost through.
    */
-  duplicate: 0.375,
+  duplicate: 0.7,
 } as const;

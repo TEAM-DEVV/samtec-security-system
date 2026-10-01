@@ -15,6 +15,7 @@ import {
 } from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
+import { faceAt } from './test-faces.js';
 
 /**
  * Clocking in at the kiosk, on a real database
@@ -42,9 +43,6 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
-
-  /** A flat face. Two levels 0.4 apart score about 0.27: plainly two people. */
-  const faceAt = (level: number) => Array.from({ length: 1024 }, () => level);
   const sampleAt = (level: number, extra: Record<string, unknown> = {}) => ({
     model: 'human-faceres-1',
     embedding: faceAt(level),
@@ -241,7 +239,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       });
       expect(attempt.outcome).toBe('MATCHED');
       expect(attempt.employeeId).toBe(worker.id);
-      expect(attempt.thresholdVersion).toBe('ft-2');
+      expect(attempt.thresholdVersion).toBe('ft-3');
       expect(attempt.bestScore).toBeGreaterThan(0.9);
     });
 
@@ -792,7 +790,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
           direction: 'IN',
           outcome,
           employeeId: outcome === 'MATCHED' ? employeeId : null,
-          thresholdVersion: 'ft-2',
+          thresholdVersion: 'ft-3',
           attemptedAt: new Date(Date.now() - secondsAgo * 1000),
         },
         select: { id: true },
@@ -828,7 +826,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
             purpose: 'CLOCK',
             direction: 'IN',
             outcome: 'NOT_RECOGNISED',
-            thresholdVersion: 'ft-2',
+            thresholdVersion: 'ft-3',
             attemptedAt: new Date(Date.now() - (300 + n) * 1000),
           },
         });

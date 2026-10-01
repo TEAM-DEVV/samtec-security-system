@@ -373,14 +373,16 @@ ask for and decide an exemption, and the duplicate queue
   company, the employee and the credential, so a row cannot be moved to another
   person.
 - To identify someone the server compares against every enrolled face in the
-  company (**1:N**) and needs two things: a similarity of at least **0.45** (threshold set `ft-2`), and
-  a **lead of 0.0375** over the runner-up. A close second means "not sure", not a
-  guess.
-- Three camera frames must agree with each other (0.525), and an anti-spoofing
+  company (**1:N**) and needs two things: a similarity of at least **0.80** (threshold set `ft-3`), and
+  a **lead of 0.05** over the runner-up. A close second means "not sure", not a
+  guess. With only one worker on file there is no runner-up, so the 0.80 alone
+  must turn a stranger away — which is why it is set above the most
+  stranger-like pair ever measured (0.79).
+- Three camera frames must agree with each other (0.75), and an anti-spoofing
   score must pass (0.60) — a photo held up to the camera fails.
 - At enrollment a **more suspicious** check looks for a face that is already
-  somebody else's. Its number is **lower** — 0.375, not 0.45 — and that makes it
-  catch *more*, not less: anything reaching 0.375 is held as a **possible
+  somebody else's. Its number is **lower** — 0.70, not 0.80 — and that makes it
+  catch *more*, not less: anything reaching 0.70 is held as a **possible
   duplicate** for a second administrator to decide. Being asked about a stranger
   costs a minute; a ghost getting in costs a salary every month, so this is the
   one place the system deliberately errs towards asking.
@@ -693,28 +695,36 @@ and payment details are never on a list a supervisor can read.
 
 **"What stops a guard clocking in for a friend?"**
 The face is matched 1:N against everyone enrolled, needing both a similarity of
-0.45 and a clear lead of 0.0375 over the runner-up (threshold set `ft-2`), with three frames agreeing and
+0.80 and a clear lead of 0.05 over the runner-up (threshold set `ft-3`), with three frames agreeing and
 an anti-spoofing check that a held-up photo fails. If a fingerprint is used it is
 never alone — it is tied to the face or to a typed staff number, and the method
 is stamped on the punch. The one case it does not settle is two nearly identical
 faces; see the twins question below.
 
-**"Where did 0.45 come from? Why not 0.5 or 0.8?"**
-The formula is the Human library's own, with one change made on the first day
-the kiosk met real phones (29 September 2026). Two different people at one kiosk
-both scored a flat 1.0 against the one enrolled face: the library's scale gives
-every pair closer than a fixed distance the top mark, and one camera, one light
-and one background pull every face inside it. Opening the top of the scale
-(dividing by 0.8 instead of 0.6) keeps the same distances and the same decisions,
-only identical faces score 1, and every attempt now records a real number. The
-set is named `ft-2` and stamped on every attempt, so a later change can never
-make an old attempt look as if it were judged by new numbers. The study on
-generated faces ([the threshold report](14-face-threshold-report.md)) still
-shows how the decisions move as the numbers move: removing the lead rule matches
-four clock-ins in two hundred to the wrong person. The honest part of the answer:
-the first real-phone attempts are the first measurements of real faces this
-project has, `match` is set from them, and the pilot with volunteers is still
-owed before a paying client.
+**"Where did 0.80 come from? Why not 0.6 or 0.9?"**
+From a failure in testing, which is the honest answer and a good one. On
+1 October 2026 a stranger clocked in as the only enrolled worker. Two things were
+wrong, and both were fixed:
+- **The kiosk was sending an old picture's numbers.** To save work, the face
+  library reused a measurement for up to three seconds while the picture barely
+  changed, so the "look straight" sample was really the face of the turned head
+  — and two strangers in profile look far more alike than their faces do. The
+  kiosk now measures every frame afresh.
+- **The comparison asked the wrong question.** The library's formula measured
+  how far apart two faces' numbers are, and light and distance push all of a
+  face's numbers up or down together. The system now compares the *angle*
+  between them (cosine similarity), which ignores that and keeps only the shape
+  of the face.
+
+Both were tested on photographs of 43 people (4,983 stranger pairs). Accepting
+honest owners about as often, the old rule let 32 stranger pairs through and
+the new one none; the most stranger-like pair scored 0.79, so `match` sits at
+0.80. The set is named `ft-3` and stamped on every attempt, so a later change can
+never make an old attempt look as if it were judged by new numbers
+([the threshold report](14-face-threshold-report.md), section 12). The honest
+part of the answer: photographs are not a kiosk. The phone test — the worker
+and a stranger, several tries each — is what confirms it, and the pilot with
+volunteers is still owed before a paying client.
 
 **"What about identical twins?"** — and expect this one, because it is the
 sharpest question available about any face system.

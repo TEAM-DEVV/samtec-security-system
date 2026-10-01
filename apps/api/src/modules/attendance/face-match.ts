@@ -3,22 +3,18 @@
  * A face is never a photo here: it is a list of 1,024 numbers that the kiosk's
  * model (Human) made from the camera picture.
  *
- * The score is Human's own formula with one change, so the kiosk and the
- * server always agree on what "alike" means:
+ * The score is the **cosine** of the angle between the two lists (`ft-3`):
  *
- *   distance   = 25 × Σ(aᵢ − bᵢ)²
- *   similarity = clamp((1 − √distance ÷ 100 − 0.2) ÷ 0.8, 0, 1)
+ *   similarity = clamp(Σ aᵢbᵢ ÷ (‖a‖ × ‖b‖), 0, 1)
  *
- * Human divides by 0.6, which makes every pair closer than Σ(aᵢ − bᵢ)² = 16
- * score a flat 1.0. On the first real phone (29 Sep 2026) two different people
- * at one kiosk both scored exactly 1.0 against the one enrolled face, because
- * one camera, one light and one background pull every face inside that flat
- * top. Dividing by 0.8 instead keeps the same zero point (Σ = 256) but only
- * identical numbers score 1, so the threshold set `ft-2` can tell those two
- * people apart. Old scores map to new ones as new = 0.75 × old.
- *
- * It measures plain distance between the two lists (Euclidean), not the angle
- * between them (cosine). 1 means the same numbers; 0 means nothing alike.
+ * Until `ft-3` it was Human's own distance formula, `1 − √(25 Σ(aᵢ − bᵢ)²)
+ * ÷ 100`, rescaled. Real phones showed why that was the wrong question to
+ * ask: it measures how far apart the numbers are, and a face's numbers grow
+ * and shrink together with light, distance and framing — so one camera at one
+ * gate pulled everybody's faces close, and a stranger clocked in as the only
+ * enrolled worker. The angle ignores that overall size and keeps only the
+ * shape of the face. On the same photographs of 43 people (the threshold
+ * report, section 12), it made half as many mistakes as the distance did.
  *
  * Nothing in this file reads the database, decrypts anything or logs anything.
  */
@@ -62,23 +58,33 @@ export interface Scores {
 
 const NO_SCORES: Scores = { best: 0, runnerUp: 0 };
 
-/** Human's similarity, 0 to 1. Both lists must be the same length. */
+/**
+ * How alike two faces are, 0 to 1: the cosine of the angle between the two
+ * lists of numbers. 1 means they point the same way; 0 means nothing alike
+ * (a negative cosine is reported as 0, since "less than nothing alike" decides
+ * nothing). Both lists must be the same length.
+ */
 export function similarity(a: readonly number[], b: readonly number[]): number {
   if (a.length !== b.length || a.length === 0) {
     return 0;
   }
-  let sum = 0;
+  let dot = 0;
+  let squaresA = 0;
+  let squaresB = 0;
   for (let i = 0; i < a.length; i += 1) {
     // Both lists are the same length, so every index is really there.
-    const difference = (a[i] as number) - (b[i] as number);
-    sum += difference * difference;
+    const x = a[i] as number;
+    const y = b[i] as number;
+    dot += x * y;
+    squaresA += x * x;
+    squaresB += y * y;
   }
-  const distance = 25 * sum;
-  if (!Number.isFinite(distance)) {
+  const lengths = Math.sqrt(squaresA) * Math.sqrt(squaresB);
+  if (!Number.isFinite(dot) || !Number.isFinite(lengths) || lengths === 0) {
+    // A list of zeros has no direction, so it is like nobody.
     return 0;
   }
-  const scaled = (1 - Math.sqrt(distance) / 100 - 0.2) / 0.8;
-  return Math.min(1, Math.max(0, scaled));
+  return Math.min(1, Math.max(0, dot / lengths));
 }
 
 /** Checks a sample before it is compared with anyone: the model, the shape, the anti-spoofing scores. */

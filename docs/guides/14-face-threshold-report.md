@@ -22,6 +22,14 @@ distances on the opened scale), so the figures below still describe the same
 decisions. The real-phone attempts recorded under `ft-2` are the first
 measurements of real faces this project has, and they set `match` from here on.
 
+**And since 1 October 2026: `ft-3`.** A stranger clocked in as the only
+enrolled worker. The kiosk was sending stale face numbers, and the distance
+formula has been replaced by the angle between faces (cosine). **Section 12
+has the evidence and the numbers in use now.** Sections 1 to 11 describe the
+retired distance formula; they stay as the record of how `ft-1` and `ft-2`
+were judged, and their reasoning about the lead rule, near-twins and the
+duplicate queue still holds.
+
 **The one result to remember.** Ordinary crowds are comfortable for `ft-1`, and
 a crowd containing **near-twins is not**: two people scoring 0.75 against each
 other, when the same person scores 0.78, defeat the thresholds — 5 clock-ins in
@@ -427,6 +435,84 @@ And one improvement to the system itself, which this report is the argument for:
 already are, so a threshold can be tuned without a deploy — and so the next
 version of these tables can be produced by moving them and running the study
 again.
+
+## 12. The real-phone failure, and `ft-3` (1 October 2026)
+
+**What happened.** One worker, Kwame, was enrolled on the TEST kiosk. He
+clocked in; then a friend clocked in as him. With one person on file there is
+no runner-up, so the lead rule does nothing, and `match` alone stands between a
+stranger and somebody else's pay. The two matched attempts that day scored
+0.689 and 0.779 against an `ft-2` line of 0.45.
+
+**Two causes, both fixed.**
+
+1. **The kiosk was sending stale faces.** To save work, Human hands back the
+   face numbers it measured up to 3 seconds earlier (4 for the liveness
+   scores) while the camera picture barely changes. The head-turn challenge
+   takes its "look straight" sample about a second after the turn, so the
+   server was sent the numbers of a *turned head*, with liveness scores from an
+   earlier frame. Two strangers in profile look far more alike than their faces
+   do. The kiosk now measures every frame afresh (`cacheSensitivity: 0`, and no
+   frame-skipping for any model, in `apps/kiosk/src/lib/face-human.ts`).
+   Enrollment captures were affected in the same way, so **a face enrolled
+   before this fix should be enrolled again.**
+2. **Distance was the wrong comparison.** Human's formula measures how far
+   apart the two lists of numbers are. A face's numbers grow and shrink
+   together with light, distance and framing, so one camera at one gate pulls
+   everybody close. The angle between the lists ignores that overall size and
+   keeps only the shape of the face.
+
+**The measurement.** The kiosk's own models were run in a browser on
+photographs of 43 people: 104 faces, some cut small from group photographs,
+which is the hardest case. Every pair was scored both ways — 283 same-person
+pairs and 4,983 stranger pairs.
+
+| | Distance (`ft-2`) | Angle (`ft-3`) |
+|---|---|---|
+| Mistakes at the fairest possible line (equal-error rate) | 21% | **9.4%** |
+| Same-person pairs accepted at the shipped line | 58% (at 0.45) | 56% (at 0.80) |
+| Stranger pairs accepted at the shipped line | **32 of 4,983** | **0 of 4,983** |
+| Most stranger-like pair | 0.62 | 0.79 (0.71 without the group-photo faces) |
+
+Accepting honest owners about equally often, the old rule let 32 stranger pairs
+through and the new one none. Two other models were tried and set aside: the
+MobileFaceNet that ships with Human (about 39% errors — its conversion is
+broken) and face-api's ResNet (11%: no better than `faceres` by angle, and a
+second library to ship and maintain).
+
+**The `ft-3` numbers.**
+
+| Number | `ft-3` | Why |
+|---|---|---|
+| `match` | 0.80 | Above the most stranger-like pair the photographs produced (0.788). |
+| `lead` | 0.05 | Unchanged in meaning: a clear win, or "not sure". |
+| `duplicate` | 0.70 | Looser than `match`, on purpose. The most stranger-like single-face pair (0.707) sits at it, so an honest new starter is occasionally queried — which costs an administrator a minute. |
+| `frameAgreement` | 0.75 | Frames moments apart, of one person at one camera, agree far more closely. |
+| `antiSpoofing` | 0.60 | Unchanged: it is the library's own score, not a comparison. |
+
+**What the photographs cannot say.** Their same-person pairs are different
+photographs, often years apart, so 56% is a floor, not the kiosk's rate. At a
+gate the kiosk compares a face with one captured on the same phone in the same
+place, which sits much closer. That is the check that matters, and it is short:
+
+1. On the dashboard, revoke Kwame's face and enroll it again (the old template
+   was captured with stale numbers).
+2. Kwame clocks in five times; the friend tries five times — and, if they can
+   be found, two or three more strangers, ideally of similar age and build.
+   One camera in one light makes strangers more alike than photographs do,
+   and the photographs' closest stranger (0.79) sits only just under the
+   line, so the more strangers the check sees, the more it proves.
+3. Read `best_score` for the `ft-3` attempts in `clock_in_attempts`. Kwame's
+   should sit clearly above 0.80 and every stranger's clearly below; a
+   stranger in the high 0.70s is a warning even when refused. If Kwame's do
+   not clear the line, or a stranger comes close, the set moves as `ft-4` with
+   those scores as its evidence — never in place, and never lower without them.
+
+`pnpm --filter @samtec/api face:scores` now runs the stand-in at `ft-3`
+(targets: same person 0.88, strangers 0.40). On it, 189 of 200 clock-ins match
+the right person, none the wrong one, 10 are "not sure" and 1 is not
+recognised. Like sections 3 to 8, that shows how the decisions move, not how
+real faces score.
 
 ---
 

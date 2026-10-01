@@ -158,7 +158,7 @@ export const mockCollisions: BiometricCollision[] = [
           status: 'RESOLVED' as const,
           employee: refOf(enrolledPeople[1].id),
           lookedLike: refOf(enrolledPeople[2].id),
-          similarity: 0.62,
+          similarity: 0.76,
           enrolledAt: '2026-09-10T08:30:00Z',
           // The mock admin enrolled this one, so another ADMIN decided it.
           enrolledByUserId: MOCK_ADMIN_ID,
