@@ -156,6 +156,40 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       await patch(second.id, { serialNumber: 'CKJ-1234567' }).expect(200);
     });
 
+    it('can switch fingerprints on at registration too, defaulting to off, kiosks only', async () => {
+      const defaulted = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Default kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
+        .expect(201);
+      // Left out, it is exactly as before this field existed.
+      expect(defaulted.body.device.passkeysEnabled).toBe(false);
+
+      const withFingerprint = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({
+          name: 'Fingerprint-ready kiosk',
+          siteId: company.siteA,
+          kind: 'FACE_KIOSK',
+          passkeysEnabled: true,
+        })
+        .expect(201);
+      expect(withFingerprint.body.device.passkeysEnabled).toBe(true);
+
+      const refused = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({
+          name: 'Terminal cannot have one',
+          siteId: company.siteA,
+          kind: 'ZKTECO',
+          passkeysEnabled: true,
+        })
+        .expect(400);
+      expect(refused.body.errors[0].path).toBe('passkeysEnabled');
+    });
+
     it('switches fingerprints on only for a kiosk, and switching them off revokes its keys', async () => {
       const kiosk = await register('Front desk kiosk', 'FACE_KIOSK');
       const terminal = await register('Fingerprint terminal', 'ZKTECO');

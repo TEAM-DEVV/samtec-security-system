@@ -1,9 +1,12 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { fetchClient } from '@/lib/api';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { NewDevicePage } from './new-device-page';
+
+const FINGERPRINT_LABEL = "Allow fingerprints on this kiosk's own sensor";
 
 const SITE_ID = '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01';
 
@@ -57,5 +60,32 @@ describe('NewDevicePage', () => {
     expect(screen.getByRole('link', { name: "this device's page" })).toBeInTheDocument();
 
     expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(2);
+  });
+
+  it('offers to allow fingerprints only for a Face kiosk, checked by default', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderWithProviders(<NewDevicePage />);
+
+    expect(screen.getByRole('checkbox', { name: FINGERPRINT_LABEL })).toBeChecked();
+
+    await user.selectOptions(screen.getByLabelText('Kind'), 'ZKTECO');
+    expect(screen.queryByRole('checkbox', { name: FINGERPRINT_LABEL })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Kind'), 'FACE_KIOSK');
+    expect(screen.getByRole('checkbox', { name: FINGERPRINT_LABEL })).toBeChecked();
+  });
+
+  it('registers a kiosk with fingerprints switched off when the box is unchecked', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderWithProviders(<NewDevicePage />);
+
+    await user.click(screen.getByRole('checkbox', { name: FINGERPRINT_LABEL }));
+    await registerDevice(user, 'Ridge Towers kiosk');
+
+    const deviceId = screen.getByLabelText<HTMLInputElement>('Device ID').value;
+    const read = await fetchClient.GET('/devices/{deviceId}', { params: { path: { deviceId } } });
+    expect(read.data?.passkeysEnabled).toBe(false);
   });
 });

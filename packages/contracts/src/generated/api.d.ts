@@ -2767,6 +2767,8 @@ export interface components {
             /** Format: uuid */
             siteId: string;
             kind: components["schemas"]["DeviceKind"];
+            /** @description Only a `FACE_KIOSK` can switch this on (any other kind answers `400`). Left out, the device is registered with fingerprints off, the same as before this field existed. */
+            passkeysEnabled?: boolean;
         };
         UpdateDeviceRequest: {
             name?: string;

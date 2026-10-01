@@ -45,6 +45,8 @@ export function NewDevicePage() {
   const [name, setName] = useState('');
   const [siteId, setSiteId] = useState('');
   const [kind, setKind] = useState<DeviceKind>('FACE_KIOSK');
+  // On by default for a Face kiosk, the common case when testing on a phone.
+  const [passkeysEnabled, setPasskeysEnabled] = useState(true);
   const [mistake, setMistake] = useState<string | null>(null);
   const [registered, setRegistered] = useState<DeviceWithSecret | null>(null);
   const [idCopyState, setIdCopyState] = useState<CopyState>('idle');
@@ -73,7 +75,14 @@ export function NewDevicePage() {
       return;
     }
     setMistake(null);
-    register.mutate({ body: { name: trimmed, siteId, kind } });
+    register.mutate({
+      body: {
+        name: trimmed,
+        siteId,
+        kind,
+        ...(kind === 'FACE_KIOSK' ? { passkeysEnabled } : {}),
+      },
+    });
   }
 
   const problem = register.error ? describeApiError(register.error) : undefined;
@@ -227,6 +236,18 @@ export function NewDevicePage() {
                   {deviceKindHelp[kind]} The kind cannot be changed later: if it is wrong, register
                   the device again.
                 </p>
+
+                {kind === 'FACE_KIOSK' && (
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={passkeysEnabled}
+                      onChange={(event) => setPasskeysEnabled(event.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>Allow fingerprints on this kiosk's own sensor</span>
+                  </label>
+                )}
 
                 {mistake && (
                   <Alert variant="destructive">

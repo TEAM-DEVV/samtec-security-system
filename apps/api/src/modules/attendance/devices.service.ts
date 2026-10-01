@@ -86,6 +86,13 @@ export class DevicesService {
     if (viewer.onKiosk && body.kind !== 'FACE_KIOSK') {
       throw new ForbiddenException(KIOSK_DEVICES_ONLY);
     }
+    // Same rule as changing it later (a database CHECK backs this up too).
+    if (body.passkeysEnabled && body.kind !== 'FACE_KIOSK') {
+      throw fieldProblem(
+        'passkeysEnabled',
+        'Only a face kiosk can use its own fingerprint sensor.',
+      );
+    }
     // Reuses the sites service's rules; a site outside the company is a clear 400.
     await this.sites.get(viewer, body.siteId).catch((error: unknown) => {
       throw error instanceof NotFoundException
@@ -110,6 +117,11 @@ export class DevicesService {
             // now it is true of every device.
             status: 'INACTIVE',
             keyIssuedByUserId: viewer.userId,
+            // Left out, the column's own default (false) applies: the same
+            // behaviour as before this field existed.
+            ...(body.passkeysEnabled !== undefined
+              ? { passkeysEnabled: body.passkeysEnabled }
+              : {}),
           },
         });
         await this.audit.record(
@@ -119,7 +131,14 @@ export class DevicesService {
             action: 'device.registered',
             entityType: 'device',
             entityId: created.id,
-            detail: { siteId: body.siteId, kind: body.kind, status: 'INACTIVE' },
+            detail: {
+              siteId: body.siteId,
+              kind: body.kind,
+              status: 'INACTIVE',
+              ...(body.passkeysEnabled !== undefined
+                ? { passkeysEnabled: body.passkeysEnabled }
+                : {}),
+            },
           },
           tx,
         );
