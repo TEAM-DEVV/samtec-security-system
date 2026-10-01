@@ -1690,6 +1690,10 @@ paths:
         a duplicate stays blocked, and no row is ever deleted. The work is
         done 50 people at a time, so a heartbeat is never slow, and the
         answer is the same either way.
+
+        The answer also carries `passkeysEnabled`, so a kiosk always knows
+        whether it may offer saving a fingerprint without asking the server
+        again first.
       security:
         - deviceSignature: []
       parameters:
@@ -6079,11 +6083,17 @@ components:
 
     HeartbeatResponse:
       type: object
-      required: [serverTime]
+      required: [serverTime, passkeysEnabled]
       properties:
         serverTime:
           type: string
           format: date-time
+        passkeysEnabled:
+          type: boolean
+          description: >-
+            Whether this device may save a fingerprint on its own sensor. Off
+            by default; an administrator switches it on at Dashboard →
+            Devices → this device.
 
     EmployeeRef:
       type: object
