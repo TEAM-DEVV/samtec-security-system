@@ -115,6 +115,16 @@ export const deviceHandlers = [
       if (!isOneOf(KINDS, body.kind ?? '')) {
         return validationProblem('kind', `Must be one of ${KINDS.join(', ')}.`);
       }
+      if (body.passkeysEnabled !== undefined && typeof body.passkeysEnabled !== 'boolean') {
+        return validationProblem('passkeysEnabled', 'Must be true or false.');
+      }
+      // Only a kiosk has a fingerprint sensor of its own (same rule as changing it later).
+      if (body.passkeysEnabled && body.kind !== 'FACE_KIOSK') {
+        return validationProblem(
+          'passkeysEnabled',
+          'Only a face kiosk can use its own fingerprint sensor.',
+        );
+      }
       if (devices.some((device) => device.name === body.name)) {
         return conflict('A device with this name already exists.');
       }
@@ -132,7 +142,8 @@ export const deviceHandlers = [
         failedSignatureCount: 0,
         lastFailedSignatureAt: null,
         serialNumber: null,
-        passkeysEnabled: false,
+        // Left out, this defaults to off, same as before this field existed.
+        passkeysEnabled: body.passkeysEnabled ?? false,
         createdAt: now,
         updatedAt: now,
       };

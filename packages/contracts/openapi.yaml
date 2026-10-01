@@ -5922,6 +5922,12 @@ components:
           format: uuid
         kind:
           $ref: "#/components/schemas/DeviceKind"
+        passkeysEnabled:
+          type: boolean
+          description: >-
+            Only a `FACE_KIOSK` can switch this on (any other kind answers
+            `400`). Left out, the device is registered with fingerprints off,
+            the same as before this field existed.
 
     UpdateDeviceRequest:
       type: object

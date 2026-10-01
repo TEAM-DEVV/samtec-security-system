@@ -25,6 +25,7 @@ export const registerDeviceSchema = z.strictObject({
   name: deviceName,
   siteId: z.uuid(),
   kind: z.enum(['MOCK', 'ZKTECO', 'FACE_KIOSK']),
+  passkeysEnabled: z.boolean().optional(),
 });
 export type RegisterDeviceBody = z.infer<typeof registerDeviceSchema>;
 
