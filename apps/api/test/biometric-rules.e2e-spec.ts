@@ -270,17 +270,18 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       expect(mine.resolution).toBeNull();
     });
 
-    it('is never decided by the ADMIN who enrolled the face', async () => {
+    it('may be decided by the ADMIN who enrolled the face', async () => {
+      // One administrator enrolls a face and decides its review: ordinary
+      // work now, with their password behind the decision and the audit log
+      // behind that (issue #99).
       const { credentialId } = await aGhostAndAGuard();
-
-      const refused = await resolve(enroller, credentialId, {
+      const decided = await resolve(enroller, credentialId, {
         verdict: 'DIFFERENT_PEOPLE',
-        note: 'They are brothers, I checked.',
-      }).expect(403);
-
-      expect(refused.body.detail).toMatch(/enrolled this face/);
+        note: 'They are brothers, I checked both cards.',
+      }).expect(200);
+      expect(decided.body.status).toBe('RESOLVED');
+      expect(decided.body.resolution.verdict).toBe('DIFFERENT_PEOPLE');
     });
-
     it('clears two people who only look alike', async () => {
       const { ghost, credentialId } = await aGhostAndAGuard();
 
@@ -460,33 +461,25 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       expect((await faceOf(real.id)).status).toBe('ACTIVE');
     });
 
-    it('is never decided by the ADMIN who took one of the faces off', async () => {
+    it('may be decided by the ADMIN who took one of the faces off', async () => {
       const oneFace = anotherFace();
       const first = await newStarter();
       expect((await enroll(first.id, oneFace)).status).toBe(201);
       const second = await newStarter();
       expect((await enroll(second.id, oneFace)).status).toBe(201);
       const review = await faceOf(second.id);
-      // The reviewer wipes one of the two faces, which puts them out.
+      // The reviewer wipes one of the two faces, then still decides.
       await api()
         .post(`/api/v1/employees/${first.id}/biometric-consents/withdraw`)
         .set(...bearer(reviewer))
         .send({ reason: 'The worker asked for their face to be removed.' })
         .expect(200);
-
-      const refused = await resolve(reviewer, review.id, {
-        verdict: 'DIFFERENT_PEOPLE',
-        note: 'Two different men, I checked both cards.',
-      }).expect(403);
-
-      expect(refused.body.detail).toMatch(/removed a face/);
-      // A third ADMIN, who did nothing to either record, still can.
-      await resolve(secondReviewer, review.id, {
+      const decided = await resolve(reviewer, review.id, {
         verdict: 'DIFFERENT_PEOPLE',
         note: 'Two different men, both Ghana Cards checked in person.',
       }).expect(200);
+      expect(decided.body.status).toBe('RESOLVED');
     });
-
     it('refuses the enrollment itself while a review is open, not only the consent', async () => {
       const oneFace = anotherFace();
       const first = await newStarter();
@@ -596,46 +589,40 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       expect(refused.body.detail).toMatch(/duplicate review/);
     });
 
-    it('files a request for a second ADMIN when a working worker withdraws', async () => {
+    it('wipes the face and files nothing: the same ADMIN decides what happens next', async () => {
       const worker = await newStarter();
       await enroll(worker.id, anotherFace());
-
       const after = await api()
         .post(`/api/v1/employees/${worker.id}/biometric-consents/withdraw`)
         .set(...bearer(enroller))
         .send({ reason: 'The worker asked in writing to come off biometrics.' })
         .expect(200);
-
-      // The face goes at once, and nobody works on one person's say-so.
+      // The face goes at once, and the worker goes back to waiting for
+      // enrollment. No request is filed for anybody else (issue #99).
       expect(after.body.face.status).toBe('REVOKED');
       expect(after.body.consent.status).toBe('WITHDRAWN');
-      expect(after.body.exemption.status).toBe('REQUESTED');
-      expect(after.body.exemption.reason).toBe('CONSENT_WITHDRAWN');
-      expect(after.body.exemption.requestedByUserId).toBe(company.adminUserId);
+      expect(after.body.exemption).toBeNull();
       expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
         'PENDING_ENROLLMENT',
       );
-
-      // The ADMIN who recorded it cannot decide it...
-      const refused = await api()
-        .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
+      // The same administrator asks for an exemption and approves it.
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
         .set(...bearer(enroller))
-        .send({ decision: 'APPROVE', note: 'I recorded it, so I will approve it.' })
-        .expect(403);
-      expect(refused.body.detail).toMatch(/cannot decide their own request/);
-
-      // ...and only the second one puts the worker back to work.
+        .send({ reason: 'DECLINED', note: 'The worker refuses biometrics, in writing.' })
+        .expect(200);
       const approved = await api()
         .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
-        .set(...bearer(reviewer))
+        .set(...bearer(enroller))
         .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
         .expect(200);
       expect(approved.body.exemption.status).toBe('APPROVED');
+      expect(approved.body.exemption.requestedByUserId).toBe(company.adminUserId);
+      expect(approved.body.exemption.reviewedByUserId).toBe(company.adminUserId);
       expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
         'ACTIVE',
       );
     });
-
     it('never activates anybody by itself', async () => {
       const worker = await newStarter();
       await enroll(worker.id, anotherFace());
@@ -644,11 +631,16 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         .set(...bearer(enroller))
         .send({ reason: 'Withdrawn in writing.' })
         .expect(200);
-
       expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
         'PENDING_ENROLLMENT',
       );
-      // A rejection leaves them waiting, free to enrol again later.
+      // An exemption is asked for, and a rejection leaves them waiting, free
+      // to enrol again later.
+      await api()
+        .post(`/api/v1/employees/${worker.id}/biometric-exemption`)
+        .set(...bearer(enroller))
+        .send({ reason: 'DECLINED', note: 'The worker refuses biometrics for now.' })
+        .expect(200);
       const rejected = await api()
         .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
         .set(...bearer(reviewer))
@@ -659,11 +651,9 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         'PENDING_ENROLLMENT',
       );
     });
-
-    it('keeps whoever removed a face from deciding about that worker', async () => {
+    it('lets whoever removed a face decide about that worker, and writes it down', async () => {
       const worker = await newStarter();
       await enroll(worker.id, anotherFace());
-      // This time the second ADMIN is the one who wipes the face.
       await api()
         .post(`/api/v1/employees/${worker.id}/biometrics/revoke`)
         .set(...bearer(reviewer))
@@ -674,16 +664,14 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         .set(...bearer(enroller))
         .send({ reason: 'DECLINED', note: 'The worker now refuses biometrics.' })
         .expect(200);
-
-      const refused = await api()
+      const approved = await api()
         .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
         .set(...bearer(reviewer))
-        .send({ decision: 'APPROVE', note: 'I removed the face, so I will approve this.' })
-        .expect(403);
-
-      expect(refused.body.detail).toMatch(/removed a face/);
+        .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
+        .expect(200);
+      expect(approved.body.exemption.status).toBe('APPROVED');
+      expect(approved.body.exemption.reviewedByUserId).toBe(company.secondAdminUserId);
     });
-
     it('closes a review whose record another review blocked, and frees the worker it held', async () => {
       // One face, three records: the honest guard M, a ghost L, and a second
       // ghost G. L's review names M; G's review names L.
@@ -843,8 +831,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       const oneFace = anotherFace();
       const first = await newStarter();
       expect((await enroll(first.id, oneFace)).status).toBe(201);
-      // The worker takes their consent back, so the face is wiped and a
-      // second ADMIN owes them an answer.
+      // The worker takes their consent back, so the face is wiped.
       await api()
         .post(`/api/v1/employees/${first.id}/biometric-consents/withdraw`)
         .set(...bearer(reviewer))
@@ -862,15 +849,12 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       expect(enrolled.body.dedupe).toBe('PASSED');
 
       // The first record does not come back on its own: it waits, unpaid,
-      // for the second ADMIN who owes it an answer.
+      // until an administrator enrolls it again or approves an exemption.
       const waiting = await prisma.employee.findUniqueOrThrow({ where: { id: first.id } });
       expect(waiting.status).toBe('PENDING_ENROLLMENT');
       expect(waiting.biometricEnrolledAt).toBeNull();
       const panelled = await panel(enroller, first.id).expect(200);
-      expect(panelled.body.exemption.status).toBe('REQUESTED');
-      expect(panelled.body.exemption.reason).toBe('CONSENT_WITHDRAWN');
-      // The words an ADMIN typed never reach a screen: only the code does.
-      expect(panelled.body.exemption.note).toBeNull();
+      expect(panelled.body.exemption).toBeNull();
     });
   });
 
@@ -996,7 +980,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
       );
     });
 
-    it('is never decided by the ADMIN who enrolled a face for this worker', async () => {
+    it('may be decided by the ADMIN who enrolled a face for this worker', async () => {
       const worker = await newStarter();
       // The enroller tried a face first; the second ADMIN took it off again.
       await enroll(worker.id, anotherFace());
@@ -1010,21 +994,17 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         .set(...bearer(reviewer))
         .send({ reason: 'CANNOT_ENROLL', note: 'Three visits, no usable capture.' })
         .expect(200);
-
-      // Approving means "this worker cannot be enrolled", which is a verdict
-      // on the enroller's own attempt, so the enroller may not give it.
-      const refused = await api()
+      // Approving is an administrator's decision, whoever tried the face.
+      const approved = await api()
         .post(`/api/v1/employees/${worker.id}/biometric-exemption/review`)
         .set(...bearer(enroller))
         .send({ decision: 'APPROVE', note: 'Ghana Card checked in person.' })
-        .expect(403);
-
-      expect(refused.body.detail).toMatch(/enrolled a face/);
+        .expect(200);
+      expect(approved.body.exemption.status).toBe('APPROVED');
       expect((await prisma.employee.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe(
-        'PENDING_ENROLLMENT',
+        'ACTIVE',
       );
     });
-
     it('ends when the worker enrols a face after all', async () => {
       const worker = await newStarter();
       await api()

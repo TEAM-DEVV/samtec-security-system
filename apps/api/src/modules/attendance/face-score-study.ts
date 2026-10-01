@@ -375,7 +375,7 @@ export function countVerdicts(
 
 /** What the duplicate check would do at one threshold. */
 export interface DuplicateCounts {
-  /** Honest new starters who were wrongly held for a second administrator. */
+  /** Honest new starters who were wrongly held for a review on the dashboard. */
   strangersStopped: number;
   strangers: number;
   /** Second enrollments of somebody already on file, which is the ghost. */

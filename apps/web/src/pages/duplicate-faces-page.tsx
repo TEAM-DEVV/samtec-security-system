@@ -33,7 +33,6 @@ import { useCursorPages } from '@/lib/cursor-pages';
 import { formatDateTime } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
-import { useSession } from '@/lib/session';
 
 const PAGE_SIZE = 20;
 const NOTE_MIN_LENGTH = 3;
@@ -42,8 +41,8 @@ const NOTE_MAX_LENGTH = 500;
 /**
  * The duplicate-enrollment queue (ADMIN only): each item is a new face that
  * looked like someone already enrolled, which is exactly what a ghost worker
- * enrolled twice looks like. A second ADMIN checks both Ghana Cards in
- * person and decides; the one who enrolled the face never does.
+ * enrolled twice looks like. An administrator checks both Ghana Cards in
+ * person and decides, with their password; the audit log keeps who did.
  */
 export function DuplicateFacesPage() {
   usePageTitle('Duplicate faces');
@@ -199,7 +198,6 @@ function EmployeeLink({ employee }: { employee: BiometricCollision['employee'] }
 }
 
 function DecisionForm({ collision }: { collision: BiometricCollision }) {
-  const session = useSession();
   const queryClient = useQueryClient();
   const [verdict, setVerdict] = useState<ResolveCollisionRequest['verdict']>('DIFFERENT_PEOPLE');
   const [keepEmployeeId, setKeepEmployeeId] = useState('');
@@ -217,14 +215,6 @@ function DecisionForm({ collision }: { collision: BiometricCollision }) {
       void queryClient.invalidateQueries({ queryKey: ['get', '/employees'] });
     },
   });
-
-  if (session?.user.id === collision.enrolledByUserId) {
-    return (
-      <p className="text-muted-foreground text-sm">
-        You enrolled this face, so another administrator must decide it.
-      </p>
-    );
-  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

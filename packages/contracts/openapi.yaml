@@ -614,12 +614,10 @@ paths:
         private message, and the person chooses their own password with
         `POST /auth/set-password`.
 
-        **An ADMIN account needs a second administrator** (docs/plan/06,
-        "Two administrators"): when the result is an ADMIN account, it comes
-        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
-        confirms it with `POST /users/{userId}/confirm-admin`. The one
-        exception is the company's only administrator, whose change is
-        confirmed at once and recorded as such.
+        **No second administrator is needed** (docs/plan/06, "One
+        administrator, with a password"): an ADMIN account made or changed
+        here is usable as soon as its password is set. Who made the change,
+        and when, is written down with the account and in the audit log.
       requestBody:
         required: true
         content:
@@ -694,12 +692,10 @@ paths:
         **On your own account only `fullName` may change** (`409` otherwise),
         so nobody can lock themselves out. A switched-off account answers `409`.
 
-        **An ADMIN account needs a second administrator** (docs/plan/06,
-        "Two administrators"): when the result is an ADMIN account, it comes
-        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
-        confirms it with `POST /users/{userId}/confirm-admin`. The one
-        exception is the company's only administrator, whose change is
-        confirmed at once and recorded as such.
+        **No second administrator is needed** (docs/plan/06, "One
+        administrator, with a password"): an ADMIN account made or changed
+        here is usable as soon as its password is set. Who made the change,
+        and when, is written down with the account and in the audit log.
         Taking the ADMIN role away needs nobody else.
       requestBody:
         required: true
@@ -768,12 +764,10 @@ paths:
         An account whose linked employee has left the company cannot be
         switched back on (`409`).
 
-        **An ADMIN account needs a second administrator** (docs/plan/06,
-        "Two administrators"): when the result is an ADMIN account, it comes
-        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
-        confirms it with `POST /users/{userId}/confirm-admin`. The one
-        exception is the company's only administrator, whose change is
-        confirmed at once and recorded as such.
+        **No second administrator is needed** (docs/plan/06, "One
+        administrator, with a password"): an ADMIN account made or changed
+        here is usable as soon as its password is set. Who made the change,
+        and when, is written down with the account and in the audit log.
       responses:
         "200":
           description: The account, now `ACTIVE` (or `AWAITING_PASSWORD` if no password was ever set).
@@ -808,15 +802,13 @@ paths:
         together stops a caller who knows the password from simply asking for
         "a new phone". A switched-off account answers `409`.
 
-        **An ADMIN account needs a second administrator** (docs/plan/06,
-        "Two administrators"): when the result is an ADMIN account, it comes
-        back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN
-        confirms it with `POST /users/{userId}/confirm-admin`. The one
-        exception is the company's only administrator, whose change is
-        confirmed at once and recorded as such.
+        **No second administrator is needed** (docs/plan/06, "One
+        administrator, with a password"): an ADMIN account made or changed
+        here is usable as soon as its password is set. Who made the change,
+        and when, is written down with the account and in the audit log.
       responses:
         "200":
-          description: The account, now `AWAITING_PASSWORD` (or `AWAITING_CONFIRMATION` for an ADMIN), with its new link.
+          description: The account, now `AWAITING_PASSWORD`, with its new link.
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"
@@ -826,36 +818,6 @@ paths:
                 $ref: "#/components/schemas/UserAccountWithPasswordSetup"
         "400":
           $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-
-  /users/{userId}/confirm-admin:
-    parameters:
-      - $ref: "#/components/parameters/UserId"
-    post:
-      tags: [Users]
-      operationId: confirmAdminAccount
-      summary: Confirm an administrator account another ADMIN made or changed
-      description: >-
-        **Roles:** ADMIN. The second half of every ADMIN account change
-        (docs/plan/06, "Two administrators"). Refused (`409`) to the
-        administrator who made the change, on your own account, and for an
-        account that is not waiting for confirmation. The confirmer should
-        check in person that the account belongs to the person it names —
-        that check is the whole point.
-      responses:
-        "200":
-          description: The account, confirmed. It can be used once it has a password and two-factor sign-in.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserAccount"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1444,11 +1406,10 @@ paths:
         only a `FACE_KIOSK` can be registered.
 
 
-        **The device starts `INACTIVE`, and its key signs nothing until a
-        *different* administrator switches it on** (docs/plan/06, "Two
-        administrators"): a device key can post punches, so one person never
-        both issues one and puts it to work. The second administrator is the
-        one who checks the device is really on the wall at that site.
+        **The device starts `INACTIVE`, and its key signs nothing until an
+        administrator switches it on** on the device's page, having checked
+        it is really on the wall at that site. Who switched it on, and when,
+        is written down with the device and in the audit log.
       requestBody:
         required: true
         content:
@@ -2260,11 +2221,10 @@ paths:
       description: >-
         **Signed by a `FACE_KIOSK` device** (route name
         `kiosk/assisted-punches`). For a worker who is exempt from
-        biometrics (an `APPROVED` exemption, which a second ADMIN always
-        decided: they go straight to "Ask your supervisor", with no face
-        scan); a worker whose withdrawal of consent is waiting for that
-        decision (still `PENDING_ENROLLMENT`: the punch is stored and paired
-        but raises `INACTIVE_EMPLOYEE`, and is paid only after approval); or
+        biometrics (an `APPROVED` exemption: they go straight to "Ask your
+        supervisor", with no face scan); a worker still `PENDING_ENROLLMENT`
+        (the punch is stored and paired but raises `INACTIVE_EMPLOYEE`, and
+        is paid only once the worker is active); or
         a worker with a face in use (`ACTIVE`) whose face failed on this
         device (the same unlock as `POST /kiosk/fingerprint-options`, which a
         co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's
@@ -2455,10 +2415,10 @@ paths:
         "409":
           description: >-
             No current consent, the employee is terminated, or the worker has
-            an open question that a second ADMIN must settle first (an open
-            duplicate-enrollment review, an exemption request waiting, or a
-            face blocked as a duplicate). So nobody can retry captures until
-            a score slips under the threshold.
+            an open question that an administrator must settle first on the
+            dashboard (an open duplicate-enrollment review, an exemption
+            request waiting, or a face blocked as a duplicate). So nobody can
+            retry captures until a score slips under the threshold.
           content:
             application/problem+json:
               schema:
@@ -2642,12 +2602,12 @@ paths:
         goes back to `PENDING_ENROLLMENT` if they were `ACTIVE` (a
         `SUSPENDED` or `TERMINATED` employee is unchanged) and must be
         enrolled again. It also ends an approved exemption, so a worker who
-        was `ACTIVE` only through an exemption needs two ADMINs again.
+        was `ACTIVE` only through an exemption needs a new one.
         Refused while the worker has an open question: an open
-        duplicate-enrollment review, or an exemption request waiting (a
-        second ADMIN decides either first, so a revoke can never wipe away a
-        question), and for a record blocked as a duplicate (that block is
-        final).
+        duplicate-enrollment review, or an exemption request waiting (an
+        administrator decides either first, so a revoke can never wipe away
+        a question), and for a record blocked as a duplicate (lift the block
+        first with `POST /employees/{employeeId}/biometrics/unblock`).
         Audited with the reason; the history rows stay.
       requestBody:
         required: true
@@ -2680,6 +2640,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
 
+  /employees/{employeeId}/biometrics/unblock:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    post:
+      tags: [Biometrics]
+      operationId: unblockEmployeeBiometrics
+      summary: Lift the block on a record blocked as a duplicate
+      description: >-
+        **Roles:** ADMIN. A record that lost a duplicate-enrollment review as
+        the "same person" was blocked: nothing new could be recorded for it.
+        This lifts that block. The wiped face never comes back; the blocked
+        face becomes a plain revoked one, the worker stays
+        `PENDING_ENROLLMENT`, and they can be enrolled again from scratch
+        (the duplicate check then runs again on the new face). `409` when
+        the record is not blocked. Audited with the reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BiometricReasonRequest"
+      responses:
+        "200":
+          description: The new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeBiometrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The record is not blocked.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /employees/{employeeId}/biometric-exemption:
     parameters:
       - $ref: "#/components/parameters/EmployeeId"
@@ -2691,11 +2693,12 @@ paths:
         **Roles:** ADMIN. Consent must be a free choice, so a worker may
         refuse. Only for a worker still `PENDING_ENROLLMENT` with no open
         question (no open duplicate-enrollment review, no enrolled face, and
-        no face blocked as a duplicate). This only **asks**: a second ADMIN
-        checks the worker's Ghana Card in person and approves or rejects it
-        (`POST /employees/{employeeId}/biometric-exemption/review`), so no
-        single person can activate a worker without a face. While the
-        request waits, consent and enrollment are refused. Once approved,
+        no face blocked as a duplicate). This only **asks**: an administrator
+        (the same one, or another) checks the worker's Ghana Card in person
+        and approves or rejects it
+        (`POST /employees/{employeeId}/biometric-exemption/review`), with
+        their password behind the decision and the audit log behind that.
+        While the request waits, consent and enrollment are refused. Once approved,
         the worker is `ACTIVE` and clocks in only with a supervisor's
         co-sign (`PIN_FALLBACK`), so every hour they work is flagged for
         review. Audited.
@@ -2799,14 +2802,10 @@ paths:
         - While the request waits, the worker can still clock in by a
           supervisor's co-sign. Those punches are stored and paired, but they
           raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for
-          enrollment, and payroll counts them only once a second ADMIN has
-          approved. So the worker's presence is on record from the first day,
-          and nothing is paid on one person's say-so: a wiped face is no
-          longer in the duplicate check, so only a second person may vouch for
-          it.
-        - An exemption already approved is kept. Any other face (waiting for
-          review, or blocked as a duplicate) gives no request. An open
-          duplicate-enrollment review **stays open**: a second ADMIN still
+          enrollment, and payroll counts them only once the worker is active
+          again. So the worker's presence is on record from the first day.
+        - An exemption already approved is kept. An open duplicate-enrollment
+          review **stays open**: an administrator still
           decides it from the Ghana Cards and the record of who the face
           looked like. A face blocked as a duplicate **stays blocked**.
 
@@ -4931,12 +4930,9 @@ components:
         - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
           account sets up two-factor authentication at its first sign-in;
           `twoFactorEnabled` shows whether that has happened yet.
-        - `AWAITING_CONFIRMATION` — an ADMIN account made, promoted, reset
-          or switched back on by one administrator, waiting for a second to
-          confirm it. Cannot be used at all until then, password or not.
         - `DEACTIVATED` — switched off by an administrator, or because the
           linked employee left. Cannot sign in. Kept for history.
-      enum: [AWAITING_PASSWORD, AWAITING_CONFIRMATION, ACTIVE, DEACTIVATED]
+      enum: [AWAITING_PASSWORD, ACTIVE, DEACTIVATED]
 
     UserAccount:
       type: object

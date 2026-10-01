@@ -31,7 +31,7 @@ import { useSession } from '@/lib/session';
 const TEXT_MIN_LENGTH = 3;
 const TEXT_MAX_LENGTH = 500;
 
-type PanelAction = 'revoke' | 'withdraw' | 'ask' | 'decide';
+type PanelAction = 'revoke' | 'withdraw' | 'ask' | 'decide' | 'unblock';
 
 /**
  * The Biometrics card on an employee's page: consent, the face, the
@@ -90,11 +90,7 @@ export function BiometricsPanel({ employeeId, employeeStatus }: BiometricsPanelP
           <>
             <BiometricsStatus record={biometrics.data} />
             {roleAllowed(pageRoles.biometricChanges, session.user.role) && (
-              <BiometricsActions
-                record={biometrics.data}
-                employeeStatus={employeeStatus}
-                currentUserId={session.user.id}
-              />
+              <BiometricsActions record={biometrics.data} employeeStatus={employeeStatus} />
             )}
           </>
         )}
@@ -179,7 +175,6 @@ function BiometricsStatus({ record }: { record: EmployeeBiometrics }) {
 interface BiometricsActionsProps {
   record: EmployeeBiometrics;
   employeeStatus: EmployeeStatus;
-  currentUserId: string;
 }
 
 /**
@@ -187,7 +182,7 @@ interface BiometricsActionsProps {
  * reason the audit log keeps. The rules mirror the API's: it still has the
  * final say, and its refusal is shown word for word.
  */
-function BiometricsActions({ record, employeeStatus, currentUserId }: BiometricsActionsProps) {
+function BiometricsActions({ record, employeeStatus }: BiometricsActionsProps) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState<PanelAction | null>(null);
   const [text, setText] = useState('');
@@ -216,7 +211,10 @@ function BiometricsActions({ record, employeeStatus, currentUserId }: Biometrics
   const decide = $api.useMutation('post', '/employees/{employeeId}/biometric-exemption/review', {
     onSuccess: done,
   });
-  const mutations = { revoke, withdraw, ask, decide };
+  const unblock = $api.useMutation('post', '/employees/{employeeId}/biometrics/unblock', {
+    onSuccess: done,
+  });
+  const mutations = { revoke, withdraw, ask, decide, unblock };
   const pending = Object.values(mutations).some((mutation) => mutation.isPending);
   const failed = Object.values(mutations).find((mutation) => mutation.error);
   const problem = failed?.error ? describeApiError(failed.error) : undefined;
@@ -224,11 +222,10 @@ function BiometricsActions({ record, employeeStatus, currentUserId }: Biometrics
   const pathParams = { params: { path: { employeeId: record.employeeId } } };
   const exemption = record.exemption;
   const waiting = exemption?.status === 'REQUESTED';
-  const askedByMe = waiting && exemption.requestedByUserId === currentUserId;
   const hasFace = record.face.status === 'PENDING' || record.face.status === 'ACTIVE';
   const hasKeys = record.passkeys.some((key) => key.revokedAt === null);
   const blocked = record.face.status === 'BLOCKED';
-  // A PENDING face is an open duplicate review: a second ADMIN decides it first.
+  // A PENDING face is an open duplicate review: it is decided first.
   const underReview = record.face.status === 'PENDING';
   const canRevoke = (hasFace || hasKeys) && !blocked && !waiting && !underReview;
   const canWithdraw = record.consent.status === 'GIVEN';
@@ -258,6 +255,9 @@ function BiometricsActions({ record, employeeStatus, currentUserId }: Biometrics
     }
     setMistake(null);
     switch (open) {
+      case 'unblock':
+        unblock.mutate({ ...pathParams, body: { reason: trimmed } });
+        return;
       case 'revoke':
         revoke.mutate({ ...pathParams, body: { reason: trimmed } });
         return;
@@ -277,19 +277,19 @@ function BiometricsActions({ record, employeeStatus, currentUserId }: Biometrics
 
   return (
     <div className="grid gap-3 border-t pt-4">
-      {askedByMe && (
-        <p className="text-muted-foreground text-sm">
-          You asked for this exemption, so another administrator must decide it after checking the
-          worker's Ghana Card in person.
-        </p>
-      )}
       {blocked && (
         <p className="text-muted-foreground text-sm">
-          This record was found to be a duplicate of another person's. It can only be terminated.
+          This record was found to be a duplicate of another person's. Lift the block to enrol it
+          again from scratch, or end the employment.
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        {waiting && !askedByMe && (
+        {blocked && (
+          <Button variant="outline" onClick={() => start('unblock')} aria-disabled={pending}>
+            Lift the block
+          </Button>
+        )}
+        {waiting && (
           <Button variant="outline" onClick={() => start('decide')} aria-disabled={pending}>
             Decide the exemption
           </Button>
@@ -399,8 +399,10 @@ const formIntro: Record<PanelAction, string> = {
   revoke:
     'The stored face is wiped at once and every fingerprint key is switched off. The worker must be enrolled again, and any approved exemption ends.',
   withdraw:
-    'The face is wiped and the keys are switched off, as the law requires. If the worker was active, the API files an exemption request for a different administrator to decide.',
-  ask: 'This only asks. A second administrator checks the worker’s Ghana Card in person and approves or rejects it. Until then, consent and enrollment are refused.',
+    'The face is wiped and the keys are switched off, as the law requires. The worker goes back to waiting for enrolment: enrol them again, or ask for and approve an exemption.',
+  ask: 'This only asks. An administrator checks the worker’s Ghana Card in person and approves or rejects it. Until then, consent and enrolment are refused.',
+  unblock:
+    'The block is lifted. The wiped face does not come back: the worker is enrolled again from scratch, and the duplicate check runs again on the new face.',
   decide:
     'Check the worker’s Ghana Card in person first. Approving lets them work without biometrics; every shift is then flagged for review.',
 };
@@ -410,4 +412,5 @@ const submitLabels: Record<PanelAction, string> = {
   withdraw: 'Record the withdrawal',
   ask: 'Send the request',
   decide: 'Record the decision',
+  unblock: 'Lift the block',
 };

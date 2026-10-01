@@ -69,22 +69,9 @@ function freshCopies() {
 }
 
 let { biometrics, collisions } = freshCopies();
-/** Who revoked or withdrew each worker's face: they may never decide that worker's questions. */
-let wipedBy = new Map<string, Set<string>>();
 
 export function resetMockBiometrics(): void {
   ({ biometrics, collisions } = freshCopies());
-  wipedBy = new Map();
-}
-
-function rememberWiper(employeeId: string, user: CurrentUser) {
-  const wipers = wipedBy.get(employeeId) ?? new Set<string>();
-  wipers.add(user.id);
-  wipedBy.set(employeeId, wipers);
-}
-
-function wipedAFaceOf(employeeId: string, user: CurrentUser) {
-  return wipedBy.get(employeeId)?.has(user.id) ?? false;
 }
 
 /** Switching a kiosk's fingerprints off revokes every key saved on it (the devices mock calls this). */
@@ -209,14 +196,7 @@ function endExemption(record: EmployeeBiometrics) {
   }
 }
 
-/** Whether this user enrolled a face for this worker (the mock knows it only for faces that collided). */
-function enrolledAFaceFor(employeeId: string, user: CurrentUser) {
-  return collisions.some(
-    (collision) => collision.employee.id === employeeId && collision.enrolledByUserId === user.id,
-  );
-}
-
-/** A second ADMIN cleared this face. A face wiped in the meantime stays wiped. */
+/** An administrator cleared this face. A face wiped in the meantime stays wiped. */
 function clearFace(record: EmployeeBiometrics | undefined) {
   if (!record) return;
   const usable = record.face.status === 'PENDING';
@@ -274,22 +254,39 @@ export const biometricHandlers = [
       if (bad) return bad;
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
-      // A revoke can never wipe away a question that a second ADMIN must
-      // answer (an open review, or an exemption request waiting), nor undo a
-      // block, which is final.
+      // A revoke can never wipe away an open question (an open review, or an
+      // exemption request waiting), nor undo a block: lift the block first.
       if (
         openCollisionOf(found.employee.id) ||
         found.record.exemption?.status === 'REQUESTED' ||
         found.record.face.status === 'BLOCKED'
       ) {
         return conflict(
-          'This worker has an open question for a second ADMIN, or is blocked as a duplicate.',
+          'This worker has an open question to decide first, or is blocked as a duplicate.',
         );
       }
       wipe(found.record);
-      rememberWiper(found.employee.id, user);
-      // An approved exemption ends too, so working without a face needs two ADMINs again.
+      // An approved exemption ends too, so working without a face needs a new one.
       endExemption(found.record);
+      return HttpResponse.json<EmployeeBiometrics>(found.record);
+    },
+  ),
+
+  http.post<{ employeeId: string }, Body, OrProblem<EmployeeBiometrics>>(
+    apiUrl('/employees/:employeeId/biometrics/unblock'),
+    async ({ params, request }) => {
+      const { user, refused } = signedInAs(request, ['ADMIN']);
+      if (refused) return refused;
+      const body: Body = await request.json();
+      const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
+      if (bad) return bad;
+      const found = visibleEmployee(user, params.employeeId);
+      if (!found.record) return found.problem;
+      if (found.record.face.status !== 'BLOCKED') {
+        return conflict('This record is not blocked.');
+      }
+      // The wiped face never comes back; the block becomes a plain revocation.
+      found.record.face = { ...found.record.face, status: 'REVOKED' };
       return HttpResponse.json<EmployeeBiometrics>(found.record);
     },
   ),
@@ -316,7 +313,7 @@ export const biometricHandlers = [
           'Only a worker waiting for enrollment, with no face, no open question and no exemption yet, can be exempted.',
         );
       }
-      // This only asks: a second ADMIN must approve it.
+      // This only asks: deciding is a separate step, by any administrator.
       found.record.exemption = {
         status: 'REQUESTED',
         reason: body.reason as RequestExemptionRequest['reason'],
@@ -345,14 +342,6 @@ export const biometricHandlers = [
       const found = visibleEmployee(user, params.employeeId);
       if (!found.record) return found.problem;
       const exemption = found.record.exemption;
-      // Never the asker, anyone who enrolled a face for this worker, or anyone who wiped one.
-      if (
-        exemption?.requestedByUserId === user.id ||
-        enrolledAFaceFor(found.employee.id, user) ||
-        wipedAFaceOf(found.employee.id, user)
-      ) {
-        return forbidden();
-      }
       if (exemption?.status !== 'REQUESTED') {
         return conflict('There is no request waiting for a decision.');
       }
@@ -385,32 +374,15 @@ export const biometricHandlers = [
         return conflict('There is no consent to withdraw.');
       }
       const now = new Date().toISOString();
-      // Only an ACTIVE face has passed the duplicate check.
-      const passedCheck = found.record.face.status === 'ACTIVE';
       wipe(found.record);
       found.record.consent = {
         status: 'WITHDRAWN',
         textVersion: found.record.consent.textVersion,
         at: now,
       };
-      rememberWiper(found.employee.id, user);
-      // A wiped face is out of the duplicate check, so a second ADMIN must
-      // vouch for the worker before they work without it: the API files the
-      // request. (The real API also moves the worker back to
-      // PENDING_ENROLLMENT until then.) An open review stays open, and
-      // withdrawing never activates anyone.
-      const alreadyExempt = found.record.exemption?.status === 'APPROVED';
-      if (passedCheck && found.employee.status === 'ACTIVE' && !alreadyExempt) {
-        found.record.exemption = {
-          status: 'REQUESTED',
-          reason: 'CONSENT_WITHDRAWN',
-          note: body.reason as string,
-          requestedAt: now,
-          requestedByUserId: user.id,
-          reviewedAt: null,
-          reviewedByUserId: null,
-        };
-      }
+      // Nothing else is filed: an administrator asks for an exemption as a
+      // separate step if the worker is to work without a face. (The real API
+      // moves an active worker back to PENDING_ENROLLMENT.)
       return HttpResponse.json<EmployeeBiometrics>(found.record);
     },
   ),
@@ -466,12 +438,6 @@ export const biometricHandlers = [
           'Must be one of the two records in this collision.',
         );
       }
-      // Never the ADMIN who enrolled this face, nor anyone who wiped a face of either record.
-      const conflicted =
-        collision.enrolledByUserId === user.id ||
-        wipedAFaceOf(collision.employee.id, user) ||
-        wipedAFaceOf(collision.lookedLike.id, user);
-      if (conflicted) return forbidden();
       if (collision.status !== 'OPEN') return conflict('This collision has already been decided.');
 
       collision.status = 'RESOLVED';

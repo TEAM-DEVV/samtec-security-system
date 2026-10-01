@@ -27,7 +27,7 @@ export const consentStatusLabels: Record<BiometricConsentStatus, string> = {
 
 export const faceStatusLabels: Record<FaceStatus, string> = {
   NONE: 'No face enrolled',
-  PENDING: 'Waiting for a second administrator',
+  PENDING: 'Waiting for review on the dashboard',
   ACTIVE: 'In use',
   BLOCKED: 'Blocked as a duplicate',
   REVOKED: 'Wiped',
@@ -36,12 +36,12 @@ export const faceStatusLabels: Record<FaceStatus, string> = {
 export const dedupeLabels: Record<DedupeResult, string> = {
   PASSED: 'Looks like nobody else',
   COLLISION: 'Looks like someone already enrolled',
-  CLEARED: 'Cleared by a second administrator',
+  CLEARED: 'Cleared by an administrator',
   NOT_CHECKED: 'Not checked (enrolled on a terminal)',
 };
 
 export const exemptionStatusLabels: Record<ExemptionStatus, string> = {
-  REQUESTED: 'Waiting for a second administrator',
+  REQUESTED: 'Waiting for a decision',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
   ENDED: 'Ended',

@@ -76,21 +76,6 @@ export function monthName(year: number, month: number): string {
   }).format(at);
 }
 
-/**
- * Whether this person may decide about this run.
- *
- * The rule the whole phase exists for: whoever calculated or submitted a run
- * may never approve or reject it. The API refuses it and so does the database,
- * but the screen should not offer a button that cannot work — and it should say
- * why, rather than hiding it and leaving somebody wondering.
- */
-export function mayDecide(
-  run: { calculatedByUserId: string; submittedByUserId: string | null },
-  userId: string,
-): boolean {
-  return run.calculatedByUserId !== userId && run.submittedByUserId !== userId;
-}
-
 /** Whether this person is the one who prepared the run, and so the one to submit it. */
 export function isTheMaker(run: { calculatedByUserId: string }, userId: string): boolean {
   return run.calculatedByUserId === userId;

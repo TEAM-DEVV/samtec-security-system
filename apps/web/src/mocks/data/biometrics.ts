@@ -109,8 +109,8 @@ if (refuser) {
   }
 }
 
-// A working guard who withdrew consent: the face is wiped, and a second ADMIN
-// (the mock admin) approved the exemption the API filed for them.
+// A working guard who withdrew consent: the face is wiped, and an
+// administrator asked for and approved an exemption for them.
 const withdrawer = enrolledPeople[5];
 if (withdrawer) {
   const record = mockBiometrics.find((row) => row.employeeId === withdrawer.id);

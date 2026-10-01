@@ -13,12 +13,7 @@ import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, User } from '../../generated/prisma/client.js';
 import { EmployeesService } from '../workforce/employees.service.js';
-import {
-  accountStatus,
-  awaitsAdminConfirmation,
-  employeeLinkProblem,
-  mayUseAccount,
-} from './account-rules.js';
+import { accountStatus, employeeLinkProblem, mayUseAccount } from './account-rules.js';
 import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { SignInThrottleService } from './sign-in-throttle.service.js';
@@ -37,12 +32,11 @@ import type { CreateUserBody, ListUsersQuery, UpdateUserBody } from './users.sch
  *    changing the role or link, resetting — so the person's next request is
  *    refused and a newly promoted ADMIN or HR_PAYROLL must sign in again with
  *    two-factor authentication.
- * 4. **An ADMIN account takes two administrators** (Phase 7, docs/plan/06
- *    "Two administrators"). Creating one, promoting to one, resetting one or
- *    switching one back on leaves it waiting, unusable, until a different
- *    administrator confirms it — so one person cannot quietly give
- *    themselves a second administrator account to be "the other person" in
- *    every two-person rule. Taking power away needs nobody else.
+ * 4. **An administrator acts alone** (issue #99, docs/plan/06 "One
+ *    administrator, with a password"). Creating, promoting, resetting or
+ *    switching on an ADMIN account needs nobody else: who did it, and when,
+ *    is written down with the account and in the audit log, and the
+ *    dashboard asks for the administrator's own password first.
  */
 @Injectable()
 export class UsersService {
@@ -142,8 +136,8 @@ export class UsersService {
             'This account changed a moment ago. Load it again and retry.',
           );
         }
-        // Becoming an ADMIN waits for a second administrator; leaving the
-        // role clears the record, which the database insists on.
+        // Becoming an ADMIN writes down who did it; leaving the role clears
+        // the record, which the database insists on.
         const promoted = role === 'ADMIN' && target.role !== 'ADMIN';
         const hold = promoted ? await this.adminHold(tx, viewer, target.id) : undefined;
 
@@ -226,14 +220,10 @@ export class UsersService {
       if (target.isActive) {
         throw new ConflictException('This account is already switched on.');
       }
-      // An old ADMIN account coming back is an administrator appearing: it
-      // waits for a second one like a new account does. An account **already**
-      // waiting keeps the name of whoever put it there, or switching it off
-      // and on again would quietly hand the confirmation to somebody new.
+      // An old ADMIN account coming back is an administrator appearing, so
+      // who switched it on is written down, like for a new account.
       const hold =
-        target.role === 'ADMIN' && !awaitsAdminConfirmation(target)
-          ? await this.adminHold(tx, viewer, target.id, true)
-          : undefined;
+        target.role === 'ADMIN' ? await this.adminHold(tx, viewer, target.id, true) : undefined;
       const updated = await tx.user.update({
         where: { id: target.id },
         data: { isActive: true, ...hold?.columns },
@@ -266,16 +256,10 @@ export class UsersService {
       if (!target.isActive) {
         throw new ConflictException('This account is switched off. Reactivate it first.');
       }
-      // Whoever holds the new link holds the account, so a reset ADMIN waits
-      // for a second administrator too. An account already waiting keeps the
-      // name of whoever put it there: otherwise the administrator who created
-      // it could ask a colleague for an innocent "please resend the link", and
-      // that resend would make **them** the requester and free the creator to
-      // confirm their own account.
+      // Whoever holds the new link holds the account, so who reset an ADMIN
+      // account is written down with it.
       const hold =
-        target.role === 'ADMIN' && !awaitsAdminConfirmation(target)
-          ? await this.adminHold(tx, viewer, target.id, true)
-          : undefined;
+        target.role === 'ADMIN' ? await this.adminHold(tx, viewer, target.id, true) : undefined;
       const updated = await tx.user.update({
         where: { id: target.id },
         data: {
@@ -314,113 +298,38 @@ export class UsersService {
    * a plain message, and a database CHECK refuses them whatever the service
    * does.
    */
-  async confirmAdmin(viewer: SignedInUser, userId: string): Promise<UserAccount> {
-    assertNotSelf(viewer, userId, 'confirm');
-    return this.prisma.$transaction(async (tx) => {
-      const target = await this.lockForChange(tx, viewer, userId);
-      if (!target.isActive || !awaitsAdminConfirmation(target)) {
-        throw new ConflictException('This account is not waiting for a second administrator.');
-      }
-      if (target.adminRequestedByUserId === viewer.userId) {
-        throw new ConflictException(
-          'You made this change, so another administrator must confirm it.',
-        );
-      }
-      const updated = await tx.user.update({
-        where: { id: target.id },
-        data: { adminConfirmedByUserId: viewer.userId, adminConfirmedAt: new Date() },
-      });
-      await this.audit.record(
-        {
-          companyId: viewer.companyId,
-          actorUserId: viewer.userId,
-          action: 'user.admin_confirmed',
-          entityType: 'user',
-          entityId: target.id,
-        },
-        tx,
-      );
-      return toUserAccount(updated);
-    });
-  }
 
   // ---------------------------------------------------------------------------
 
   /**
-   * What an ADMIN account change writes: who asked and when, and sometimes an
-   * immediate confirmation naming nobody (docs/plan/06, rule 4).
-   *
-   * **That shortcut is only for a company gaining an administrator** — a new
-   * account or a promotion — while no other administrator account exists at
-   * all. Without it a one-administrator company could never get its second one
-   * except through the rescue script.
-   *
-   * It asks whether another ADMIN **row** exists, not whether one could sign
-   * in today. A brand-new administrator has no password yet; counting only
-   * those who can sign in would let one person create a second pre-confirmed
-   * account, then a third, without anybody else ever appearing.
-   *
-   * **It never applies to an account that is already an administrator.**
-   * Resetting one, or switching one back on, is exactly the move this rule
-   * exists to catch: in a company of two the other administrator is the one
-   * being changed, so counting only the requester would wave through
-   * precisely the case where one person ends up holding both accounts. Those
-   * wait for a third administrator, or for
-   * `pnpm --filter @samtec/api account:admin`, which needs database access.
-   *
-   * Callers take `lockAdministrators` (or `lockForChange`, which the
-   * administrators' rows include) first, so two administrators cannot each
-   * count the other as present while both are being changed.
+   * What an ADMIN account change writes: who made it and when, as both the
+   * request and its confirmation. Nobody else confirms it any more (issue
+   * #99): the administrator confirmed it with their own password on the
+   * dashboard, and the audit log keeps the record (docs/plan/06, rule 4).
    */
   private async adminHold(
-    tx: Prisma.TransactionClient,
+    _tx: Prisma.TransactionClient,
     viewer: SignedInUser,
-    targetId: string | null,
-    alreadyAnAdministrator = false,
+    _targetId: string | null,
+    _alreadyAnAdministrator = false,
   ): Promise<{
     columns: {
       adminRequestedByUserId: string;
       adminRequestedAt: Date;
-      adminConfirmedByUserId: null;
-      adminConfirmedAt: Date | null;
+      adminConfirmedByUserId: string;
+      adminConfirmedAt: Date;
     };
-    auditDetail: { adminConfirmation: 'AWAITING' | 'SOLE_ADMINISTRATOR' };
+    auditDetail: { adminConfirmation: 'NOT_REQUIRED' };
   }> {
     const now = new Date();
-    const administrators = await tx.user.findMany({
-      where: {
-        companyId: viewer.companyId,
-        role: 'ADMIN',
-        ...(targetId ? { id: { not: targetId } } : {}),
-      },
-      select: { id: true },
-    });
-    // **Does another administrator's row exist**, not "can another one sign
-    // in right now" — and not "is another one switched on" either. Asking
-    // about sign-in readiness let the shortcut fire twice over: a brand-new
-    // administrator has no password yet, so they would not count, and the
-    // same person could mint a second pre-confirmed account, and a third,
-    // without anybody else ever appearing. Counting only the switched-on ones
-    // left the same hole one step further back: switching an administrator
-    // off needs nobody's approval, so A could deactivate B, be counted as the
-    // only administrator, and hand themselves a second pre-confirmed account
-    // together with its one-time link. A deactivated administrator still
-    // blocks the shortcut; the honest way out of a company with genuinely one
-    // administrator is the `account:admin` script, which needs the database.
-    const soleAdministrator =
-      !alreadyAnAdministrator &&
-      administrators.length === 1 &&
-      administrators[0]?.id === viewer.userId;
     return {
       columns: {
         adminRequestedByUserId: viewer.userId,
         adminRequestedAt: now,
-        adminConfirmedByUserId: null,
-        adminConfirmedAt: soleAdministrator ? now : null,
+        adminConfirmedByUserId: viewer.userId,
+        adminConfirmedAt: now,
       },
-      auditDetail: {
-        adminConfirmation: soleAdministrator ? 'SOLE_ADMINISTRATOR' : 'AWAITING',
-      },
+      auditDetail: { adminConfirmation: 'NOT_REQUIRED' },
     };
   }
 
@@ -457,9 +366,8 @@ export class UsersService {
     viewer: SignedInUser,
     targetId: string,
   ): Promise<User> {
-    // Every administrator's row as well as the two involved: an ADMIN change
-    // counts the company's administrators (`adminHold`), and that count must
-    // not move underneath it while the change is being made.
+    // Every administrator's row as well as the two involved, so two changes
+    // to the company's administrators never cross each other.
     await tx.$queryRaw`SELECT id FROM users WHERE company_id = ${viewer.companyId}::uuid AND (id IN (${viewer.userId}::uuid, ${targetId}::uuid) OR role = 'ADMIN') ORDER BY id FOR UPDATE`;
     const actor = await tx.user.findUnique({ where: { id: viewer.userId } });
     if (!actor || !mayUseAccount(actor) || actor.role !== 'ADMIN') {

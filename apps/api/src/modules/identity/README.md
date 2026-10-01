@@ -24,15 +24,14 @@
 
 User management is its own Nest module (`users.module.ts`) only because it needs the workforce module to check employee links, while workforce already uses identity for the audit log. This keeps the imports one-way.
 
-## Two administrators (Phase 7)
+## One administrator, with a password
 
-An ADMIN account that was created, promoted, reset or switched back on waits
-for a **second** administrator before it can be used at all
-(`awaitsAdminConfirmation` in `account-rules.ts`, which `mayUseAccount` already
-asks, so sign-in, refresh and every request refuse it alike). The second half
-is `POST /users/{id}/confirm-admin`. The rules, including the one shortcut for
-a company gaining its first second administrator, are in docs/plan/06,
-"Two administrators".
+An ADMIN account that is created, promoted, reset or switched back on is
+usable as soon as its password is set: nobody else confirms it. Who made the
+change, and when, is written on the account (`adminRequested*` and
+`adminConfirmed*` name the same person) and in the audit log. The dashboard
+asks the administrator for their own password before such a change. The rule
+is in docs/plan/06, "One administrator, with a password".
 
 ## Rules that must hold
 

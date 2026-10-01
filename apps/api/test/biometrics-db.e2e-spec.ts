@@ -428,17 +428,12 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       ).rejects.toThrow(/biometric_credentials_decision_valid/);
     });
 
-    it('are never made by the ADMIN who enrolled the face', async () => {
+    it('start held, PENDING, with the collision recorded', async () => {
       const row = await collision(company.active.id, company.supervisorEmployeeId);
-      await expect(
-        prisma.biometricCredential.update({
-          where: { id: row.id },
-          data: { ...decision('DIFFERENT_PEOPLE', ENROLLER), dedupe: 'CLEARED', status: 'ACTIVE' },
-        }),
-      ).rejects.toThrow();
+      expect(row.status).toBe('PENDING');
+      expect(row.dedupe).toBe('COLLISION');
     });
-
-    it('record who, when and why together, and are final once made', async () => {
+    it('record who, when and why together, are final once made, and may be made by whoever enrolled the face', async () => {
       const row = await prisma.biometricCredential.findFirstOrThrow({
         where: { employeeId: company.active.id, status: 'PENDING' },
       });
@@ -454,9 +449,10 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
           },
         }),
       ).rejects.toThrow(/biometric_credentials_decision_valid/);
+      // The administrator who enrolled the face decides it (issue #99).
       await prisma.biometricCredential.update({
         where: { id: row.id },
-        data: { ...decision('DIFFERENT_PEOPLE'), dedupe: 'CLEARED', status: 'ACTIVE' },
+        data: { ...decision('DIFFERENT_PEOPLE', ENROLLER), dedupe: 'CLEARED', status: 'ACTIVE' },
       });
       await expect(
         prisma.biometricCredential.update({
@@ -466,7 +462,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       ).rejects.toThrow(/final/);
     });
 
-    it('make SAME_PERSON name one of the two records, and block the other for good', async () => {
+    it('make SAME_PERSON name one of the two records, and block the other', async () => {
       // The leaver enrolls again (their earlier face is wiped first, one face at
       // a time) and looks like the supervisor, whose older record is the real one.
       const lookalike = await prisma.biometricCredential.findFirstOrThrow({
@@ -503,11 +499,11 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
           status: 'BLOCKED',
         },
       });
-      // Nothing turns a block back: not a revoke, not a return to use.
+      // A blocked face never returns to use.
       await expect(
         prisma.biometricCredential.update({
           where: { id: duplicate.id },
-          data: { status: 'REVOKED' },
+          data: { status: 'ACTIVE' },
         }),
       ).rejects.toThrow(/can never become/);
     });
@@ -892,7 +888,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       await expect(faceWithConsent(third.id, tied as string)).rejects.toThrow(notStanding);
     });
 
-    it('give nothing live to a record blocked as a duplicate', async () => {
+    it('give nothing live to a record blocked as a duplicate, until an administrator lifts the block', async () => {
       // The leaver's record lost a SAME_PERSON decision above.
       const blocked = company.leaver.id;
       const standing = await prisma.biometricConsent.findFirstOrThrow({
@@ -922,6 +918,17 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
           recordedByUserId: ENROLLER,
         },
       });
+      // Lifting the block (issue #99): the blocked face becomes a plain
+      // revoked one, still wiped, and the record may be given things again.
+      const blockedFace = await prisma.biometricCredential.findFirstOrThrow({
+        where: { employeeId: blocked, kind: 'FACE', status: 'BLOCKED' },
+      });
+      const lifted = await prisma.biometricCredential.update({
+        where: { id: blockedFace.id },
+        data: { status: 'REVOKED' },
+      });
+      expect(lifted.wipedAt).not.toBeNull();
+      await consent(blocked);
     });
   });
 
@@ -933,14 +940,14 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
       reviewNote: 'Ghana Card checked in person.',
     });
 
-    it('are never decided by the ADMIN who asked', async () => {
+    it('may be decided by the ADMIN who asked', async () => {
       const row = await exemptionRequest(company.active.id);
-      await expect(
-        prisma.biometricExemption.update({ where: { id: row.id }, data: review(ENROLLER) }),
-      ).rejects.toThrow();
-      await prisma.biometricExemption.update({ where: { id: row.id }, data: review(REVIEWER) });
+      const decided = await prisma.biometricExemption.update({
+        where: { id: row.id },
+        data: review(ENROLLER),
+      });
+      expect(decided.reviewedByUserId).toBe(ENROLLER);
     });
-
     it('allow one request waiting or approved per employee', async () => {
       await expect(exemptionRequest(company.active.id)).rejects.toThrow();
     });
