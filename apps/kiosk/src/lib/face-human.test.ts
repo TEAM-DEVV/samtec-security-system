@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readingIsLive, readingIsUsable } from './face';
-import { type DetectedFace, readingFrom } from './face-human';
+import { type DetectedFace, humanConfig, readingFrom } from './face-human';
 
 /**
  * The pure half of the real engine: Human's answer for one frame, turned into
@@ -73,5 +73,30 @@ describe('readingFrom', () => {
     expect(shapeless.problem).toContain('could not be measured');
     const missing = readingFrom([aFace({ embedding: undefined as unknown as number[] })]);
     expect(missing.sample).toBeNull();
+  });
+});
+
+describe('humanConfig', () => {
+  const config = humanConfig('/models');
+
+  it('measures every frame afresh, so a sample is never an older frame', () => {
+    // A reused measurement sent the face of a turned head as the "look
+    // straight" sample, and a stranger clocked in as somebody else.
+    expect(config.cacheSensitivity).toBe(0);
+    for (const model of [
+      config.face.detector,
+      config.face.description,
+      config.face.antispoof,
+      config.face.liveness,
+    ]) {
+      expect(model.skipFrames).toBe(0);
+      expect(model.skipTime).toBe(0);
+    }
+  });
+
+  it('loads the models from this app only, and feeds them the unfiltered image', () => {
+    expect(config.modelBasePath).toBe('/models');
+    expect(config.filter.enabled).toBe(false);
+    expect(config.face.description.modelPath).toBe('faceres.json');
   });
 });

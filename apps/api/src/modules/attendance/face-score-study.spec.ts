@@ -8,11 +8,11 @@ import {
   DEFAULT_SHAPE,
   lookalikePairsIn,
   makeStudySet,
-  offsetForScore,
   scoreAttempts,
   separation,
   studyFromPilot,
   summarise,
+  turnedFrom,
   verdictFor,
 } from './face-score-study.js';
 import { FACE_THRESHOLDS } from './face-thresholds.js';
@@ -22,23 +22,22 @@ function sampleOf(embedding: number[]) {
   return { embedding, model: FACE_THRESHOLDS.model, real: 0.9, live: 0.9 };
 }
 
-describe('offsetForScore', () => {
-  it('produces a pair of templates that really score what was asked for', () => {
-    for (const wanted of [0.35, 0.5, 0.6, 0.78, 0.95]) {
-      const offset = offsetForScore(wanted);
-      const first = Array.from({ length: FACE_THRESHOLDS.embeddingLength }, (_v, i) =>
-        Math.sin(i / 7),
-      );
-      // Alternating signs, so the difference is not a flat shift of the list.
-      const second = first.map((value, i) => value + (i % 2 === 0 ? offset : -offset));
-      expect(similarity(first, second)).toBeCloseTo(wanted, 6);
+describe('turnedFrom', () => {
+  const base = Array.from({ length: FACE_THRESHOLDS.embeddingLength }, (_v, i) => Math.sin(i / 7));
+  // Uneven, and partly along `base` on purpose: that part must be removed.
+  const noise = base.map((value, i) => 0.3 * value + Math.cos(i * 0.37) * (1 + (i % 5)));
+
+  it('produces a face that really scores what was asked for', () => {
+    for (const wanted of [0, 0.35, 0.5, 0.7, 0.8, 0.95, 1]) {
+      expect(similarity(base, turnedFrom(base, wanted, noise))).toBeCloseTo(wanted, 10);
     }
   });
 
-  it('spans the whole score band, from touching to nothing alike', () => {
-    // Under ft-2 only identical numbers score 1, so the band starts at zero offset.
-    expect(offsetForScore(1)).toBeCloseTo(0, 6);
-    expect(offsetForScore(0)).toBeCloseTo(0.5, 6);
+  it('keeps asked-for scores inside the band, and makes faces of length 1', () => {
+    expect(similarity(base, turnedFrom(base, 1.5, noise))).toBeCloseTo(1, 10);
+    expect(similarity(base, turnedFrom(base, -0.5, noise))).toBeCloseTo(0, 10);
+    const face = turnedFrom(base, 0.6, noise);
+    expect(Math.hypot(...face)).toBeCloseTo(1, 10);
   });
 });
 
@@ -59,12 +58,13 @@ describe('makeStudySet', () => {
   });
 
   it('comes out a little under its targets once it spreads, and by how much', () => {
-    // The targets are hit exactly at spread 0 (the test above). Above that a
-    // score is a square root of a spread-out distance, so the spread of scores
-    // is lop-sided and its low tail is cut off at 0 — the different-person
-    // average lands under its target, and further under as the spread grows.
-    // The report quotes measured means, never the targets; this pins the gap so
-    // it cannot grow quietly, at the two spreads the report actually uses.
+    // The targets are hit at spread 0 (the test above). Above that, each angle
+    // is stretched or shrunk at random, and a stretched angle loses more score
+    // than a shrunk one gains — so the averages land under their targets, and
+    // further under as the spread grows. Strangers, far apart to begin with,
+    // lose the most. The report quotes measured means, never the targets; this
+    // pins the gap so it cannot grow quietly, at the two spreads the report
+    // actually uses.
     const measured = (spread: number) => {
       const scores = collectScores(makeStudySet({ ...DEFAULT_SHAPE, spread }));
       return {
@@ -82,7 +82,7 @@ describe('makeStudySet', () => {
     expect(hard.different).toBeGreaterThan(DEFAULT_SHAPE.differentScore - 0.14);
 
     // The same-person target survives the spread far better than the
-    // different-person one, because it sits far from the floor at 0.
+    // different-person one, because its angle is small to begin with.
     expect(DEFAULT_SHAPE.sameScore - hard.same).toBeLessThan(
       DEFAULT_SHAPE.differentScore - hard.different,
     );
@@ -95,7 +95,7 @@ describe('makeStudySet', () => {
   });
 
   it('places look-alike pairs close together, so the lead rule is exercised at all', () => {
-    const shape = { ...DEFAULT_SHAPE, people: 8, lookalikePairs: 2, lookalikeScore: 0.68 };
+    const shape = { ...DEFAULT_SHAPE, people: 8, lookalikePairs: 2 };
     const people = makeStudySet(shape);
     expect(lookalikePairsIn(shape)).toEqual([
       ['employee-1', 'employee-2'],
@@ -106,8 +106,9 @@ describe('makeStudySet', () => {
       people[0]?.enrolled as number[],
       people[5]?.enrolled as number[],
     );
-    expect(pairScore).toBeGreaterThan(0.55);
-    expect(pairScore).toBeGreaterThan(strangerScore + 0.2);
+    // Close enough to clock in as each other, which is the point.
+    expect(pairScore).toBeGreaterThan(FACE_THRESHOLDS.match - 0.05);
+    expect(pairScore).toBeGreaterThan(strangerScore + 0.3);
   });
 
   it('asks for no more pairs than there are people to pair', () => {

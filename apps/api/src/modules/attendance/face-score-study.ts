@@ -27,19 +27,32 @@ import { type KnownFace, similarity } from './face-match.js';
 import { FACE_THRESHOLDS } from './face-thresholds.js';
 
 /**
- * Human's formula, turned around: the per-number difference between two
- * templates that scores exactly `score`.
+ * A face that scores exactly `score` against `base`, turned away from it in
+ * the direction of `noise`.
  *
- * The formula is `similarity = (1 - sqrt(25 * sum of squared differences) / 100 - 0.2) / 0.8`, so
- * `sqrt(sum of squared differences) = 16 - 16 * score`, and spreading that evenly over the
- * template's numbers gives the difference each one carries. It is why a
- * 1,024-number template only ever scores between 0 and 1 for per-number
- * differences between 0 and 0.5 — a fact that has caught out more than one
- * test written with made-up vectors.
+ * Faces are compared by angle (`ft-3`), so "how alike" means "how far turned
+ * apart". The result is `score × base + √(1 − score²) × noise`, after `noise`
+ * has lost any part that runs along `base` and both have been made length 1.
+ * That makes the score exactly `score` whatever the noise happened to be,
+ * which a stand-in needs — otherwise its targets drift with the seed.
  */
-export function offsetForScore(score: number, length = FACE_THRESHOLDS.embeddingLength): number {
-  const totalOffset = 16 - 16 * Math.min(1, Math.max(0, score));
-  return totalOffset / Math.sqrt(length);
+export function turnedFrom(
+  base: readonly number[],
+  score: number,
+  noise: readonly number[],
+): number[] {
+  const wanted = Math.min(1, Math.max(0, score));
+  const along = unit(base);
+  const shared = noise.reduce((total, value, i) => total + value * (along[i] as number), 0);
+  const across = unit(noise.map((value, i) => value - shared * (along[i] as number)));
+  const aside = Math.sqrt(1 - wanted * wanted);
+  return along.map((value, i) => wanted * value + aside * (across[i] as number));
+}
+
+/** The same list, scaled to length 1. */
+function unit(values: readonly number[]): number[] {
+  const size = Math.sqrt(values.reduce((total, value) => total + value * value, 0));
+  return size === 0 ? values.map(() => 0) : values.map((value) => value / size);
 }
 
 /** One person in the study: the face they enrolled, and later captures of them. */
@@ -57,18 +70,14 @@ export interface StudyPerson {
 /**
  * How a stand-in study set is shaped.
  *
- * The three scores are **targets**, not promises. They are hit exactly when
- * `spread` is 0; above that they come out a little low, and the
- * different-person target comes out lowest of all. The reason is worth knowing,
- * because a reader of the report will ask: `spread` varies the *distance*
- * between templates, and a score is a square root of that distance, so an even
- * spread of distances gives a lop-sided spread of scores. The low tail is then
- * cut off at 0, which is the formula's floor, and the average of what is left
- * sits below the target. At `spread` 0.28 the different-person average lands
- * around 0.19 for a target of 0.30.
+ * The scores are **targets**. At `spread` 0 they are hit almost exactly (two
+ * random lists of 1,024 numbers are never quite at right angles, so a
+ * hundredth or two either way remains). Above 0 each person and each capture
+ * is turned a little more or a little less than the target, so the scores
+ * fan out around it — which is the point of the exercise.
  *
- * So the report quotes **what a run measured**, never these targets, and the
- * test beside this file pins the gap at the spreads the report actually uses.
+ * The report quotes **what a run measured**, never these targets, and the
+ * test beside this file pins how far the two can be apart.
  */
 export interface StudyShape {
   people: number;
@@ -83,18 +92,18 @@ export interface StudyShape {
   /**
    * How widely capture quality and facial likeness vary, 0 to 1. This is what
    * makes the two score distributions overlap, which is the whole question the
-   * report answers. 0 would give two perfect spikes and prove nothing.
+   * report answers. 0 would give two tight clusters and prove nothing.
    */
   spread: number;
   /**
    * How many pairs of people are deliberately placed close together, as real
    * look-alikes and siblings are.
    *
-   * Without these the stand-in cannot produce a near-miss at all: spread evenly
-   * over 1,024 numbers, a random stranger practically never beats your own
-   * enrolled face, so the lead rule would never be exercised and a report
-   * saying "nobody was ever matched to the wrong person" would be measuring
-   * the generator, not the thresholds.
+   * Without these the stand-in cannot produce a near-miss at all: a random
+   * stranger practically never beats your own enrolled face, so the lead
+   * rule would never be exercised and a report saying "nobody was ever
+   * matched to the wrong person" would be measuring the generator, not the
+   * thresholds.
    */
   lookalikePairs: number;
   /** How closely a look-alike pair scores. Above `match` on purpose. */
@@ -105,12 +114,12 @@ export interface StudyShape {
 export const DEFAULT_SHAPE: StudyShape = {
   people: 40,
   capturesEach: 5,
-  sameScore: 0.8,
-  differentScore: 0.3,
-  frameScore: 0.88,
+  sameScore: 0.88,
+  differentScore: 0.4,
+  frameScore: 0.95,
   spread: 0.15,
   lookalikePairs: 2,
-  lookalikeScore: 0.68,
+  lookalikeScore: 0.84,
   seed: 20260925,
 };
 
@@ -135,32 +144,39 @@ function bellCurve(next: () => number): number {
   return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * next());
 }
 
-/** A list of `length` numbers whose typical size is `rms`, with uneven values. */
-function offsetVector(next: () => number, length: number, rms: number): number[] {
-  const raw = Array.from({ length }, () => bellCurve(next));
-  // Scale the list so its root-mean-square is exactly `rms`, whatever the draw
-  // happened to be. Without this the target score drifts with the seed.
-  const size = Math.sqrt(raw.reduce((sum, value) => sum + value * value, 0) / length);
-  const factor = size === 0 ? 0 : rms / size;
-  return raw.map((value) => value * factor);
+/** A list of `length` uneven random numbers, pointing in a random direction. */
+function randomFace(next: () => number, length: number): number[] {
+  return Array.from({ length }, () => bellCurve(next));
 }
 
 /**
  * A factor around 1, for varying capture quality and facial likeness. It never
- * drops below half, because a person at a quarter of the normal distance from
- * everybody else is not a look-alike, it is a twin — and a stand-in that
- * invents twins makes the thresholds look worse than any real crowd would.
+ * drops below half, because a person turned only a quarter as far from
+ * everybody else as usual is not a look-alike, it is a twin — and a stand-in
+ * that invents twins makes the thresholds look worse than any real crowd would.
  */
 function variation(next: () => number, spread: number): number {
   return Math.max(0.5, 1 + bellCurve(next) * spread);
 }
 
+/** `score`, with the angle it stands for stretched or shrunk by `factor`. */
+function varied(score: number, factor: number): number {
+  return Math.cos(Math.min(Math.PI / 2, Math.acos(Math.min(1, Math.max(0, score))) * factor));
+}
+
 /**
- * Builds a stand-in study set. People are placed apart from each other and
- * their captures jittered around them, so the scores that come out are
- * consistent: if two captures of one person are close, every other comparison
- * of those two is close too. That is what makes 1:N identification on this set
- * mean anything.
+ * Builds a stand-in study set. People are turned apart from each other and
+ * their captures turned a little away from them, so the scores that come out
+ * are consistent: if two captures of one person are close, every other
+ * comparison of those two is close too. That is what makes 1:N identification
+ * on this set mean anything.
+ *
+ * The arithmetic: two faces each turned from a common one, by angles whose
+ * cosines are `x` and `y`, in unrelated directions, score about `x × y` with
+ * each other. So each capture is turned `√sameScore` from its person, and
+ * two captures of one person meet at `sameScore`; each person is turned
+ * `√(differentScore ÷ sameScore)` from the crowd, and two people's captures
+ * meet at `differentScore`.
  */
 export function makeStudySet(shape: StudyShape = DEFAULT_SHAPE): StudyPerson[] {
   if (!(shape.differentScore < shape.sameScore)) {
@@ -169,51 +185,38 @@ export function makeStudySet(shape: StudyShape = DEFAULT_SHAPE): StudyPerson[] {
   const length = FACE_THRESHOLDS.embeddingLength;
   const next = randomNumbers(shape.seed);
 
-  // Two captures of one person differ by the jitter of each, so one capture's
-  // jitter is the same-person offset divided by √2.
-  const captureJitter = offsetForScore(shape.sameScore, length) / Math.SQRT2;
-  const frameJitter = offsetForScore(shape.frameScore, length) / Math.SQRT2;
-  // Two people's captures differ by how far apart the people are *plus* both
-  // jitters, so the distance between people is what is left over.
-  const betweenPeople = Math.sqrt(
-    Math.max(0, offsetForScore(shape.differentScore, length) ** 2 - 2 * captureJitter ** 2),
-  );
+  const captureTurn = Math.sqrt(shape.sameScore);
+  const frameTurn = Math.sqrt(shape.frameScore);
+  const personTurn = Math.sqrt(shape.differentScore / shape.sameScore);
 
-  const crowd = offsetVector(next, length, 1);
-  // Everybody's own face first: half the gap each, so two people are
-  // `betweenPeople` apart on average. The factor is per person, so some people
-  // really do look more alike than others.
+  const crowd = randomFace(next, length);
+  // The factor is per person, so some people really do look more alike than
+  // others.
   const faces = Array.from({ length: shape.people }, () =>
-    offsetVector(next, length, (betweenPeople / Math.SQRT2) * variation(next, shape.spread)).map(
-      (value, i) => value + (crowd[i] as number),
-    ),
+    turnedFrom(crowd, varied(personTurn, variation(next, shape.spread)), randomFace(next, length)),
   );
 
-  // Then the look-alikes: the second of each pair is moved next to the first.
+  // Then the look-alikes: the second of each pair is turned close to the
+  // first, so that their captures meet at about `lookalikeScore`.
   const pairs = Math.min(
     Math.max(0, Math.trunc(shape.lookalikePairs)),
     Math.floor(shape.people / 2),
   );
-  const lookalikeGap = Math.sqrt(
-    Math.max(0, offsetForScore(shape.lookalikeScore, length) ** 2 - 2 * captureJitter ** 2),
-  );
+  const lookalikeTurn = Math.min(1, shape.lookalikeScore / shape.sameScore);
   for (let pair = 0; pair < pairs; pair += 1) {
     const first = faces[pair * 2] as number[];
-    const offset = offsetVector(next, length, lookalikeGap);
-    faces[pair * 2 + 1] = first.map((value, i) => value + (offset[i] as number));
+    faces[pair * 2 + 1] = turnedFrom(first, lookalikeTurn, randomFace(next, length));
   }
 
   return faces.map((face, index) => {
-    const capture = (jitter: number): number[] => {
-      const offset = offsetVector(next, length, jitter * variation(next, shape.spread));
-      return face.map((value, i) => value + (offset[i] as number));
-    };
+    const capture = (turn: number): number[] =>
+      turnedFrom(face, varied(turn, variation(next, shape.spread)), randomFace(next, length));
     return {
       employeeId: `employee-${index + 1}`,
       credentialId: `credential-${index + 1}`,
-      enrolled: capture(captureJitter),
-      captures: Array.from({ length: shape.capturesEach }, () => capture(captureJitter)),
-      frames: Array.from({ length: 3 }, () => capture(frameJitter)),
+      enrolled: capture(captureTurn),
+      captures: Array.from({ length: shape.capturesEach }, () => capture(captureTurn)),
+      frames: Array.from({ length: 3 }, () => capture(frameTurn)),
     };
   });
 }

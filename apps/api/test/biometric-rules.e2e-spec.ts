@@ -13,6 +13,7 @@ import {
 } from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
+import { faceAt } from './test-faces.js';
 
 /**
  * The people rules of Phase 3 on a real database (docs/plan/13 section 2):
@@ -75,7 +76,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
     return row.ghanaCardNumber.replace(/\D/g, '').slice(-4);
   };
 
-  /** Faces far enough apart to be different people (a step of 0.4 scores about 0.27). */
+  /** Faces far enough apart to be different people (test-faces.ts: levels 0.4 apart are strangers). */
   let faces = 0;
   const anotherFace = () => {
     faces += 1;
@@ -83,7 +84,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
   };
   const sampleAt = (level: number) => ({
     model: 'human-faceres-1',
-    embedding: Array.from({ length: 1024 }, () => level),
+    embedding: faceAt(level),
     real: 0.9,
     live: 0.9,
   });

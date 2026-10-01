@@ -1,7 +1,7 @@
 /**
  * The threshold report (docs/plan/13-biometrics-design.md section 7,
  * docs/guides/14-face-threshold-report.md): how far apart same-person and
- * different-person faces score, and what each of the five `ft-1` numbers
+ * different-person faces score, and what each of the shipped face numbers
  * would decide.
  *
  * It needs no database and no API. Everything it prints comes from the shipped
@@ -133,8 +133,10 @@ function printSeparation(): void {
   );
   console.log(
     `  shipped match                ${fixed(FACE_THRESHOLDS.match)}   ${
-      FACE_THRESHOLDS.match <= result.bestLine ? 'below' : 'above'
-    } the best line, which errs towards asking rather than guessing`,
+      FACE_THRESHOLDS.match <= result.bestLine
+        ? 'below the best line: it accepts a few closer calls, and leaves them to the lead rule'
+        : 'above the best line: it turns away a few honest scores rather than risk a stranger'
+    }`,
   );
   console.log();
 }
@@ -161,7 +163,7 @@ function printClockIn(): void {
 function printMatchTuning(): void {
   heading('5. What moving `match` would do');
   console.log('  match   matched  wrong  not sure  not recognised');
-  for (const match of [0.5, 0.55, 0.6, 0.65, 0.7, 0.8]) {
+  for (const match of [0.7, 0.75, 0.8, 0.85, 0.9]) {
     const counts = countVerdicts(attempts, match, FACE_THRESHOLDS.lead);
     const mark = match === FACE_THRESHOLDS.match ? ' <- shipped' : '';
     console.log(
@@ -210,7 +212,7 @@ function printLeadTuning(): void {
 function printEnrollment(): void {
   heading('7. Enrollment: catching a second enrollment of the same person');
   console.log('  duplicate  ghosts caught  strangers wrongly queried');
-  for (const duplicate of [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7]) {
+  for (const duplicate of [0.6, 0.65, 0.7, 0.75, 0.8]) {
     const counts = countDuplicates(people, duplicate);
     const mark = duplicate === FACE_THRESHOLDS.duplicate ? ' <- shipped' : '';
     console.log(

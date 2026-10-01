@@ -17,6 +17,7 @@ import {
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 import { FakeAuthenticator } from './fake-authenticator.js';
+import { faceAt } from './test-faces.js';
 
 /**
  * The finger, on the kiosk's own sensor (docs/plan/13 section 4): saving a
@@ -45,8 +46,6 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
 
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
-
-  const faceAt = (level: number) => Array.from({ length: 1024 }, () => level);
   const sampleAt = (level: number) => ({
     model: 'human-faceres-1',
     embedding: faceAt(level),

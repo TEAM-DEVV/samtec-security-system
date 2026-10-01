@@ -153,7 +153,9 @@ function embeddingFor(person: string): number[] {
   const out: number[] = [];
   for (let index = 0; index < EMBEDDING_LENGTH; index += 1) {
     seed = (seed * 48_271) % 2_147_483_647;
-    out.push(seed / 2_147_483_647);
+    // Centred on zero: faces are compared by angle, and numbers that were all
+    // positive would point every name the same way, so all would look alike.
+    out.push((seed / 2_147_483_647) * 2 - 1);
   }
   return out;
 }
