@@ -5,7 +5,7 @@ import type { AdminSession } from '@/lib/admin-session';
 import type { PairedDevice } from '@/lib/device';
 import { MockFaceEngine } from '@/lib/face-mock';
 import { importSigningKey } from '@/lib/signing';
-import { EnrollScreen } from './enroll-screen';
+import { EnrollScreen, type Task } from './enroll-screen';
 
 // The sensor is pretended; the availability check says yes so the buttons show.
 vi.mock('@/lib/passkeys', async (importOriginal) => {
@@ -113,7 +113,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderScreen(onDone = vi.fn()) {
+async function renderScreen(onDone = vi.fn(), initialTask: Task = 'enroll') {
   const device = await aPairedKiosk();
   render(
     <EnrollScreen
@@ -121,6 +121,7 @@ async function renderScreen(onDone = vi.fn()) {
       admin={ADMIN}
       engine={new MockFaceEngine()}
       onDone={onDone}
+      initialTask={initialTask}
       // No real half-second waits, and a short challenge.
       betweenCaptures={1}
       challengeSeconds={2}
@@ -247,12 +248,14 @@ describe('EnrollScreen', () => {
     expect(
       await screen.findByRole('heading', { name: 'Needs an admin review' }, { timeout: 12_000 }),
     ).toBeInTheDocument();
-    // Naming the match would tell whoever is standing here who else works for
-    // this company. Nor may a score appear.
+    // Saying a face "looks like someone already enrolled" is fine — it never
+    // names who. Naming the match would tell whoever is standing here who
+    // else works for this company, and nor may a score appear.
+    expect(screen.getByText(/This face looks like someone already enrolled/)).toBeInTheDocument();
     const shown = document.body.textContent ?? '';
     expect(shown).not.toMatch(/COLLISION/);
     expect(shown).not.toMatch(/0\.\d\d/);
-    expect(shown).not.toMatch(/looks like|similar|match/i);
+    expect(shown).not.toMatch(/similar|confiden/i);
   });
 
   it('forgets the card digits once the consent is recorded', async () => {
@@ -303,6 +306,15 @@ describe('EnrollScreen', () => {
  * ever sent — never anything read from a finger.
  */
 describe('EnrollScreen · saving a fingerprint', () => {
+  it('opens straight on the fingerprint task when the menu preselects it', async () => {
+    await renderScreen(vi.fn(), 'finger');
+
+    // The admin menu's own "Save a fingerprint" item promoted this from a
+    // toggle a few taps in, to the screen an administrator lands on directly.
+    expect(await screen.findByRole('heading', { name: 'Whose fingerprint?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to enrolling a face' })).toBeInTheDocument();
+  });
+
   it('offers it for an enrolled worker, and registers the key the sensor made', async () => {
     answers['/kiosk/passkey-options'] = {
       status: 200,

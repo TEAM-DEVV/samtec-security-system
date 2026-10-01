@@ -55,6 +55,21 @@ const PUNCHED = {
   },
 };
 
+/** What signing in as an administrator answers, with no two-factor code needed. */
+const ADMIN_SESSION = {
+  status: 'AUTHENTICATED',
+  accessToken: 'kiosk-token',
+  expiresInSeconds: 900,
+  user: {
+    id: '01927c3e-aaaa-7000-8000-000000000001',
+    email: 'admin@samtec.example',
+    fullName: 'Ama Boateng',
+    role: 'ADMIN',
+    twoFactorEnabled: true,
+    employeeId: null,
+  },
+};
+
 beforeEach(() => {
   answers = [];
   sent = [];
@@ -70,6 +85,14 @@ beforeEach(() => {
         new Response(JSON.stringify({ serverTime: '2026-09-26T06:00:01.000Z' }), { status: 200 }),
       );
     }
+    // Signing in and out is not what the admin-menu tests are about either —
+    // `admin-sign-in-screen.test.tsx` already covers the sign-in form itself.
+    if (url.includes('/auth/login')) {
+      return Promise.resolve(new Response(JSON.stringify(ADMIN_SESSION), { status: 200 }));
+    }
+    if (url.includes('/auth/logout')) {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
     const next = answers.shift();
     if (next === undefined) {
       throw new Error(`Unexpected request to ${url}`);
@@ -82,6 +105,14 @@ beforeEach(() => {
     );
   });
 });
+
+/** Signs in as an administrator, from the Ready screen. */
+async function signInAsAdmin(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'Admin' }));
+  await user.type(screen.getByLabelText('Email'), 'admin@samtec.example');
+  await user.type(screen.getByLabelText('Password'), 'demo-password');
+  await user.click(screen.getByRole('button', { name: 'Sign in' }));
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -161,5 +192,45 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Set this phone up again' }));
     expect(forgetDevice).toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: 'Set this phone up' })).toBeInTheDocument();
+  });
+
+  it('opens the admin menu on sign-in, not the enrol screen directly', async () => {
+    loadDevice.mockResolvedValue(await aPairedKiosk());
+    const user = userEvent.setup();
+    render(<App />);
+
+    await signInAsAdmin(user);
+
+    expect(await screen.findByRole('heading', { name: 'Admin menu' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enroll a worker’s face' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save a fingerprint' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Kiosk settings' })).toBeInTheDocument();
+  });
+
+  it('returns to the menu from a task, and only signs out from "Back to clock-in"', async () => {
+    loadDevice.mockResolvedValue(await aPairedKiosk());
+    answers = [
+      { status: 200, body: { version: 'bio-v1', text: 'Consent text.', sha256: 'a'.repeat(64) } },
+      { status: 200, body: { items: [], nextCursor: null } },
+      { status: 200, body: { items: [], nextCursor: null } },
+    ];
+    const user = userEvent.setup();
+    render(<App />);
+
+    await signInAsAdmin(user);
+    await user.click(await screen.findByRole('button', { name: 'Enroll a worker’s face' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Who is being enrolled?' }),
+    ).toBeInTheDocument();
+
+    // Leaving the enrol screen comes back here — an administrator doing two
+    // things should not have to sign in twice.
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(await screen.findByRole('heading', { name: 'Admin menu' })).toBeInTheDocument();
+    expect(sent.some((url) => url.includes('/auth/logout'))).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'Back to clock-in' }));
+    expect(await screen.findByRole('heading', { name: 'Ready' })).toBeInTheDocument();
+    expect(sent.some((url) => url.includes('/auth/logout'))).toBe(true);
   });
 });

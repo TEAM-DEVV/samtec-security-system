@@ -5,9 +5,11 @@ import type { FaceEngine } from '@/lib/face';
 import { HumanFaceEngine } from '@/lib/face-human';
 import { MockFaceEngine } from '@/lib/face-mock';
 import { startHeartbeat } from '@/lib/heartbeat';
+import { AdminMenuScreen } from '@/screens/admin-menu-screen';
 import { AdminSignInScreen } from '@/screens/admin-sign-in-screen';
 import { ClockScreen } from '@/screens/clock-screen';
-import { EnrollScreen } from '@/screens/enroll-screen';
+import { EnrollScreen, type Task } from '@/screens/enroll-screen';
+import { KioskSettingsScreen } from '@/screens/kiosk-settings-screen';
 import { PairingScreen } from '@/screens/pairing-screen';
 
 /**
@@ -55,9 +57,15 @@ export function App({ engine }: AppProps = {}) {
    *
    * `null` is the everyday kiosk. Nothing here is stored: a reload puts the
    * phone back to the clock-in screen with no session, which is the right
-   * behaviour for a shared device on a wall.
+   * behaviour for a shared device on a wall. Signing in opens the admin menu,
+   * never the enrol screen directly — every admin task, including leaving one,
+   * passes back through it so none of them has to know how to sign out.
    */
-  const [adminScreen, setAdminScreen] = useState<'signing-in' | 'enrolling' | null>(null);
+  const [adminScreen, setAdminScreen] = useState<
+    'signing-in' | 'menu' | 'enrolling' | 'settings' | null
+  >(null);
+  /** Which job the enrol screen should open on, set just before it is shown. */
+  const [enrollTask, setEnrollTask] = useState<Task>('enroll');
   const [admin, setAdmin] = useState<AdminSession | null>(null);
   const [looking, setLooking] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
@@ -140,16 +148,49 @@ export function App({ engine }: AppProps = {}) {
     return <PairingScreen onPaired={setDevice} />;
   }
 
+  /** Signs the administrator out and returns to the everyday clock-in screen. */
+  function backToClockIn() {
+    // Signed out on the way back, not left to time out: the next person to
+    // touch this phone is a guard clocking in.
+    if (admin !== null) {
+      void signOut(admin);
+    }
+    setAdmin(null);
+    setAdminScreen(null);
+  }
+
   if (adminScreen === 'signing-in') {
     return (
       <AdminSignInScreen
         onSignedIn={(session) => {
           setAdmin(session);
-          setAdminScreen('enrolling');
+          setAdminScreen('menu');
         }}
         onCancel={() => setAdminScreen(null)}
       />
     );
+  }
+
+  if (adminScreen === 'menu' && admin !== null) {
+    return (
+      <AdminMenuScreen
+        admin={admin}
+        onEnroll={() => {
+          setEnrollTask('enroll');
+          setAdminScreen('enrolling');
+        }}
+        onFingerprint={() => {
+          setEnrollTask('finger');
+          setAdminScreen('enrolling');
+        }}
+        onSettings={() => setAdminScreen('settings')}
+        onBackToClockIn={backToClockIn}
+      />
+    );
+  }
+
+  if (adminScreen === 'settings' && admin !== null) {
+    return <KioskSettingsScreen onBack={() => setAdminScreen('menu')} />;
   }
 
   if (adminScreen === 'enrolling' && admin !== null) {
@@ -158,13 +199,11 @@ export function App({ engine }: AppProps = {}) {
         device={device}
         admin={admin}
         engine={camera}
-        onDone={() => {
-          // Signed out on the way back, not left to time out: the next person to
-          // touch this phone is a guard clocking in.
-          void signOut(admin);
-          setAdmin(null);
-          setAdminScreen(null);
-        }}
+        initialTask={enrollTask}
+        // Leaving a task returns to the menu, not straight out: enrolling
+        // somebody and then saving a fingerprint should not need signing in
+        // twice. "Back to clock-in" on the menu is the only way out.
+        onDone={() => setAdminScreen('menu')}
       />
     );
   }

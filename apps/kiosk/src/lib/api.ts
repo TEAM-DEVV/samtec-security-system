@@ -110,7 +110,7 @@ export async function callSigned<Answer>(
  * same), so the kiosk has to name the two things a person can actually fix.
  */
 export const KIOSK_REFUSED =
-  'The system refused this kiosk. On the dashboard, under Devices, check that this device is switched on (another administrator does that) and that its kind is Face kiosk. Then set this phone up again with its Device ID and secret.';
+  'The system refused this kiosk. On the dashboard, under Devices, check that this device is switched on and that its kind is Face kiosk. Then set this phone up again with its Device ID and secret.';
 
 /**
  * The words a refusal shows: a field's own message first (the digits of a

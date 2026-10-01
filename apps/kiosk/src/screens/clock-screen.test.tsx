@@ -279,6 +279,33 @@ describe('ClockScreen', () => {
 
     expect(await screen.findByText(/already recorded/)).toBeInTheDocument();
   });
+
+  it('shows the device name plainly, with the Admin button separate and hidden mid-attempt', async () => {
+    const user = userEvent.setup();
+    const device = await aPairedKiosk();
+    render(
+      <ClockScreen
+        device={device}
+        engine={new MockFaceEngine({ head: 'still' })}
+        onAdmin={vi.fn()}
+        challengeSeconds={1}
+      />,
+    );
+
+    // Two separate things, neither one a guess: the name is never a button,
+    // and the admin door is never labelled with the kiosk's name.
+    expect(screen.getByText('Main Gate kiosk')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'End shift' }));
+    expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument();
+    // The name itself stays up, mid-attempt as always.
+    expect(screen.getByText('Main Gate kiosk')).toBeInTheDocument();
+
+    // Back on Ready, the button returns.
+    await user.click(await screen.findByRole('button', { name: 'Start again' }, { timeout: 5000 }));
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+  });
 });
 
 /**
