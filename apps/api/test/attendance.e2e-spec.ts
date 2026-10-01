@@ -515,30 +515,29 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       expect(after.lastFailedSignatureAt).not.toBeNull();
     });
 
-    it('a new key is born switched off, and its issuer may not switch it on', async () => {
+    it('a new key is born switched off, and the administrator who issued it switches it on', async () => {
       const made = await request(app.getHttpServer())
         .post('/api/v1/devices')
         .set(...bearer(adminToken))
-        .send({ name: 'Two-person gate', siteId: company.siteB, kind: 'MOCK' })
+        .send({ name: 'Switch-on gate', siteId: company.siteB, kind: 'MOCK' })
         .expect(201);
-      // A device key can post punches, so one person never both issues one
-      // and puts it to work (docs/plan/06, "Two administrators").
+      // A device key can post punches, so it does nothing until somebody
+      // switches it on, and who did is written down (issue #99: the same
+      // administrator may, with their password behind the click).
       expect(made.body.device.status).toBe('INACTIVE');
       const key = { id: made.body.device.id as string, secret: made.body.secret as string };
       await signed('ingest/heartbeat', {}, key).expect(401);
-
-      const refused = await request(app.getHttpServer())
+      await request(app.getHttpServer())
         .patch(`/api/v1/devices/${key.id}`)
         .set(...bearer(adminToken))
         .send({ status: 'ACTIVE' })
-        .expect(409);
-      expect(refused.body.detail).toMatch(/another administrator/i);
-
-      // The second administrator has seen the device on the wall.
-      await activateDevice(app, company, key.id);
+        .expect(200);
+      const on = await prisma.device.findUniqueOrThrow({ where: { id: key.id } });
+      expect(on.keyIssuedByUserId).toBe(company.adminUserId);
+      expect(on.activatedByUserId).toBe(company.adminUserId);
+      expect(on.activatedAt).not.toBeNull();
       await signed('ingest/heartbeat', {}, key).expect(200);
     });
-
     it('records who issued a key and who switched it on, and clears the second on the way off', async () => {
       const made = await request(app.getHttpServer())
         .post('/api/v1/devices')
@@ -564,7 +563,7 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       expect(off.keyIssuedByUserId).toBe(company.adminUserId);
     });
 
-    it('cannot be raced: rotating while switching on never leaves a live unapproved key', async () => {
+    it('cannot be raced: rotating while switching on never leaves a live key nobody switched on', async () => {
       const made = await request(app.getHttpServer())
         .post('/api/v1/devices')
         .set(...bearer(adminToken))
@@ -572,11 +571,10 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
         .expect(201);
       const deviceId = made.body.device.id as string;
       await activateDevice(app, company, deviceId);
-
       // The issuer rotates the key and switches it on in the same breath. The
       // rotate sets the device INACTIVE; without the row lock the switch-on
-      // could read the older ACTIVE status, skip the two-person gate, and
-      // leave a fresh key working that nobody approved.
+      // could read the older ACTIVE status and leave a fresh key working
+      // that nobody switched on.
       await Promise.allSettled([
         request(app.getHttpServer())
           .post(`/api/v1/devices/${deviceId}/rotate-secret`)
@@ -586,32 +584,36 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
           .set(...bearer(adminToken))
           .send({ status: 'ACTIVE' }),
       ]);
-
       const after = await prisma.device.findUniqueOrThrow({ where: { id: deviceId } });
       // Whichever order they landed in: a live device was switched on by
-      // somebody, and never by the person who issued its key.
+      // somebody, at a recorded moment.
       if (after.status === 'ACTIVE') {
         expect(after.activatedAt).not.toBeNull();
-        expect(after.activatedByUserId).not.toBe(after.keyIssuedByUserId);
+        expect(after.activatedByUserId).not.toBeNull();
       }
     });
-
-    it('refuses in the database too: a key issuer can never be its activator', async () => {
+    it('insists in the database too that a live key was switched on by somebody', async () => {
       const made = await request(app.getHttpServer())
         .post('/api/v1/devices')
         .set(...bearer(adminToken))
         .send({ name: 'Database rule gate', siteId: company.siteB, kind: 'MOCK' })
         .expect(201);
-
-      // Straight past the service, as a repair script would go.
+      // Straight past the service, as a repair script would go: switching a
+      // key on without recording when is refused...
       await expect(
         prisma.device.update({
           where: { id: made.body.device.id },
-          data: { status: 'ACTIVE', activatedByUserId: company.adminUserId },
+          data: { status: 'ACTIVE', activatedByUserId: company.adminUserId, activatedAt: null },
         }),
       ).rejects.toThrow();
+      // ...and the issuer naming themselves as the one who switched it on is
+      // an ordinary, recorded switch-on (issue #99).
+      const on = await prisma.device.update({
+        where: { id: made.body.device.id },
+        data: { status: 'ACTIVE', activatedByUserId: company.adminUserId, activatedAt: new Date() },
+      });
+      expect(on.activatedByUserId).toBe(on.keyIssuedByUserId);
     });
-
     it('rotating the secret kills the old one at once', async () => {
       const rotated = await request(app.getHttpServer())
         .post(`/api/v1/devices/${gate.id}/rotate-secret`)
@@ -623,9 +625,8 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
 
       await signed('ingest/heartbeat', {}, old).expect(401);
       // And the new one does nothing yet: a rotated key is a new key, so the
-      // device waits for a second administrator to switch it back on
-      // (docs/plan/06, 'Two administrators'). Rotating is how a stolen device
-      // is dealt with; it must not be how one person gets a working key.
+      // device waits to be switched back on from the dashboard. Rotating is
+      // how a stolen device is dealt with; switching on is a separate step.
       expect(rotated.body.device.status).toBe('INACTIVE');
       await signed('ingest/heartbeat', {}).expect(401);
 

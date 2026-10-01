@@ -338,14 +338,13 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       };
       await kioskPost('kiosk/consents', consent, { device: waiting }).expect(401);
 
-      // The administrator who set it up on the kiosk may not switch it on:
-      // a key's issuer never puts it to work (docs/plan/06).
+      // The administrator switches it on from the dashboard; who did is
+      // written down (issue #99: no second administrator is needed).
       await request(app.getHttpServer())
         .patch(`/api/v1/devices/${waiting.id}`)
         .set(...bearer(dashboardAdmin))
         .send({ status: 'ACTIVE' })
-        .expect(409);
-      await switchDeviceOn(app, secondAdmin, waiting.id);
+        .expect(200);
       await kioskPost('kiosk/consents', consent, { device: waiting }).expect(201);
 
       // It may rotate a kiosk secret, never a terminal's...

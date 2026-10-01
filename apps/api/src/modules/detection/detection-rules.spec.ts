@@ -398,13 +398,28 @@ describe('R11 · conflicted decision', () => {
     expect(found).toEqual([]);
   });
 
+  it('does not report a decision by the administrator who enrolled a face: that is ordinary work now', () => {
+    // One administrator enrolls a face and decides its review alone, with
+    // their password behind the decision (issue #99). Not a clash.
+    const found = conflictedDecision(
+      [decision],
+      [
+        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'abena', userId: 'admin-one', did: 'enrolled', at: daysAgo(29) },
+      ],
+      {},
+      NOW,
+    );
+    expect(found).toEqual([]);
+  });
+
   it('names a decision settled by somebody who had already had a hand in it', () => {
     const found = conflictedDecision(
       [decision],
       [
-        // The same ADMIN enrolled the other record's face, then decided
+        // The same ADMIN wiped the other record's face earlier, then decided
         // whether the two were the same person.
-        { employeeId: 'grace', userId: 'admin-one', did: 'enrolled', at: daysAgo(30) },
+        { employeeId: 'grace', userId: 'admin-one', did: 'wiped', at: daysAgo(30) },
         { employeeId: 'abena', userId: 'admin-two', did: 'enrolled', at: daysAgo(30) },
       ],
       {},
@@ -413,7 +428,7 @@ describe('R11 · conflicted decision', () => {
 
     expect(found).toHaveLength(1);
     expect(found[0]?.employeeId).toBe('abena');
-    expect(found[0]?.evidence.alsoDid).toEqual(['enrolled']);
+    expect(found[0]?.evidence.alsoDid).toEqual(['wiped']);
     // The history is with Grace, though the alert lands on Abena's file: a
     // checker cannot act on an alert that does not say which.
     expect(found[0]?.evidence.concerningEmployeeIds).toEqual(['grace']);

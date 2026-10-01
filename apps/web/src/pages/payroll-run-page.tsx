@@ -16,7 +16,7 @@ import { useCursorPages } from '@/lib/cursor-pages';
 import { downloadFromApi } from '@/lib/download';
 import { formatCedis, formatDate, formatDateTime, formatMinutes } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
-import { exclusionReasonLabels, isTheMaker, mayDecide, runStatusDescriptions } from '@/lib/payroll';
+import { exclusionReasonLabels, isTheMaker, runStatusDescriptions } from '@/lib/payroll';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { useSession } from '@/lib/session';
 
@@ -85,8 +85,6 @@ export function PayrollRunPage() {
   const deciding = submit.isPending || approve.isPending || reject.isPending || markPaid.isPending;
 
   const mayApprove = session !== null && roleAllowed(pageRoles.payrollApproval, session.user.role);
-  const theirOwnWork =
-    run.data !== undefined && session !== null && !mayDecide(run.data, session.user.id);
   const theyPreparedIt =
     run.data !== undefined && session !== null && isTheMaker(run.data, session.user.id);
 
@@ -258,10 +256,6 @@ export function PayrollRunPage() {
               !mayApprove ? (
                 <p className="text-muted-foreground text-sm">
                   An administrator decides about a run. A payroll officer prepares it.
-                </p>
-              ) : theirOwnWork ? (
-                <p className="text-muted-foreground text-sm">
-                  You worked on this run, so somebody else must approve or reject it.
                 </p>
               ) : (
                 <div className="space-y-4">

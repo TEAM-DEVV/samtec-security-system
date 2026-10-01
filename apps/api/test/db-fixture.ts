@@ -25,7 +25,7 @@ export const ADMIN_TOTP_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 
 export const EMAILS = {
   admin: 'admin@dbtest.example',
-  /** A second administrator, for the rules about two admins acting on each other. */
+  /** A second administrator, so the tests can show administrators acting on each other. */
   admin2: 'admin2@dbtest.example',
   hr: 'hr@dbtest.example',
   supervisor: 'supervisor@dbtest.example',

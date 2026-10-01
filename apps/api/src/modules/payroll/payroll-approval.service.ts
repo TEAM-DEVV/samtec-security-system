@@ -146,7 +146,6 @@ export class PayrollApprovalService {
   async approve(viewer: SignedInUser, runId: string, body: ApproveRunBody): Promise<ApiPayrollRun> {
     const run = await this.byId(viewer, runId);
     refuseAClosedMonth(run, 'approved');
-    this.refuseTheirOwnWork(viewer, run, 'approve');
     if (run.status !== 'PENDING_APPROVAL') {
       throw new ConflictException('Only a run waiting for approval can be approved.');
     }
@@ -196,7 +195,6 @@ export class PayrollApprovalService {
   async reject(viewer: SignedInUser, runId: string, body: RejectRunBody): Promise<ApiPayrollRun> {
     const run = await this.byId(viewer, runId);
     refuseAClosedMonth(run, 'rejected');
-    this.refuseTheirOwnWork(viewer, run, 'reject');
     if (run.status !== 'PENDING_APPROVAL') {
       throw new ConflictException('Only a run waiting for approval can be rejected.');
     }
@@ -347,17 +345,6 @@ export class PayrollApprovalService {
    * comparison is a `CHECK` in the database; this one exists so the answer is
    * 403 with a sentence rather than a 500 from a constraint.
    */
-  private refuseTheirOwnWork(
-    viewer: SignedInUser,
-    run: { submittedByUserId: string | null; calculatedByUserId: string },
-    what: 'approve' | 'reject',
-  ): void {
-    if (run.submittedByUserId === viewer.userId || run.calculatedByUserId === viewer.userId) {
-      throw new ForbiddenException(
-        `You worked on this run, so somebody else must ${what} it. That is the whole point of a second pair of eyes.`,
-      );
-    }
-  }
 
   /**
    * Rule R3 at the gate: a run may not be submitted if it pays anybody for

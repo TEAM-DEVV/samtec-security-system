@@ -397,7 +397,7 @@ describe.skipIf(!databaseUrl)('The payroll rules the database enforces (e2e)', (
     });
   });
 
-  describe('the maker is never the checker, and a locked run never changes', () => {
+  describe('whoever prepared a run may approve it, and a locked run never changes', () => {
     async function submitted(inPeriod: string = periodId) {
       const run = await draftRun(inPeriod);
       await prisma.payrollLine.create({ data: soundLine({ runId: run.id }) });
@@ -407,30 +407,27 @@ describe.skipIf(!databaseUrl)('The payroll rules the database enforces (e2e)', (
       });
     }
 
-    it('refuses the person who submitted a run approving it', async () => {
-      const run = await submitted();
-      await expect(
-        prisma.payrollRun.update({
-          where: { id: run.id },
-          data: { status: 'LOCKED', approvedByUserId: maker, approvedAt: new Date() },
-        }),
-      ).rejects.toThrow();
+    it('lets the person who submitted a run approve it, in the database too', async () => {
+      const run = await submitted(await freshPeriod());
+      const locked = await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: { status: 'LOCKED', approvedByUserId: maker, approvedAt: new Date() },
+      });
+      expect(locked.status).toBe('LOCKED');
+      expect(locked.approvedByUserId).toBe(locked.submittedByUserId);
     });
-
-    it('refuses the person who calculated a run approving it, even if somebody else submitted', async () => {
-      const run = await draftRun();
+    it('lets the person who calculated a run approve it, whoever submitted it', async () => {
+      const run = await draftRun(await freshPeriod());
       await prisma.payrollRun.update({
         where: { id: run.id },
         data: { status: 'PENDING_APPROVAL', submittedByUserId: checker, submittedAt: new Date() },
       });
-      await expect(
-        prisma.payrollRun.update({
-          where: { id: run.id },
-          data: { status: 'LOCKED', approvedByUserId: maker, approvedAt: new Date() },
-        }),
-      ).rejects.toThrow();
+      const locked = await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: { status: 'LOCKED', approvedByUserId: maker, approvedAt: new Date() },
+      });
+      expect(locked.approvedByUserId).toBe(locked.calculatedByUserId);
     });
-
     it('lets a different person approve, and then refuses every later change', async () => {
       const run = await submitted();
       const locked = await prisma.payrollRun.update({

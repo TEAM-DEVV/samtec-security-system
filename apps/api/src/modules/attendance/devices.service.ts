@@ -216,10 +216,8 @@ export class DevicesService {
         where: { id: deviceId },
         data: {
           secretEncrypted: sealSecret(secret, this.secretKey),
-          // A new key is a new key: it does nothing until somebody else
-          // switches the device on again (Phase 7, docs/plan/06). Rotating is
-          // how a stolen device is dealt with, so it must not be the way one
-          // person quietly gets a working key of their own.
+          // A new key is a new key: it does nothing until the device is
+          // switched on again, which is written down with who did it.
           status: 'INACTIVE',
           keyIssuedByUserId: viewer.userId,
           activatedByUserId: null,
@@ -242,54 +240,26 @@ export class DevicesService {
   }
 
   /**
-   * Who may switch a device on, and what that writes (Phase 7, docs/plan/06,
-   * "Two administrators").
-   *
-   * **Never the person who issued the key.** A device key can post punches,
-   * so the second administrator is the one who checks that the device is
-   * really on the wall at that site. Switching a device **off** is open to
-   * anybody: it only ever takes power away.
-   *
-   * The one exception is a company with a single administrator, who has
-   * nobody to ask. It is audited as `SOLE_ADMINISTRATOR`, and the
-   * database CHECK stays satisfied because nobody else is recorded.
+   * What switching a device on writes: who did it, and when (issue #99,
+   * docs/plan/06 "One administrator, with a password"). Any administrator
+   * may, including the one who registered the device or rotated its key;
+   * the dashboard asks for their password first, and the audit log keeps
+   * the record. Switching a device **off** only ever takes power away.
    */
   private async whoSwitchesOn(
-    tx: Prisma.TransactionClient,
+    _tx: Prisma.TransactionClient,
     viewer: SignedInUser,
-    device: Device,
+    _device: Device,
   ): Promise<{
-    columns: { activatedByUserId: string | null; activatedAt: Date };
-    auditDetail: { activation?: 'SOLE_ADMINISTRATOR' };
+    columns: { activatedByUserId: string; activatedAt: Date };
+    auditDetail: Record<string, never>;
   }> {
-    const now = new Date();
-    if (device.keyIssuedByUserId === null || device.keyIssuedByUserId !== viewer.userId) {
-      // Either nobody is recorded (a device older than the rule, or the
-      // seed's), or somebody else issued the key. Both are fine.
-      return { columns: { activatedByUserId: viewer.userId, activatedAt: now }, auditDetail: {} };
-    }
-    // **Does another administrator's row exist**, the same question the
-    // account rules ask (users.service.ts). Counting only the ones who could
-    // sign in right now left a hole: switching an administrator off needs
-    // nobody's approval, so the key's issuer could switch their colleague off,
-    // count as the only administrator, and switch their own key on alone.
-    // A colleague who cannot sign in yet still blocks the shortcut; the key
-    // waits until they can.
-    const others = await tx.user.count({
-      where: {
-        companyId: viewer.companyId,
-        role: 'ADMIN',
-        id: { not: viewer.userId },
-      },
-    });
-    if (others > 0) {
-      throw new ConflictException(
-        'You issued this key, so another administrator must switch the device on. They should check it is really the device at that site.',
-      );
-    }
+    // Whoever switches a device on is written down, with their own password
+    // behind the click and the audit log behind that. It no longer has to be
+    // somebody other than the person who registered it (docs/plan/06).
     return {
-      columns: { activatedByUserId: null, activatedAt: now },
-      auditDetail: { activation: 'SOLE_ADMINISTRATOR' },
+      columns: { activatedByUserId: viewer.userId, activatedAt: new Date() },
+      auditDetail: {},
     };
   }
 

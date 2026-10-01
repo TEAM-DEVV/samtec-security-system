@@ -267,7 +267,7 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
 
   // -------------------------------------------------------------------------
 
-  describe('the maker is never the checker', () => {
+  describe('whoever prepared a run may decide it', () => {
     it('lets only the person who calculated a run submit it', async () => {
       const { runId } = await draftRun();
       // Calculated by the payroll officer, so the administrator may not submit.
@@ -283,7 +283,7 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         .expect(200);
     });
 
-    it('refuses the submitter approving their own run, even as an administrator', async () => {
+    it('lets the administrator who calculated and submitted a run approve it themselves', async () => {
       const { periodId } = await draftRun();
       // The administrator calculates and submits this one themselves.
       const own = await api()
@@ -296,24 +296,20 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         .set(...bearer(token.admin))
         .send({})
         .expect(200);
-
-      // They may not now approve it. This is the rule the whole phase exists for.
-      const refused = await api()
+      // Nothing waits for a second pair of eyes any more: the same person
+      // approves, with their password behind the click and the audit log
+      // behind that (issue #99).
+      const approved = await api()
         .post(`/api/v1/payroll/runs/${own.body.id}/approve`)
         .set(...bearer(token.admin))
         .send({})
-        .expect(403);
-      expect(JSON.stringify(refused.body)).toMatch(/second pair of eyes/);
-
-      // A different administrator can.
-      await api()
-        .post(`/api/v1/payroll/runs/${own.body.id}/approve`)
-        .set(...bearer(token.secondAdmin))
-        .send({})
         .expect(200);
+      expect(approved.body.status).toBe('LOCKED');
+      const row = await prisma.payrollRun.findUniqueOrThrow({ where: { id: own.body.id } });
+      expect(row.approvedByUserId).toBe(row.submittedByUserId);
+      expect(row.approvedByUserId).toBe(row.calculatedByUserId);
     });
-
-    it('refuses the same person rejecting their own run', async () => {
+    it('lets the same person reject their own run', async () => {
       const { periodId } = await draftRun();
       const own = await api()
         .post('/api/v1/payroll/runs')
@@ -325,13 +321,13 @@ describe.skipIf(!databaseUrl)('Approving and paying a payroll run (e2e)', () => 
         .set(...bearer(token.admin))
         .send({})
         .expect(200);
-      await api()
+      const rejected = await api()
         .post(`/api/v1/payroll/runs/${own.body.id}/reject`)
         .set(...bearer(token.admin))
         .send({ reason: 'The overtime looks wrong to me.' })
-        .expect(403);
+        .expect(200);
+      expect(rejected.body.status).toBe('REJECTED');
     });
-
     it('refuses a payroll officer approving anything at all', async () => {
       const { runId } = await submitted();
       // Approving is an administrator's job, whoever made the run.

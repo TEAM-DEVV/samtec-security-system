@@ -16,7 +16,7 @@ import { normalizeEmail } from '../../common/emails.js';
 import { RateLimitException } from '../../common/rate-limit.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthChallenge, User } from '../../generated/prisma/client.js';
-import { awaitsAdminConfirmation, mayUseAccount } from './account-rules.js';
+import { mayUseAccount } from './account-rules.js';
 import { AccountsService } from './accounts.service.js';
 import { AuditService } from './audit.service.js';
 import { hashPassword, NO_SUCH_USER_HASH, verifyPassword } from './password.js';
@@ -42,8 +42,6 @@ const LINK_GONE = 'This link has expired or was already used. Ask an administrat
 const WRONG_PLACE = 'Finish signing in where you started.';
 /** A kiosk stands at a guard post: only enrollment happens there. */
 const KIOSK_ADMINS_ONLY = 'Only an administrator signs in on a kiosk.';
-const AWAITING_SECOND_ADMIN =
-  'A second administrator must confirm this account before it can be used.';
 
 /** What `login` can decide. The controller turns each kind into its HTTP shape. */
 export type LoginOutcome =
@@ -102,12 +100,6 @@ export class AuthService {
     if (place === 'KIOSK' && user.role !== 'ADMIN') {
       throw new ForbiddenException(KIOSK_ADMINS_ONLY);
     }
-    // Only after the password was right, so the answer reveals nothing to a
-    // stranger. Before two-factor setup too: a held account sets nothing up.
-    if (awaitsAdminConfirmation(user)) {
-      throw new ForbiddenException(AWAITING_SECOND_ADMIN);
-    }
-
     if (user.twoFactorEnabledAt) {
       // A locked-out authenticator answers 429 here already, instead of
       // issuing a challenge that could only fail.

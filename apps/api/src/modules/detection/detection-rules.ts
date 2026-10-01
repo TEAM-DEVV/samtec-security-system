@@ -498,6 +498,11 @@ export function conflictedDecision(
     const clashes = decision.employeeIds
       .flatMap((employeeId) => byEmployee.get(employeeId) ?? [])
       .filter((hand) => hand.userId === decision.decidedByUserId)
+      // Enrolling a face and then deciding its review is ordinary work for
+      // one administrator (issue #99: nobody waits for a second one), so it
+      // is not a clash. Wiping a face or recording a withdrawal, then
+      // deciding about that same worker, still is.
+      .filter((hand) => hand.did !== 'enrolled')
       // **Only a hand they had before.** Settling a duplicate as one person
       // wipes the losing record, stamped with the decider's own name in the
       // same breath as the decision — so without this, every by-the-book

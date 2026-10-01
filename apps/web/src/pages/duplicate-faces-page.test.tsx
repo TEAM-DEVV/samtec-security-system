@@ -72,7 +72,7 @@ describe('DuplicateFacesPage', () => {
     expect(grace.data?.face.status).toBe('ACTIVE');
   });
 
-  it('gives the administrator who enrolled the face no decision form', async () => {
+  it('lets the administrator who enrolled the face decide it too', async () => {
     await signInForTests('admin@samtec.example');
     // The same open case, but enrolled by the signed-in administrator.
     server.use(
@@ -86,8 +86,9 @@ describe('DuplicateFacesPage', () => {
 
     renderWithProviders(<DuplicateFacesPage />);
 
-    expect(await screen.findByText(/You enrolled this face/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Record the decision' })).not.toBeInTheDocument();
+    // Nobody else has to decide it (issue #99): the form is there as usual.
+    expect(await screen.findByRole('button', { name: 'Record the decision' })).toBeInTheDocument();
+    expect(screen.queryByText(/You enrolled this face/)).not.toBeInTheDocument();
   });
 
   it('lists decided cases with their verdict', async () => {

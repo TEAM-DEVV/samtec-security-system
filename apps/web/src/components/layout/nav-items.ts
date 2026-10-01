@@ -108,8 +108,7 @@ export const navItems: NavItem[] = [
   },
   {
     label: 'Duplicate faces',
-    description:
-      'New faces that looked like someone already enrolled: a second administrator decides.',
+    description: 'New faces that looked like someone already enrolled: an administrator decides.',
     to: routes.duplicateFaces,
     icon: ScanFace,
     phase: 3,

@@ -409,18 +409,14 @@ export class BiometricsService {
     ]);
     if (blocked) {
       throw new ConflictException(
-        'This record was blocked as a duplicate, so nothing new can be recorded for it.',
+        'This record was blocked as a duplicate. An administrator can lift the block on the dashboard.',
       );
     }
     if (review) {
-      throw new ConflictException(
-        'A second ADMIN has to finish the duplicate review for this worker first.',
-      );
+      throw new ConflictException('Finish the duplicate review on the dashboard first.');
     }
     if (exemption) {
-      throw new ConflictException(
-        'A second ADMIN has to decide this worker’s exemption request first.',
-      );
+      throw new ConflictException('Decide this worker’s exemption request first.');
     }
   }
 

@@ -104,7 +104,7 @@ export function NewDevicePage() {
 
               <SecretPanel
                 secret={registered.secret}
-                explanation="Put this secret into the device or its gateway; it signs every request the device sends. It does nothing until another administrator switches the device on."
+                explanation="Put this secret into the device or its gateway; it signs every request the device sends. It does nothing until the device is switched on, on its own page."
               />
               <div className="flex flex-wrap gap-2">
                 <Button asChild>

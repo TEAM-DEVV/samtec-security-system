@@ -51,6 +51,17 @@ export class BiometricReviewsController {
     return this.reviews.revoke(caller, employeeId, body);
   }
 
+  @Post('employees/:employeeId/biometrics/unblock')
+  @Roles('ADMIN')
+  @HttpCode(200)
+  unblock(
+    @Caller() caller: SignedInUser,
+    @Param('employeeId', { schema: idSchema }) employeeId: string,
+    @Body({ schema: biometricReasonSchema }) body: BiometricReasonBody,
+  ): Promise<EmployeeBiometrics> {
+    return this.reviews.liftBlock(caller, employeeId, body);
+  }
+
   @Post('employees/:employeeId/biometric-consents/withdraw')
   @Roles('ADMIN')
   @HttpCode(200)

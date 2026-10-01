@@ -186,13 +186,13 @@ describe('EmployeeDetailPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets a second administrator approve an exemption another one asked for', async () => {
+  it('lets an administrator approve an exemption another one asked for', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();
     renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000010'); // Selorm Agbeko, declined biometrics
     await screen.findByRole('heading', { name: 'Selorm Agbeko' });
 
-    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for a decision')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Decide the exemption' }));
     await user.click(screen.getByRole('radio', { name: /Approve/ }));
     await user.type(screen.getByLabelText('Note'), 'Ghana Card checked in person; approved.');
@@ -217,7 +217,7 @@ describe('EmployeeDetailPage', () => {
     expect(screen.queryByText(/· in use/)).not.toBeInTheDocument();
   });
 
-  it('records a withdrawal of consent, which wipes the face and files an exemption request', async () => {
+  it('records a withdrawal of consent, which wipes the face and files nothing else', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();
     renderDetailPage(KWAME);
@@ -229,17 +229,16 @@ describe('EmployeeDetailPage', () => {
 
     expect(await screen.findByText(/^Withdrawn/)).toBeInTheDocument();
     expect(screen.getByText('Wiped')).toBeInTheDocument();
-    expect(screen.getByText('Waiting for a second administrator')).toBeInTheDocument();
-    // The recording administrator asked for the exemption, so they may not decide it.
-    expect(screen.getByText(/You asked for this exemption/)).toBeInTheDocument();
+    // No exemption request is filed on the worker's behalf any more: asking
+    // for one is a separate, deliberate step.
+    expect(screen.queryByText('Waiting for a decision')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Decide the exemption' })).not.toBeInTheDocument();
   });
-
-  it('lets an administrator ask for an exemption, then leaves the decision to another', async () => {
+  it('lets an administrator ask for an exemption and decide it themselves', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();
     renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000010'); // Selorm Agbeko, request waiting
-    await screen.findByText('Waiting for a second administrator');
+    await screen.findByText('Waiting for a decision');
 
     // Reject the request another administrator made; Selorm is then free to be asked for again.
     await user.click(screen.getByRole('button', { name: 'Decide the exemption' }));
@@ -253,18 +252,22 @@ describe('EmployeeDetailPage', () => {
     await user.type(screen.getByLabelText('Note'), 'The kiosk cannot read the face; three tries.');
     await user.click(screen.getByRole('button', { name: 'Send the request' }));
 
-    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for a decision')).toBeInTheDocument();
     expect(screen.getByText('The kiosk cannot read their face')).toBeInTheDocument();
-    expect(screen.getByText(/You asked for this exemption/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Decide the exemption' })).not.toBeInTheDocument();
-  });
 
+    // The same administrator decides it: no second person is needed.
+    await user.click(screen.getByRole('button', { name: 'Decide the exemption' }));
+    await user.click(screen.getByRole('radio', { name: /Approve/ }));
+    await user.type(screen.getByLabelText('Note'), 'Ghana Card checked in person; approved.');
+    await user.click(screen.getByRole('button', { name: 'Record the decision' }));
+    expect(await screen.findByText('Approved')).toBeInTheDocument();
+  });
   it('offers no wipe while a duplicate review is open', async () => {
     await signInForTests('admin@samtec.example');
 
     renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000002'); // Abena Owusu, face under review
 
-    expect(await screen.findByText('Waiting for a second administrator')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for review on the dashboard')).toBeInTheDocument();
     expect(screen.getByText('Looks like someone already enrolled')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Wipe the face and keys' }),

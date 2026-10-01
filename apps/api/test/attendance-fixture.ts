@@ -220,7 +220,7 @@ export async function activateDevice(
   await switchDeviceOn(app, tokens.secondAdmin, deviceId);
 }
 
-/** The second administrator's half: they check the device is really at the site. */
+/** Switches a device on from the dashboard, as any administrator may. */
 export async function switchDeviceOn(
   app: NestExpressApplication,
   otherAdminToken: string,

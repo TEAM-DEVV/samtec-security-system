@@ -313,7 +313,7 @@ export interface paths {
         /**
          * Create a sign-in account
          * @description **Roles:** ADMIN. SUPERVISOR and GUARD accounts must be linked to an employee of the company who has not left (`employeeId`); ADMIN and HR_PAYROLL accounts must not be. The account starts as `AWAITING_PASSWORD`. The response carries a one-time password link token, shown **only this once**: the dashboard turns it into a link (`/set-password#token=…`) for the admin to hand over in person or by private message, and the person chooses their own password with `POST /auth/set-password`.
-         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
+         *     **No second administrator is needed** (docs/plan/06, "One administrator, with a password"): an ADMIN account made or changed here is usable as soon as its password is set. Who made the change, and when, is written down with the account and in the audit log.
          */
         post: operations["createUser"];
         delete?: never;
@@ -345,7 +345,7 @@ export interface paths {
         /**
          * Change an account's name, email, role or employee link
          * @description **Roles:** ADMIN. Send only the fields you want to change. The link rule is checked on the result: SUPERVISOR and GUARD need an employee, ADMIN and HR_PAYROLL must have none. Changing the role or the link ends every session of the account at once, so the person signs in again (and a new ADMIN or HR_PAYROLL sets up two-factor authentication). **On your own account only `fullName` may change** (`409` otherwise), so nobody can lock themselves out. A switched-off account answers `409`.
-         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such. Taking the ADMIN role away needs nobody else.
+         *     **No second administrator is needed** (docs/plan/06, "One administrator, with a password"): an ADMIN account made or changed here is usable as soon as its password is set. Who made the change, and when, is written down with the account and in the audit log. Taking the ADMIN role away needs nobody else.
          */
         patch: operations["updateUser"];
         trace?: never;
@@ -388,7 +388,7 @@ export interface paths {
         /**
          * Switch an account back on
          * @description **Roles:** ADMIN, never on your own account. Old sessions stay ended. An account whose linked employee has left the company cannot be switched back on (`409`).
-         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
+         *     **No second administrator is needed** (docs/plan/06, "One administrator, with a password"): an ADMIN account made or changed here is usable as soon as its password is set. Who made the change, and when, is written down with the account and in the audit log.
          */
         post: operations["reactivateUser"];
         delete?: never;
@@ -412,32 +412,9 @@ export interface paths {
         /**
          * Reset a forgotten password or a lost authenticator
          * @description **Roles:** ADMIN, never on your own account. Clears **both** the password and the two-factor authenticator, ends every session, and issues a new one-time password link (shown only this once). The person chooses a new password with the link; ADMIN and HR_PAYROLL accounts then set up a new authenticator at their next sign-in. Clearing both together stops a caller who knows the password from simply asking for "a new phone". A switched-off account answers `409`.
-         *     **An ADMIN account needs a second administrator** (docs/plan/06, "Two administrators"): when the result is an ADMIN account, it comes back `AWAITING_CONFIRMATION` and cannot be used until another ADMIN confirms it with `POST /users/{userId}/confirm-admin`. The one exception is the company's only administrator, whose change is confirmed at once and recorded as such.
+         *     **No second administrator is needed** (docs/plan/06, "One administrator, with a password"): an ADMIN account made or changed here is usable as soon as its password is set. Who made the change, and when, is written down with the account and in the audit log.
          */
         post: operations["resetUserSignIn"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/users/{userId}/confirm-admin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The sign-in account's ID. */
-                userId: components["parameters"]["UserId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm an administrator account another ADMIN made or changed
-         * @description **Roles:** ADMIN. The second half of every ADMIN account change (docs/plan/06, "Two administrators"). Refused (`409`) to the administrator who made the change, on your own account, and for an account that is not waiting for confirmation. The confirmer should check in person that the account belongs to the person it names — that check is the whole point.
-         */
-        post: operations["confirmAdminAccount"];
         delete?: never;
         options?: never;
         head?: never;
@@ -675,7 +652,7 @@ export interface paths {
          * Register a clock-in device
          * @description **Roles:** ADMIN. A device belongs to one site for life; to move a terminal, register it again. The response carries the device's secret, shown **only this once**: it goes into the device (or its gateway) and signs every request the device sends. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be registered.
          *
-         *     **The device starts `INACTIVE`, and its key signs nothing until a *different* administrator switches it on** (docs/plan/06, "Two administrators"): a device key can post punches, so one person never both issues one and puts it to work. The second administrator is the one who checks the device is really on the wall at that site.
+         *     **The device starts `INACTIVE`, and its key signs nothing until an administrator switches it on** on the device's page, having checked it is really on the wall at that site. Who switched it on, and when, is written down with the device and in the audit log.
          */
         post: operations["registerDevice"];
         delete?: never;
@@ -1106,7 +1083,7 @@ export interface paths {
         put?: never;
         /**
          * Record a punch confirmed by a site supervisor's face
-         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker who is exempt from biometrics (an `APPROVED` exemption, which a second ADMIN always decided: they go straight to "Ask your supervisor", with no face scan); a worker whose withdrawal of consent is waiting for that decision (still `PENDING_ENROLLMENT`: the punch is stored and paired but raises `INACTIVE_EMPLOYEE`, and is paid only after approval); or a worker with a face in use (`ACTIVE`) whose face failed on this device (the same unlock as `POST /kiosk/fingerprint-options`, which a co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN`, that staff number and the direction, on **this same device**, at most 60 seconds earlier. When that identify asked for the supervisor's finger, `assertion` is required. The worker must be ACTIVE (or waiting for a withdrawal's decision) and posted to this site. **A co-sign is used up by its first punch:** the punch's ID comes from the co-sign attempt, so sending it again answers `DUPLICATE` and can never make a second punch. The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
+         * @description **Signed by a `FACE_KIOSK` device** (route name `kiosk/assisted-punches`). For a worker who is exempt from biometrics (an `APPROVED` exemption: they go straight to "Ask your supervisor", with no face scan); a worker still `PENDING_ENROLLMENT` (the punch is stored and paired but raises `INACTIVE_EMPLOYEE`, and is paid only once the worker is active); or a worker with a face in use (`ACTIVE`) whose face failed on this device (the same unlock as `POST /kiosk/fingerprint-options`, which a co-sign uses up). The worker types their staff number; a SUPERVISOR who is ACTIVE, posted to this device's site and not the worker themselves passes `POST /kiosk/identify` with `purpose: CO_SIGN`, that staff number and the direction, on **this same device**, at most 60 seconds earlier. When that identify asked for the supervisor's finger, `assertion` is required. The worker must be ACTIVE (or waiting for a withdrawal's decision) and posted to this site. **A co-sign is used up by its first punch:** the punch's ID comes from the co-sign attempt, so sending it again answers `DUPLICATE` and can never make a second punch. The punch is marked `PIN_FALLBACK`, the reason is audited, and the ghost rules count these per worker and per supervisor.
          */
         post: operations["kioskAssistedPunch"];
         delete?: never;
@@ -1270,9 +1247,32 @@ export interface paths {
         put?: never;
         /**
          * Delete an employee's face and fingerprint keys
-         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` if they were `ACTIVE` (a `SUSPENDED` or `TERMINATED` employee is unchanged) and must be enrolled again. It also ends an approved exemption, so a worker who was `ACTIVE` only through an exemption needs two ADMINs again. Refused while the worker has an open question: an open duplicate-enrollment review, or an exemption request waiting (a second ADMIN decides either first, so a revoke can never wipe away a question), and for a record blocked as a duplicate (that block is final). Audited with the reason; the history rows stay.
+         * @description **Roles:** ADMIN. Wipes the stored face at once and switches off every fingerprint key, for example after a wrong enrollment. The employee goes back to `PENDING_ENROLLMENT` if they were `ACTIVE` (a `SUSPENDED` or `TERMINATED` employee is unchanged) and must be enrolled again. It also ends an approved exemption, so a worker who was `ACTIVE` only through an exemption needs a new one. Refused while the worker has an open question: an open duplicate-enrollment review, or an exemption request waiting (an administrator decides either first, so a revoke can never wipe away a question), and for a record blocked as a duplicate (lift the block first with `POST /employees/{employeeId}/biometrics/unblock`). Audited with the reason; the history rows stay.
          */
         post: operations["revokeEmployeeBiometrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employees/{employeeId}/biometrics/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift the block on a record blocked as a duplicate
+         * @description **Roles:** ADMIN. A record that lost a duplicate-enrollment review as the "same person" was blocked: nothing new could be recorded for it. This lifts that block. The wiped face never comes back; the blocked face becomes a plain revoked one, the worker stays `PENDING_ENROLLMENT`, and they can be enrolled again from scratch (the duplicate check then runs again on the new face). `409` when the record is not blocked. Audited with the reason.
+         */
+        post: operations["unblockEmployeeBiometrics"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1293,7 +1293,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for a worker who refuses biometrics to work without them
-         * @description **Roles:** ADMIN. Consent must be a free choice, so a worker may refuse. Only for a worker still `PENDING_ENROLLMENT` with no open question (no open duplicate-enrollment review, no enrolled face, and no face blocked as a duplicate). This only **asks**: a second ADMIN checks the worker's Ghana Card in person and approves or rejects it (`POST /employees/{employeeId}/biometric-exemption/review`), so no single person can activate a worker without a face. While the request waits, consent and enrollment are refused. Once approved, the worker is `ACTIVE` and clocks in only with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work is flagged for review. Audited.
+         * @description **Roles:** ADMIN. Consent must be a free choice, so a worker may refuse. Only for a worker still `PENDING_ENROLLMENT` with no open question (no open duplicate-enrollment review, no enrolled face, and no face blocked as a duplicate). This only **asks**: an administrator (the same one, or another) checks the worker's Ghana Card in person and approves or rejects it (`POST /employees/{employeeId}/biometric-exemption/review`), with their password behind the decision and the audit log behind that. While the request waits, consent and enrollment are refused. Once approved, the worker is `ACTIVE` and clocks in only with a supervisor's co-sign (`PIN_FALLBACK`), so every hour they work is flagged for review. Audited.
          */
         post: operations["requestBiometricExemption"];
         delete?: never;
@@ -1352,14 +1352,10 @@ export interface paths {
          *     - While the request waits, the worker can still clock in by a
          *       supervisor's co-sign. Those punches are stored and paired, but they
          *       raise `INACTIVE_EMPLOYEE` like any punch of a worker waiting for
-         *       enrollment, and payroll counts them only once a second ADMIN has
-         *       approved. So the worker's presence is on record from the first day,
-         *       and nothing is paid on one person's say-so: a wiped face is no
-         *       longer in the duplicate check, so only a second person may vouch for
-         *       it.
-         *     - An exemption already approved is kept. Any other face (waiting for
-         *       review, or blocked as a duplicate) gives no request. An open
-         *       duplicate-enrollment review **stays open**: a second ADMIN still
+         *       enrollment, and payroll counts them only once the worker is active
+         *       again. So the worker's presence is on record from the first day.
+         *     - An exemption already approved is kept. An open duplicate-enrollment
+         *       review **stays open**: an administrator still
          *       decides it from the Ghana Cards and the record of who the face
          *       looked like. A face blocked as a duplicate **stays blocked**.
          *
@@ -2234,14 +2230,11 @@ export interface components {
          *     - `ACTIVE` — has a password and can sign in. A new ADMIN or HR_PAYROLL
          *       account sets up two-factor authentication at its first sign-in;
          *       `twoFactorEnabled` shows whether that has happened yet.
-         *     - `AWAITING_CONFIRMATION` — an ADMIN account made, promoted, reset
-         *       or switched back on by one administrator, waiting for a second to
-         *       confirm it. Cannot be used at all until then, password or not.
          *     - `DEACTIVATED` — switched off by an administrator, or because the
          *       linked employee left. Cannot sign in. Kept for history.
          * @enum {string}
          */
-        UserAccountStatus: "AWAITING_PASSWORD" | "AWAITING_CONFIRMATION" | "ACTIVE" | "DEACTIVATED";
+        UserAccountStatus: "AWAITING_PASSWORD" | "ACTIVE" | "DEACTIVATED";
         /** @description A sign-in account as administrators see it. Never contains a password or secret. */
         UserAccount: {
             /** Format: uuid */
@@ -5380,7 +5373,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The account, now `AWAITING_PASSWORD` (or `AWAITING_CONFIRMATION` for an ADMIN), with its new link. */
+            /** @description The account, now `AWAITING_PASSWORD`, with its new link. */
             200: {
                 headers: {
                     "Cache-Control": components["headers"]["NoStore"];
@@ -5391,33 +5384,6 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-        };
-    };
-    confirmAdminAccount: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The sign-in account's ID. */
-                userId: components["parameters"]["UserId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The account, confirmed. It can be used once it has a password and two-factor sign-in. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserAccount"];
-                };
-            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -6568,7 +6534,7 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description No current consent, the employee is terminated, or the worker has an open question that a second ADMIN must settle first (an open duplicate-enrollment review, an exemption request waiting, or a face blocked as a duplicate). So nobody can retry captures until a score slips under the threshold. */
+            /** @description No current consent, the employee is terminated, or the worker has an open question that an administrator must settle first on the dashboard (an open duplicate-enrollment review, an exemption request waiting, or a face blocked as a duplicate). So nobody can retry captures until a score slips under the threshold. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6763,6 +6729,46 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The worker has an open duplicate-enrollment review or an exemption request waiting (decide it first), or the record is blocked as a duplicate. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    unblockEmployeeBiometrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BiometricReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeBiometrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The record is not blocked. */
             409: {
                 headers: {
                     [name: string]: unknown;

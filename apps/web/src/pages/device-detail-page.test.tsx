@@ -71,35 +71,26 @@ describe('DeviceDetailPage', () => {
     await waitFor(() => expect(queryClient.getMutationCache().getAll()).toEqual([]));
   });
 
-  it('refuses to let the administrator who issued a key switch the device on', async () => {
+  it('lets the administrator who registered a device switch it on', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();
-    // Registering issues the key, so this administrator is its issuer.
     const made = await fetchClient.POST('/devices', {
       body: {
-        name: 'Two-person gate',
+        name: 'Gate house kiosk',
         siteId: '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01',
         kind: 'MOCK',
       },
     });
     const deviceId = made.data?.device.id ?? '';
     renderDevicePage(deviceId);
-    await screen.findByRole('heading', { name: 'Two-person gate' });
+    await screen.findByRole('heading', { name: 'Gate house kiosk' });
 
-    // It arrives switched off, and says why in plain words.
-    expect(
-      screen.getByText(/the administrator who did that cannot be the one to switch it on/),
-    ).toBeInTheDocument();
+    // It arrives switched off; the same administrator switches it on.
     await user.click(screen.getByRole('button', { name: 'Switch on' }));
 
-    // Said twice on purpose: beside the button, and in the error panel.
-    expect(
-      await screen.findAllByText(/another administrator must switch the device on/),
-    ).not.toHaveLength(0);
-    // Still switched off, so the button is still there for somebody else.
-    expect(screen.getByRole('button', { name: 'Switch on' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Switch off' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Switch on' })).not.toBeInTheDocument();
   });
-
   it('offers the fingerprint switch only on a kiosk', async () => {
     await signInForTests('admin@samtec.example');
     renderDevicePage(KIOSK_ID);
