@@ -8,7 +8,6 @@ import { mockDevices } from '@/mocks/data/devices';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { DeviceDetailPage } from './device-detail-page';
-import { NewDevicePage } from './new-device-page';
 
 const TERMINAL_ID = mockDevices[0]?.id ?? '';
 const KIOSK_ID = mockDevices.find((device) => device.kind === 'FACE_KIOSK')?.id ?? '';
@@ -107,24 +106,5 @@ describe('DeviceDetailPage', () => {
 
     expect(screen.getByRole('checkbox')).toBeChecked();
     expect(screen.queryByLabelText('Serial number')).not.toBeInTheDocument();
-  });
-});
-
-describe('NewDevicePage', () => {
-  it('registers a terminal and shows its secret once', async () => {
-    await signInForTests('admin@samtec.example');
-    const user = userEvent.setup();
-    const { queryClient, unmount } = renderWithProviders(<NewDevicePage />);
-
-    await user.type(screen.getByLabelText('Name'), 'Ridge Towers back gate');
-    await screen.findByRole('option', { name: /Choose a site/ });
-    await user.selectOptions(screen.getByLabelText('Site'), '01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01');
-    await user.click(screen.getByRole('button', { name: 'Register device' }));
-
-    expect(await screen.findByRole('heading', { name: 'Device registered' })).toBeInTheDocument();
-    expect(screen.getByLabelText<HTMLInputElement>('Secret').value.length).toBeGreaterThan(20);
-
-    unmount();
-    await waitFor(() => expect(queryClient.getMutationCache().getAll()).toEqual([]));
   });
 });

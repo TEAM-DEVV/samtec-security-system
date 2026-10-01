@@ -101,6 +101,15 @@ export const deviceKindLabels: Record<DeviceKind, string> = {
   FACE_KIOSK: 'Face kiosk',
 };
 
+/** One plain-language line under each kind on the register-device form. */
+export const deviceKindHelp: Record<DeviceKind, string> = {
+  FACE_KIOSK:
+    "A phone, tablet or laptop running the SAMTEC kiosk app. It does face recognition, plus the device's own fingerprint sensor if you allow it. Use this for testing.",
+  ZKTECO:
+    'A real wall-mounted fingerprint clock (ZKTeco brand) that sends punches through the SAMTEC gateway. Bought when a client pays. Not for phone testing.',
+  MOCK: 'A pretend terminal for demos and automated tests.',
+};
+
 export const deviceStatusLabels: Record<DeviceStatus, string> = {
   ACTIVE: 'Active',
   INACTIVE: 'Switched off',
