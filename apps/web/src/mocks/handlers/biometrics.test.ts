@@ -65,7 +65,7 @@ describe('mock biometrics API', () => {
     expect(data?.passkeys.every((key) => key.revokedAt !== null)).toBe(true);
   });
 
-  it('records a withdrawal: the face is wiped, and nothing is filed on the worker\'s behalf', async () => {
+  it("records a withdrawal: the face is wiped, and nothing is filed on the worker's behalf", async () => {
     // Only an ADMIN records a withdrawal.
     await signInForTests('hr@samtec.example');
     const path = { params: { path: { employeeId: enrolled?.id ?? '' } } };
