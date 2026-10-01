@@ -59,13 +59,19 @@ type Stage =
  * the two jobs start from opposite states — `PENDING_ENROLLMENT` has no face
  * yet, and a fingerprint may only be saved once a face is `ACTIVE`.
  */
-type Task = 'enroll' | 'finger';
+export type Task = 'enroll' | 'finger';
 
 interface EnrollScreenProps {
   device: PairedDevice;
   admin: AdminSession;
   engine: FaceEngine;
   onDone: () => void;
+  /**
+   * Which job to open on, so the admin menu's "Save a fingerprint" item can
+   * jump straight to the finger task instead of landing on the face task and
+   * making the administrator switch.
+   */
+  initialTask?: Task;
   /** Overridable so a test does not sit through three real half-second waits. */
   betweenCaptures?: number;
   challengeSeconds?: number;
@@ -94,11 +100,12 @@ export function EnrollScreen({
   admin,
   engine,
   onDone,
+  initialTask = 'enroll',
   betweenCaptures = BETWEEN_CAPTURES_MILLISECONDS,
   challengeSeconds = CHALLENGE_SECONDS,
 }: EnrollScreenProps) {
   const [stage, setStage] = useState<Stage>({ name: 'choosing' });
-  const [task, setTask] = useState<Task>('enroll');
+  const [task, setTask] = useState<Task>(initialTask);
   const [employeeId, setEmployeeId] = useState('');
   const [cardLast4, setCardLast4] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -546,7 +553,7 @@ export function EnrollScreen({
                 }`
               : // Never who it looked like. Whoever is standing here must not learn
                 // who else works for this company.
-                'This face needs a second administrator to look at it on the dashboard before it can be used. Nothing else to do here.'}
+                'This face looks like someone already enrolled. An administrator can review it on the dashboard under Duplicate faces.'}
           </p>
           <div className="buttons">
             {stage.result.dedupe === 'PASSED' && passkeysAvailable() && (

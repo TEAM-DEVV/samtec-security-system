@@ -441,26 +441,30 @@ export function ClockScreen({
   return (
     <div className="screen screen--centred">
       <div className="bar" style={{ width: '100%', maxWidth: '30rem' }}>
-        <strong>
-          <BrandMark />
-          SAMTEC
-        </strong>
-        {/* The way in for an administrator. Deliberately plain and small: it is
+        {/* The brand and the device name are one group, always plain text: a
+            first-time user should never wonder whether either one is a button. */}
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+          <strong>
+            <BrandMark />
+            SAMTEC
+          </strong>
+          <span>{device.name}</span>
+        </span>
+        {/* The way in for an administrator: its own small button, clearly apart
+            from the device name beside it. Deliberately plain and small: it is
             not a secret door — the sign-in behind it is the real gate, and only
             an ADMIN can get through it — but a guard clocking in should never
             press it by accident. Hidden mid-attempt so nothing is abandoned
             half-done. */}
-        {onAdmin !== undefined && stage.name === 'resting' ? (
+        {onAdmin !== undefined && stage.name === 'resting' && (
           <button
             type="button"
             className="button button--quiet"
             style={{ width: 'auto', minHeight: 0, padding: '0.35rem 0.6rem', fontSize: '0.8em' }}
             onClick={onAdmin}
           >
-            {device.name} · Admin
+            Admin
           </button>
-        ) : (
-          <span>{device.name}</span>
         )}
       </div>
 
