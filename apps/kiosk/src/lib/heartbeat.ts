@@ -33,10 +33,15 @@ export const HEARTBEAT_MILLISECONDS = 60_000;
  * tries again a minute later. There is nothing useful to show a guard about a
  * heartbeat, and an error on this screen would frighten somebody who is only
  * trying to start their shift.
+ *
+ * `onUpdate` sees the server's answer on every tick that succeeds — today
+ * that is only `passkeysEnabled`, so the kiosk knows whether to offer saving
+ * a fingerprint without asking the server again on its own.
  */
 export function startHeartbeat(
   device: PairedDevice,
   everyMilliseconds: number = HEARTBEAT_MILLISECONDS,
+  onUpdate?: (response: HeartbeatResponse) => void,
 ): () => void {
   let stopped = false;
 
@@ -45,9 +50,10 @@ export function startHeartbeat(
       return;
     }
     try {
-      await callSigned<HeartbeatResponse>(device, 'ingest/heartbeat', {
+      const response = await callSigned<HeartbeatResponse>(device, 'ingest/heartbeat', {
         deviceClockAt: new Date().toISOString(),
       });
+      onUpdate?.(response);
     } catch {
       // Deliberately silent. See above.
     }

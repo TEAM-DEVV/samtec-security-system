@@ -553,7 +553,7 @@ export function EnrollScreen({
                 }`
               : // Never who it looked like. Whoever is standing here must not learn
                 // who else works for this company.
-                'This face looks like someone already enrolled. An administrator can review it on the dashboard under Duplicate faces.'}
+                'This face looks like someone already enrolled. An administrator can review it on the dashboard under Duplicate faces. Once that is cleared, a fingerprint can be saved for them here.'}
           </p>
           <div className="buttons">
             {stage.result.dedupe === 'PASSED' && passkeysAvailable() && (

@@ -29,6 +29,8 @@ let answers: { status: number; body: unknown }[] = [];
 let sent: string[] = [];
 /** Which device signed each heartbeat, in order — for the device-switch test only. */
 let heartbeatDeviceIds: string[] = [];
+/** What every heartbeat answers with for `passkeysEnabled`, until a test says otherwise. */
+let heartbeatPasskeysEnabled = true;
 
 async function aPairedKiosk(): Promise<PairedDevice> {
   return {
@@ -90,6 +92,7 @@ beforeEach(() => {
   answers = [];
   sent = [];
   heartbeatDeviceIds = [];
+  heartbeatPasskeysEnabled = true;
   loadDevice.mockReset();
   forgetDevice.mockReset();
   // `forgetDevice` now reports the device it leaves this phone acting as —
@@ -108,7 +111,13 @@ beforeEach(() => {
       // Only the switching test reads this; every other test ignores it.
       heartbeatDeviceIds.push(headers['X-Samtec-Device'] ?? '');
       return Promise.resolve(
-        new Response(JSON.stringify({ serverTime: '2026-09-26T06:00:01.000Z' }), { status: 200 }),
+        new Response(
+          JSON.stringify({
+            serverTime: '2026-09-26T06:00:01.000Z',
+            passkeysEnabled: heartbeatPasskeysEnabled,
+          }),
+          { status: 200 },
+        ),
       );
     }
     // Signing in and out is not what the admin-menu tests are about either —
@@ -231,6 +240,26 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Enroll a worker’s face' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save a fingerprint' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Kiosk settings' })).toBeInTheDocument();
+  });
+
+  it('says fingerprints are off, with no dead button, when the heartbeat says so', async () => {
+    heartbeatPasskeysEnabled = false;
+    loadDevice.mockResolvedValue(await aPairedKiosk());
+    const user = userEvent.setup();
+    render(<App />);
+    // The heartbeat that answers this ticks as soon as the phone is paired,
+    // before anyone could reach the menu — give it a moment to land.
+    await vi.waitFor(() =>
+      expect(sent.some((url) => url.includes('/ingest/heartbeat'))).toBe(true),
+    );
+
+    await signInAsAdmin(user);
+
+    expect(await screen.findByRole('heading', { name: 'Admin menu' })).toBeInTheDocument();
+    expect(screen.getByText(/Fingerprints are switched off for this kiosk/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save a fingerprint' })).not.toBeInTheDocument();
+    // Every other item still works.
+    expect(screen.getByRole('button', { name: 'Enroll a worker’s face' })).toBeInTheDocument();
   });
 
   it('returns to the menu from a task, and only signs out from "Back to clock-in"', async () => {

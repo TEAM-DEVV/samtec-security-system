@@ -4,7 +4,7 @@ import { forgetDevice, loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
 import { HumanFaceEngine } from '@/lib/face-human';
 import { MockFaceEngine } from '@/lib/face-mock';
-import { startHeartbeat } from '@/lib/heartbeat';
+import { HEARTBEAT_MILLISECONDS, startHeartbeat } from '@/lib/heartbeat';
 import { AdminMenuScreen } from '@/screens/admin-menu-screen';
 import { AdminSignInScreen } from '@/screens/admin-sign-in-screen';
 import { ClockScreen } from '@/screens/clock-screen';
@@ -66,6 +66,14 @@ export function App({ engine }: AppProps = {}) {
   >(null);
   /** Which job the enrol screen should open on, set just before it is shown. */
   const [enrollTask, setEnrollTask] = useState<Task>('enroll');
+  /**
+   * Whether this device may save a fingerprint on its own sensor, as the
+   * most recent heartbeat reported. Starts `false`, the safe side to be
+   * wrong on for the moment before the first heartbeat answers: offering a
+   * button that is actually off would be a dead end, where offering the
+   * message first and finding fingerprints are on costs nothing.
+   */
+  const [passkeysEnabled, setPasskeysEnabled] = useState(false);
   const [admin, setAdmin] = useState<AdminSession | null>(null);
   const [looking, setLooking] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
@@ -105,7 +113,9 @@ export function App({ engine }: AppProps = {}) {
     if (device === null) {
       return;
     }
-    return startHeartbeat(device);
+    return startHeartbeat(device, HEARTBEAT_MILLISECONDS, (response) => {
+      setPasskeysEnabled(response.passkeysEnabled);
+    });
   }, [device]);
 
   // An administrator who walks away must not leave a session on a wall. The
@@ -175,6 +185,7 @@ export function App({ engine }: AppProps = {}) {
     return (
       <AdminMenuScreen
         admin={admin}
+        passkeysEnabled={passkeysEnabled}
         onEnroll={() => {
           setEnrollTask('enroll');
           setAdminScreen('enrolling');

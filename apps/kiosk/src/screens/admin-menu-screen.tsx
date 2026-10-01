@@ -1,8 +1,14 @@
 import { BrandMark } from '@/components/brand-mark';
 import type { AdminSession } from '@/lib/admin-session';
 
+/** The words shown instead of a button that would only reach the server to be refused. */
+export const FINGERPRINTS_OFF_MESSAGE =
+  'Fingerprints are switched off for this kiosk. An administrator can switch them on in Dashboard → Devices → this device.';
+
 interface AdminMenuScreenProps {
   admin: AdminSession;
+  /** Whether this device may save a fingerprint on its own sensor. */
+  passkeysEnabled: boolean;
   /** Opens the enrol screen on the face task. */
   onEnroll: () => void;
   /** Opens the enrol screen with the fingerprint task preselected. */
@@ -30,6 +36,7 @@ interface AdminMenuScreenProps {
  */
 export function AdminMenuScreen({
   admin,
+  passkeysEnabled,
   onEnroll,
   onFingerprint,
   onSettings,
@@ -54,9 +61,17 @@ export function AdminMenuScreen({
         <button type="button" className="button" onClick={onEnroll}>
           Enroll a worker’s face
         </button>
-        <button type="button" className="button" onClick={onFingerprint}>
-          Save a fingerprint
-        </button>
+        {passkeysEnabled ? (
+          <button type="button" className="button" onClick={onFingerprint}>
+            Save a fingerprint
+          </button>
+        ) : (
+          // No dead button: tapping this would only reach the server to be
+          // refused, after a worker is already standing there.
+          <p className="notice notice--wait" style={{ textAlign: 'left' }}>
+            {FINGERPRINTS_OFF_MESSAGE}
+          </p>
+        )}
         <button type="button" className="button" onClick={onSettings}>
           Kiosk settings
         </button>

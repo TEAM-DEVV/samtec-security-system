@@ -2,14 +2,15 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AdminSession } from '@/lib/admin-session';
-import { AdminMenuScreen } from './admin-menu-screen';
+import { AdminMenuScreen, FINGERPRINTS_OFF_MESSAGE } from './admin-menu-screen';
 
 /**
  * What an administrator sees right after signing in.
  *
- * Nothing here talks to the server — it is four buttons and a heading — so
- * these tests are only about the one thing that matters: each item reaches
- * the handler the app gave it, and none of them is confused for another.
+ * Nothing here talks to the server — it is four items and a heading, reading
+ * one prop to decide the fingerprint item's shape — so these tests are about
+ * two things: each item reaches the handler the app gave it, and the
+ * fingerprint item is never a button that only the server would refuse.
  */
 const ADMIN: AdminSession = {
   accessToken: 'test-admin-token',
@@ -17,14 +18,14 @@ const ADMIN: AdminSession = {
   expiresAt: Date.now() + 900_000,
 };
 
-function renderMenu() {
+function renderMenu(passkeysEnabled = true) {
   const handlers = {
     onEnroll: vi.fn(),
     onFingerprint: vi.fn(),
     onSettings: vi.fn(),
     onBackToClockIn: vi.fn(),
   };
-  render(<AdminMenuScreen admin={ADMIN} {...handlers} />);
+  render(<AdminMenuScreen admin={ADMIN} passkeysEnabled={passkeysEnabled} {...handlers} />);
   return handlers;
 }
 
@@ -75,5 +76,27 @@ describe('AdminMenuScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Back to clock-in' }));
 
     expect(handlers.onBackToClockIn).toHaveBeenCalledTimes(1);
+  });
+
+  describe('when this device may not save a fingerprint', () => {
+    it('says so in plain words, instead of a button that could only be refused', () => {
+      renderMenu(false);
+
+      expect(screen.getByText(FINGERPRINTS_OFF_MESSAGE)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save a fingerprint' })).not.toBeInTheDocument();
+      // Every other item is unaffected.
+      expect(screen.getByRole('button', { name: 'Enroll a worker’s face' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Kiosk settings' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Back to clock-in' })).toBeInTheDocument();
+    });
+  });
+
+  describe('when this device may save a fingerprint', () => {
+    it('offers the button, and no message', () => {
+      renderMenu(true);
+
+      expect(screen.getByRole('button', { name: 'Save a fingerprint' })).toBeInTheDocument();
+      expect(screen.queryByText(FINGERPRINTS_OFF_MESSAGE)).not.toBeInTheDocument();
+    });
   });
 });

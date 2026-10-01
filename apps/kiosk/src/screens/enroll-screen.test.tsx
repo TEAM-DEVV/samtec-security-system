@@ -252,6 +252,9 @@ describe('EnrollScreen', () => {
     // names who. Naming the match would tell whoever is standing here who
     // else works for this company, and nor may a score appear.
     expect(screen.getByText(/This face looks like someone already enrolled/)).toBeInTheDocument();
+    // And it says in plain words that the fingerprint is not lost — just
+    // waiting on the review, so nobody thinks enrolling again is needed.
+    expect(screen.getByText(/a fingerprint can be saved for them here/)).toBeInTheDocument();
     const shown = document.body.textContent ?? '';
     expect(shown).not.toMatch(/COLLISION/);
     expect(shown).not.toMatch(/0\.\d\d/);
