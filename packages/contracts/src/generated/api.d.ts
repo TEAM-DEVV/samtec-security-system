@@ -312,7 +312,7 @@ export interface paths {
          *
          *     A right password answers a new access token for the same session that carries the confirmation for five minutes. Replace the current token with it and send the sensitive request again; one confirmation covers five minutes of work, and `POST /auth/refresh` carries a confirmation that is still fresh over to the token it issues. A wrong password answers `400` with the field `password` (never `401`, so the dashboard does not try a refresh) and counts towards the same per-email lockout as signing in: five wrong answers in 15 minutes lock sign-in and this step alike. The confirmation is written to the audit log (`auth.password_confirmed`).
          *
-         *     A kiosk session cannot call this (it answers `403`): the kiosk's own sign-in is its password step, and no sensitive operation is reachable from a kiosk.
+         *     A kiosk session cannot call this (it answers `403`) and never needs to: the administrator typed their password to sign in on the kiosk, that session lasts 15 minutes and can reach only the kiosk screens, so the one sensitive operation open to it (registering the kiosk itself) goes ahead without a second prompt.
          */
         post: operations["confirmPassword"];
         delete?: never;
