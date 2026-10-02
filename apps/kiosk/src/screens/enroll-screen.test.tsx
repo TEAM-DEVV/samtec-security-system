@@ -324,6 +324,44 @@ describe('EnrollScreen', () => {
     expect(screen.queryByDisplayValue('1234')).not.toBeInTheDocument();
   });
 
+  it('retries a failed capture from the camera, never back through the consent', async () => {
+    // The enrollment call fails once (say, the connection dropped), then works.
+    let enrollCalls = 0;
+    answers['/kiosk/face-enrollments'] = {
+      get status() {
+        enrollCalls += 1;
+        return enrollCalls === 1 ? 503 : 200;
+      },
+      body: {
+        credentialId: '01927c3e-dddd-7000-8000-000000000001',
+        dedupe: 'PASSED',
+        employeeStatus: 'ACTIVE',
+        postedHere: true,
+      },
+    } as unknown as (typeof answers)[string];
+    const user = userEvent.setup();
+    await renderScreen();
+    await reachConsent(user);
+    await user.type(screen.getByLabelText(/Last 4 digits/), '1234');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: /Record consent/ }));
+
+    const retry = await screen.findByRole(
+      'button',
+      { name: 'Try the face again' },
+      { timeout: 12_000 },
+    );
+    await user.click(retry);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Enrolled' }, { timeout: 12_000 }),
+    ).toBeInTheDocument();
+    // The consent was recorded exactly once: the retry reused it, so nobody
+    // re-typed the card digits or re-read the wording.
+    expect(sent.filter((one) => one.url.includes('/kiosk/consents'))).toHaveLength(1);
+    expect(sent.filter((one) => one.url.includes('/kiosk/face-enrollments'))).toHaveLength(2);
+  });
+
   it('shows the server’s own refusal rather than inventing one', async () => {
     answers['/kiosk/consents'] = {
       status: 400,

@@ -118,6 +118,13 @@ export function EnrollScreen({
   const [employeeId, setEmployeeId] = useState('');
   const [cardLast4, setCardLast4] = useState('');
   const [agreed, setAgreed] = useState(false);
+  /**
+   * The consent already recorded for `employeeId`, so a capture that fails
+   * (a timed-out turn, bad light) can be tried again without marching the
+   * worker back through the wording and the card digits. Cleared whenever
+   * the screen returns to choosing a worker.
+   */
+  const [recordedConsentId, setRecordedConsentId] = useState<string | null>(null);
   const [consentText, setConsentText] = useState<BiometricConsentText | null>(null);
   const [waiting, setWaiting] = useState<EmployeeList['items']>([]);
   const [enrolled, setEnrolled] = useState<EmployeeList['items']>([]);
@@ -196,6 +203,7 @@ export function EnrollScreen({
       // The card digits have done their job. Nothing on a kiosk should keep part
       // of somebody's Ghana Card number a moment longer than it is needed.
       setCardLast4('');
+      setRecordedConsentId(consent.id);
       await captureThreeFaces(consent.id);
     } catch (error) {
       setStage({
@@ -590,6 +598,7 @@ export function EnrollScreen({
               onClick={() => {
                 setEmployeeId('');
                 setAgreed(false);
+                setRecordedConsentId(null);
                 setStage({ name: 'choosing' });
               }}
             >
@@ -638,6 +647,7 @@ export function EnrollScreen({
               onClick={() => {
                 setEmployeeId('');
                 setAgreed(false);
+                setRecordedConsentId(null);
                 setStage({ name: 'choosing' });
               }}
             >
@@ -657,7 +667,26 @@ export function EnrollScreen({
             {stage.message}
           </p>
           <div className="buttons">
-            <button type="button" className="button" onClick={() => setStage({ name: 'choosing' })}>
+            {recordedConsentId !== null && (
+              // The consent is already on record, so a failed capture retries
+              // from the camera — never back through the wording and the card
+              // digits, which made every stumble cost a whole enrollment.
+              <button
+                type="button"
+                className="button button--in"
+                onClick={() => void captureThreeFaces(recordedConsentId)}
+              >
+                Try the face again
+              </button>
+            )}
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setRecordedConsentId(null);
+                setStage({ name: 'choosing' });
+              }}
+            >
               Start again
             </button>
             <button type="button" className="button button--quiet" onClick={onDone}>

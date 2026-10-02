@@ -53,7 +53,7 @@ describe('the numbers', () => {
     expect(MIN_FACE_PIXELS).toBe(224);
     expect(EMBEDDING_LENGTH).toBe(512);
     expect(FACE_MODEL).toBe('arcface-mbf-1');
-    expect(CHALLENGE_SECONDS).toBe(20);
+    expect(CHALLENGE_SECONDS).toBe(30);
   });
 });
 
