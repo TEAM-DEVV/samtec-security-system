@@ -33,6 +33,8 @@ export interface SignedDevice {
   companyId: string;
   siteId: string;
   kind: DeviceKind;
+  /** Whether this device may save a fingerprint on its own sensor. */
+  passkeysEnabled: boolean;
 }
 
 /** At most this many signed requests per device per minute. */
@@ -137,6 +139,7 @@ export class DeviceSignatureGuard implements CanActivate {
       companyId: device.companyId,
       siteId: device.siteId,
       kind: device.kind,
+      passkeysEnabled: device.passkeysEnabled,
     };
     return true;
   }

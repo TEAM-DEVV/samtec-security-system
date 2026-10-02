@@ -13,6 +13,7 @@ import { importSigningKey } from '@/lib/signing';
  */
 let sent: { url: string; headers: Record<string, string>; body: string }[] = [];
 let failNext = false;
+let nextPasskeysEnabled = false;
 
 /** A short interval, so these tests take milliseconds rather than minutes. */
 const TICK = 30;
@@ -34,6 +35,7 @@ async function aPairedKiosk(): Promise<PairedDevice> {
 beforeEach(() => {
   sent = [];
   failNext = false;
+  nextPasskeysEnabled = false;
   vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
     sent.push({
       url,
@@ -44,10 +46,13 @@ beforeEach(() => {
       return Promise.reject(new Error('no signal at the gate'));
     }
     return Promise.resolve(
-      new Response(JSON.stringify({ serverTime: '2026-09-26T06:00:01.000Z' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      new Response(
+        JSON.stringify({
+          serverTime: '2026-09-26T06:00:01.000Z',
+          passkeysEnabled: nextPasskeysEnabled,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
   });
 });
@@ -106,6 +111,30 @@ describe('the heartbeat', () => {
     await pause(TICK * 10);
 
     expect(sent).toHaveLength(after);
+  });
+
+  it('hands the server’s answer to onUpdate on every tick that succeeds', async () => {
+    nextPasskeysEnabled = true;
+    const device = await aPairedKiosk();
+    const seen: boolean[] = [];
+    const stop = startHeartbeat(device, TICK, (response) => seen.push(response.passkeysEnabled));
+
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2));
+    stop();
+
+    expect(seen.every((value) => value === true)).toBe(true);
+  });
+
+  it('never calls onUpdate for a tick that failed', async () => {
+    failNext = true;
+    const device = await aPairedKiosk();
+    const onUpdate = vi.fn();
+    const stop = startHeartbeat(device, TICK, onUpdate);
+
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(1));
+    stop();
+
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 
   it('keeps going after a failure, because a gate loses signal', async () => {

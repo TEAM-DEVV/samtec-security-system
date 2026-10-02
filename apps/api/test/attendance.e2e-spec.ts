@@ -434,6 +434,30 @@ describe.skipIf(!databaseUrl)('Phase 2 attendance on a real database (e2e)', () 
       expect(device.lastSeenAt).not.toBeNull();
     });
 
+    it('tells a kiosk in every heartbeat whether it may save a fingerprint', async () => {
+      const kiosk = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set(...bearer(adminToken))
+        .send({ name: 'Fingerprint-aware kiosk', siteId: company.siteA, kind: 'FACE_KIOSK' })
+        .expect(201);
+      await activateDevice(app, company, kiosk.body.device.id);
+      const device = { id: kiosk.body.device.id as string, secret: kiosk.body.secret as string };
+
+      // Off by default — a kiosk that has never been switched on for this
+      // must not offer a fingerprint the server will only refuse.
+      const beforeSwitchOn = await signed('ingest/heartbeat', {}, device).expect(200);
+      expect(beforeSwitchOn.body.passkeysEnabled).toBe(false);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/devices/${device.id}`)
+        .set(...bearer(adminToken))
+        .send({ passkeysEnabled: true })
+        .expect(200);
+
+      const afterSwitchOn = await signed('ingest/heartbeat', {}, device).expect(200);
+      expect(afterSwitchOn.body.passkeysEnabled).toBe(true);
+    });
+
     it('checks the batch: at most 100 punches, each event ID once', async () => {
       const many = Array.from({ length: 101 }, (_, index) =>
         punch({ deviceEventId: `many-${index}` }),

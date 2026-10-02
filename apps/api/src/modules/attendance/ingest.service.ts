@@ -210,7 +210,7 @@ export class IngestService {
     // And the only thing that deletes biometrics on time, for the same
     // reason: there is no scheduled job (docs/plan/13 §2).
     await this.retention.sweep(device.companyId, serverTime);
-    return { serverTime: serverTime.toISOString() };
+    return { serverTime: serverTime.toISOString(), passkeysEnabled: device.passkeysEnabled };
   }
 
   /**
