@@ -155,7 +155,7 @@ describe('ClockScreen', () => {
     expect(Object.keys(body).sort()).toEqual(['direction', 'purpose', 'sample']);
     expect(body.purpose).toBe('CLOCK');
     expect(body.direction).toBe('IN');
-    expect(body.sample.embedding).toHaveLength(1024);
+    expect(body.sample.embedding).toHaveLength(512);
   });
 
   it('refuses a printed photograph, because it cannot turn its head', async () => {

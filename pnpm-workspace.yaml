@@ -42,6 +42,9 @@ allowBuilds:
   esbuild: false
   # Only copies the mock worker file, which we keep in apps/web/public instead.
   msw: false
+  # Only writes version constants into its own folder. onnxruntime-web (the
+  # kiosk's face-matching runtime) works without it.
+  protobufjs: false
 
 # openapi-typescript 7 declares support for TypeScript 5 only, but it works with
 # TypeScript 6; CI proves it on every run with `pnpm contracts:check`.

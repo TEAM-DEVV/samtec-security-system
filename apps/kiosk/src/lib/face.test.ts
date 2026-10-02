@@ -51,8 +51,8 @@ describe('the numbers', () => {
     // sending frames the server will refuse.
     expect(MIN_ANTI_SPOOFING).toBe(0.6);
     expect(MIN_FACE_PIXELS).toBe(224);
-    expect(EMBEDDING_LENGTH).toBe(1024);
-    expect(FACE_MODEL).toBe('human-faceres-1');
+    expect(EMBEDDING_LENGTH).toBe(512);
+    expect(FACE_MODEL).toBe('arcface-mbf-1');
     expect(CHALLENGE_SECONDS).toBe(20);
   });
 });

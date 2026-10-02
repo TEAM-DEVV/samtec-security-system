@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FACE_THRESHOLDS } from './face-thresholds.js';
 
 /**
  * The rules for every attendance input, matching the contract exactly.
@@ -172,8 +173,8 @@ export const faceSample = z.strictObject({
   // The contract names one model, and faces from two models can never be
   // compared. Anything else is refused here, so a broken kiosk is never
   // written down as a worker whose face did not look real (docs/plan/13 §3).
-  model: z.literal('human-faceres-1'),
-  embedding: z.array(z.number()).length(1024),
+  model: z.literal('arcface-mbf-1'),
+  embedding: z.array(z.number()).length(FACE_THRESHOLDS.embeddingLength),
   real: z.number().min(0).max(1),
   live: z.number().min(0).max(1),
 });

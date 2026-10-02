@@ -352,7 +352,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
           deviceId: consentKiosk,
           templateSealed: new Uint8Array([1, 2, 3]),
           keyVersion: 1,
-          faceModel: 'human-faceres-1',
+          faceModel: 'arcface-mbf-1',
           consentId: consent.id,
           enrolledByUserId: company.adminUserId,
           dedupe: 'COLLISION',

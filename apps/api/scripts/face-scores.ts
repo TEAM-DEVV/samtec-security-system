@@ -20,7 +20,7 @@
  *
  *   pnpm --filter @samtec/api face:scores -- --from ../../pilot-captures.json
  *
- * The file is a list of `{ "person": "…", "frames": [[…1024 numbers…], …] }`,
+ * The file is a list of `{ "person": "…", "frames": [[…512 numbers…], …] }`,
  * at least two captures per person. **It is biometric data:** keep it outside
  * this repository, and delete it when the report is written.
  */
@@ -163,7 +163,7 @@ function printClockIn(): void {
 function printMatchTuning(): void {
   heading('5. What moving `match` would do');
   console.log('  match   matched  wrong  not sure  not recognised');
-  for (const match of [0.7, 0.75, 0.8, 0.85, 0.9]) {
+  for (const match of [0.3, 0.35, 0.4, 0.45, 0.5]) {
     const counts = countVerdicts(attempts, match, FACE_THRESHOLDS.lead);
     const mark = match === FACE_THRESHOLDS.match ? ' <- shipped' : '';
     console.log(
@@ -212,7 +212,7 @@ function printLeadTuning(): void {
 function printEnrollment(): void {
   heading('7. Enrollment: catching a second enrollment of the same person');
   console.log('  duplicate  ghosts caught  strangers wrongly queried');
-  for (const duplicate of [0.6, 0.65, 0.7, 0.75, 0.8]) {
+  for (const duplicate of [0.25, 0.3, 0.35, 0.4, 0.45]) {
     const counts = countDuplicates(people, duplicate);
     const mark = duplicate === FACE_THRESHOLDS.duplicate ? ' <- shipped' : '';
     console.log(

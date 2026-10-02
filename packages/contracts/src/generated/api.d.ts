@@ -3208,7 +3208,7 @@ export interface components {
              * @description The face model that made the numbers. Faces from different models can never be compared.
              * @constant
              */
-            model: "human-faceres-1";
+            model: "arcface-mbf-1";
             embedding: number[];
             real: number;
             live: number;

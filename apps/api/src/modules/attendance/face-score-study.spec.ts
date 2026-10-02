@@ -57,14 +57,14 @@ describe('makeStudySet', () => {
     expect(summarise(spread.frames).mean).toBeCloseTo(DEFAULT_SHAPE.frameScore, 1);
   });
 
-  it('comes out a little under its targets once it spreads, and by how much', () => {
+  it('stays close to its targets as it spreads, and never drifts upward', () => {
     // The targets are hit at spread 0 (the test above). Above that, each angle
-    // is stretched or shrunk at random, and a stretched angle loses more score
-    // than a shrunk one gains — so the averages land under their targets, and
-    // further under as the spread grows. Strangers, far apart to begin with,
-    // lose the most. The report quotes measured means, never the targets; this
-    // pins the gap so it cannot grow quietly, at the two spreads the report
-    // actually uses.
+    // is stretched or shrunk at random, which can only pull the averages a
+    // little under their targets — never above them, which would quietly make
+    // the stand-in flatter the thresholds. The stranger target sits at the
+    // floor of the score band (scores clamp at 0), so it barely moves at all.
+    // Pinned at the two spreads the report actually uses; the report quotes
+    // measured means, never the targets.
     const measured = (spread: number) => {
       const scores = collectScores(makeStudySet({ ...DEFAULT_SHAPE, spread }));
       return {
@@ -75,17 +75,13 @@ describe('makeStudySet', () => {
 
     const typical = measured(0.15);
     expect(typical.same).toBeGreaterThan(DEFAULT_SHAPE.sameScore - 0.03);
-    expect(typical.different).toBeGreaterThan(DEFAULT_SHAPE.differentScore - 0.08);
+    expect(typical.same).toBeLessThan(DEFAULT_SHAPE.sameScore + 0.01);
+    expect(Math.abs(typical.different - DEFAULT_SHAPE.differentScore)).toBeLessThan(0.05);
 
     const hard = measured(0.28);
-    expect(hard.same).toBeGreaterThan(DEFAULT_SHAPE.sameScore - 0.05);
-    expect(hard.different).toBeGreaterThan(DEFAULT_SHAPE.differentScore - 0.14);
-
-    // The same-person target survives the spread far better than the
-    // different-person one, because its angle is small to begin with.
-    expect(DEFAULT_SHAPE.sameScore - hard.same).toBeLessThan(
-      DEFAULT_SHAPE.differentScore - hard.different,
-    );
+    expect(hard.same).toBeGreaterThan(DEFAULT_SHAPE.sameScore - 0.06);
+    expect(hard.same).toBeLessThan(DEFAULT_SHAPE.sameScore + 0.01);
+    expect(Math.abs(hard.different - DEFAULT_SHAPE.differentScore)).toBeLessThan(0.07);
   });
 
   it('refuses a set where different people would score higher than the same person', () => {

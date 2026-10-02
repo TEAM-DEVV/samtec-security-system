@@ -1,7 +1,7 @@
 /**
  * Locking a face template away (docs/plan/13-biometrics-design.md section 1).
  *
- * A template is 1,024 numbers, and those numbers can be turned back into a
+ * A template is the model's list of numbers, and those numbers can be turned back into a
  * rough face, so they are personal data. They are stored with AES-256-GCM,
  * under a key derived from `AUTH_SECRET`, and **bound to the row they belong
  * to**: the company, the worker, the credential row and the key version go in
@@ -47,7 +47,9 @@ export function sealTemplate(embedding: readonly number[], row: TemplateRow, key
   }
   if (!sound) {
     // The message never carries the numbers themselves.
-    throw new RangeError('a face template is exactly 1,024 real numbers');
+    throw new RangeError(
+      `a face template is exactly ${FACE_THRESHOLDS.embeddingLength} real numbers`,
+    );
   }
   const numbers = Buffer.alloc(embedding.length * NUMBER_BYTES);
   embedding.forEach((value, index) => {

@@ -93,13 +93,13 @@ describe('sealTemplate and openTemplate', () => {
   });
 
   it('refuses a list that is not a face', () => {
-    expect(() => sealTemplate([0.1, 0.2], row, key)).toThrow(/1,024 real numbers/);
+    expect(() => sealTemplate([0.1, 0.2], row, key)).toThrow(/512 real numbers/);
     const broken = [...face];
     broken[7] = Number.POSITIVE_INFINITY;
-    expect(() => sealTemplate(broken, row, key)).toThrow(/1,024 real numbers/);
+    expect(() => sealTemplate(broken, row, key)).toThrow(/512 real numbers/);
     // A list of the right length with holes in it is not a face either.
     expect(() => sealTemplate(new Array(FACE_THRESHOLDS.embeddingLength), row, key)).toThrow(
-      /1,024 real numbers/,
+      /512 real numbers/,
     );
   });
 

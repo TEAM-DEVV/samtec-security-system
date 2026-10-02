@@ -13,7 +13,7 @@ import { type DetectedFace, humanConfig, readingFrom } from './face-human';
 
 function aFace(overrides: Partial<DetectedFace> = {}): DetectedFace {
   return {
-    embedding: new Array(1024).fill(0.25),
+    embedding: new Array(512).fill(0.25),
     real: 0.9,
     live: 0.9,
     box: [100, 80, 300, 300],
@@ -27,8 +27,8 @@ describe('readingFrom', () => {
     const reading = readingFrom([aFace()]);
     expect(reading.problem).toBeNull();
     expect(reading.facePixels).toBe(300);
-    expect(reading.sample?.model).toBe('human-faceres-1');
-    expect(reading.sample?.embedding).toHaveLength(1024);
+    expect(reading.sample?.model).toBe('arcface-mbf-1');
+    expect(reading.sample?.embedding).toHaveLength(512);
     expect(readingIsUsable(reading)).toBe(true);
   });
 
@@ -83,20 +83,21 @@ describe('humanConfig', () => {
     // A reused measurement sent the face of a turned head as the "look
     // straight" sample, and a stranger clocked in as somebody else.
     expect(config.cacheSensitivity).toBe(0);
-    for (const model of [
-      config.face.detector,
-      config.face.description,
-      config.face.antispoof,
-      config.face.liveness,
-    ]) {
+    for (const model of [config.face.detector, config.face.antispoof, config.face.liveness]) {
       expect(model.skipFrames).toBe(0);
       expect(model.skipTime).toBe(0);
     }
   });
 
+  it('keeps Human’s own measurer off and the mesh on, for the ArcFace cut-out', () => {
+    // The numbers come from ArcFace (face-arcface.ts); feeding faceres
+    // embeddings to an ArcFace-tuned server would match nobody.
+    expect(config.face.description.enabled).toBe(false);
+    expect(config.face.mesh.enabled).toBe(true);
+  });
+
   it('loads the models from this app only, and feeds them the unfiltered image', () => {
     expect(config.modelBasePath).toBe('/models');
     expect(config.filter.enabled).toBe(false);
-    expect(config.face.description.modelPath).toBe('faceres.json');
   });
 });

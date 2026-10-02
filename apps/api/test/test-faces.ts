@@ -5,7 +5,7 @@
  * Faces are compared by angle (cosine), so the old flat test faces — every
  * number the same — would all point the same way and count as one person.
  * Instead, every 0.1 of level has its own independent random face, and a level
- * between two of them is a blend. Independent random faces of 1,024 numbers
+ * between two of them is a blend. Independent random faces of 512 numbers
  * are almost exactly at right angles, so strangers score about 0 and never
  * wrap round to look alike again, however far apart their levels are:
  *
@@ -15,7 +15,7 @@
  *
  * Deterministic: the same level is the same face on every run.
  */
-const LENGTH = 1024;
+const LENGTH = 512;
 const GRID = 0.1;
 
 /** A repeatable random number generator (mulberry32). */

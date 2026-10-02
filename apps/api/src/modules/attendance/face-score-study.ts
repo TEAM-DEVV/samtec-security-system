@@ -30,7 +30,7 @@ import { FACE_THRESHOLDS } from './face-thresholds.js';
  * A face that scores exactly `score` against `base`, turned away from it in
  * the direction of `noise`.
  *
- * Faces are compared by angle (`ft-3`), so "how alike" means "how far turned
+ * Faces are compared by angle, so "how alike" means "how far turned
  * apart". The result is `score × base + √(1 − score²) × noise`, after `noise`
  * has lost any part that runs along `base` and both have been made length 1.
  * That makes the score exactly `score` whatever the noise happened to be,
@@ -71,7 +71,7 @@ export interface StudyPerson {
  * How a stand-in study set is shaped.
  *
  * The scores are **targets**. At `spread` 0 they are hit almost exactly (two
- * random lists of 1,024 numbers are never quite at right angles, so a
+ * random lists of hundreds of numbers are never quite at right angles, so a
  * hundredth or two either way remains). Above 0 each person and each capture
  * is turned a little more or a little less than the target, so the scores
  * fan out around it — which is the point of the exercise.
@@ -111,15 +111,18 @@ export interface StudyShape {
   seed: number;
 }
 
+// The targets mirror what ArcFace measured on the photo lab (threshold
+// report, section 13): the same person near 0.9, strangers near 0, and the
+// deliberate look-alikes placed above the 0.4 match line.
 export const DEFAULT_SHAPE: StudyShape = {
   people: 40,
   capturesEach: 5,
-  sameScore: 0.88,
-  differentScore: 0.4,
+  sameScore: 0.9,
+  differentScore: 0.08,
   frameScore: 0.95,
   spread: 0.15,
   lookalikePairs: 2,
-  lookalikeScore: 0.84,
+  lookalikeScore: 0.5,
   seed: 20260925,
 };
 

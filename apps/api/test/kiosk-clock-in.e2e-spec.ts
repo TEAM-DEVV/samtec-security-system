@@ -44,7 +44,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
   const sampleAt = (level: number, extra: Record<string, unknown> = {}) => ({
-    model: 'human-faceres-1',
+    model: 'arcface-mbf-1',
     embedding: faceAt(level),
     real: 0.9,
     live: 0.9,
@@ -241,7 +241,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       });
       expect(attempt.outcome).toBe('MATCHED');
       expect(attempt.employeeId).toBe(worker.id);
-      expect(attempt.thresholdVersion).toBe('ft-3');
+      expect(attempt.thresholdVersion).toBe('ft-4');
       expect(attempt.bestScore).toBeGreaterThan(0.9);
     });
 
@@ -306,7 +306,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       const wrongShape = await identify({
         purpose: 'CLOCK',
         direction: 'IN',
-        sample: { model: 'human-faceres-1', embedding: [1, 2, 3], real: 0.9, live: 0.9 },
+        sample: { model: 'arcface-mbf-1', embedding: [1, 2, 3], real: 0.9, live: 0.9 },
       });
       expect(wrongShape.status).toBe(400);
     });
@@ -794,7 +794,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
           direction: 'IN',
           outcome,
           employeeId: outcome === 'MATCHED' ? employeeId : null,
-          thresholdVersion: 'ft-3',
+          thresholdVersion: 'ft-4',
           attemptedAt: new Date(Date.now() - secondsAgo * 1000),
         },
         select: { id: true },
@@ -830,7 +830,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
             purpose: 'CLOCK',
             direction: 'IN',
             outcome: 'NOT_RECOGNISED',
-            thresholdVersion: 'ft-3',
+            thresholdVersion: 'ft-4',
             attemptedAt: new Date(Date.now() - (300 + n) * 1000),
           },
         });

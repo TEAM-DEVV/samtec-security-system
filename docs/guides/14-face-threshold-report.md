@@ -22,7 +22,7 @@ distances on the opened scale), so the figures below still describe the same
 decisions. The real-phone attempts recorded under `ft-2` are the first
 measurements of real faces this project has, and they set `match` from here on.
 
-**And since 1 October 2026: `ft-3`.** A stranger clocked in as the only
+**And since 1 October 2026: `ft-3`, then `ft-4` a day later.** A stranger clocked in as the only
 enrolled worker. The kiosk was sending stale face numbers, and the distance
 formula has been replaced by the angle between faces (cosine). **Section 12
 has the evidence and the numbers in use now.** Sections 1 to 11 describe the
@@ -508,11 +508,56 @@ place, which sits much closer. That is the check that matters, and it is short:
    not clear the line, or a stranger comes close, the set moves as `ft-4` with
    those scores as its evidence — never in place, and never lower without them.
 
-`pnpm --filter @samtec/api face:scores` now runs the stand-in at `ft-3`
-(targets: same person 0.88, strangers 0.40). On it, 189 of 200 clock-ins match
-the right person, none the wrong one, 10 are "not sure" and 1 is not
-recognised. Like sections 3 to 8, that shows how the decisions move, not how
-real faces score.
+`pnpm --filter @samtec/api face:scores` runs the stand-in, which shows how the
+decisions move, not how real faces score.
+
+## 13. The measurer replaced: ArcFace, and `ft-4` (2 October 2026)
+
+**What happened.** The phone check in section 12 was run, and `ft-3` failed
+it. The enrolled worker clocked in at 0.916–0.938 — but a real stranger
+scored **0.846 and 0.889** against her template, above the 0.80 line, and was
+greeted by her name. The caching fix and the cosine were right; the measuring
+model itself (Human's `faceres`) is too weak. Its scores for "same person"
+and "two people at one camera" overlap, and no threshold can separate two
+overlapping piles.
+
+**The fix.** The kiosk now measures faces with **ArcFace** (InsightFace's
+`w600k_mbf`, model name `arcface-mbf-1`, 512 numbers), run in the browser by
+onnxruntime-web. Human keeps every other job: finding the face, the mesh
+(which ArcFace's cut-out is aligned along), the head-turn challenge,
+anti-spoofing and liveness. The model and its runtime are committed and
+hash-pinned in `apps/kiosk/public/models` like every other model.
+
+**The measurement** — the same 43-person photo lab as section 12, measured by
+both models on the same detected faces:
+
+| | faceres (`ft-3`) | ArcFace (`ft-4`) |
+|---|---|---|
+| Mistakes at the fairest possible line | 9.4% | **1.6%** (all faces) / **0%** (clean single faces) |
+| Most stranger-like pair, clean faces | 0.788 | **0.212** |
+| The same person, across different photos | often *below* strangers | typically 0.90, never below 0.23 |
+| Clean gap between owners and strangers | none (they overlap) | **yes** — every owner pair above every stranger pair |
+
+**The `ft-4` numbers.** The scale is new (strangers near 0, the same person
+near 0.9), so no number is comparable with earlier sets.
+
+| Number | `ft-4` | Why |
+|---|---|---|
+| `match` | 0.40 | Roughly double the worst stranger ever measured (0.212), and well under the ≈0.9 the same person scores. A wide margin on both sides. |
+| `lead` | 0.05 | Unchanged in meaning: a clear win, or "not sure". |
+| `duplicate` | 0.35 | Looser than `match`, on purpose: a second enrollment of the same person (≈0.9) cannot hide, and honest strangers (≤0.21) never queue. |
+| `frameAgreement` | 0.70 | Frames moments apart sit near 0.95; across photographs years apart the same person still averages 0.9. |
+| `antiSpoofing` | 0.60 | Unchanged: the liveness scores still come from Human. |
+
+**What a model change costs.** Old templates are 1,024 faceres numbers and
+mean nothing to ArcFace, so **every face must be enrolled again**. On TEST
+that was one worker.
+
+**The phone check** (same as section 12's, under `ft-4`): re-enroll, the
+worker clocks in five times, every available stranger tries five times, then
+read `best_score` from `clock_in_attempts`. Expected: the worker far above
+0.40, strangers near 0. If a stranger ever lands near 0.3, that is a warning
+to investigate even though it was refused.
 
 ---
 

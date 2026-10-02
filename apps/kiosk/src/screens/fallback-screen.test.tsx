@@ -202,7 +202,7 @@ describe('FallbackScreen · a supervisor co-signs', () => {
     const identify = JSON.parse(sent[0]?.body ?? '{}');
     expect(identify.purpose).toBe('CO_SIGN');
     expect(identify.staffNumber).toBe('SMT-00042');
-    expect(identify.sample.embedding).toHaveLength(1024);
+    expect(identify.sample.embedding).toHaveLength(512);
     // The punch carries the co-sign attempt and the audited reason.
     const punch = JSON.parse(sent[1]?.body ?? '{}');
     expect(sent[1]?.url).toContain('/kiosk/assisted-punches');

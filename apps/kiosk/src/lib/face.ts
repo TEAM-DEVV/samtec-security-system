@@ -20,9 +20,9 @@ import type { FaceSample } from '@samtec/contracts';
  */
 
 /** The model that makes the numbers. Faces from two models are never compared. */
-export const FACE_MODEL = 'human-faceres-1';
+export const FACE_MODEL = 'arcface-mbf-1';
 /** How many numbers one face template has. */
-export const EMBEDDING_LENGTH = 1024;
+export const EMBEDDING_LENGTH = 512;
 /** `real` and `live` must both reach this, here and again on the server. */
 export const MIN_ANTI_SPOOFING = 0.6;
 /** A face smaller than this in the frame is too far away to judge. */
