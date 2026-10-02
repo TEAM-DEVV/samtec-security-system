@@ -96,6 +96,7 @@ describe('KioskSettingsScreen', () => {
     await screen.findByRole('button', { name: /Switch to Gate A/ });
 
     await user.click(screen.getByRole('button', { name: 'Forget this device' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, forget it' }));
 
     await waitFor(() =>
       expect(onDeviceChanged).toHaveBeenCalledWith(expect.objectContaining({ deviceId: GATE_A })),
@@ -112,9 +113,38 @@ describe('KioskSettingsScreen', () => {
     await screen.findByText(/Active now/);
 
     await user.click(screen.getByRole('button', { name: 'Forget this device' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, forget it' }));
 
     await waitFor(() => expect(onDeviceChanged).toHaveBeenCalledWith(null));
     expect(await screen.findByText('No device is stored on this phone.')).toBeInTheDocument();
+  });
+
+  it('asks before forgetting, and keeps the device when told to', async () => {
+    await pairDevice(GATE_A, 'sk_test_only_not_a_real_secret_aaaa', 'Gate A');
+    const onDeviceChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<KioskSettingsScreen onBack={vi.fn()} onDeviceChanged={onDeviceChanged} />);
+    await screen.findByText(/Active now/);
+
+    await user.click(screen.getByRole('button', { name: 'Forget this device' }));
+    expect(screen.getByText(/you will need a new secret/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep it' }));
+
+    expect(onDeviceChanged).not.toHaveBeenCalled();
+    expect(screen.getByText(/Active now/).closest('div')).toHaveTextContent('Gate A');
+  });
+
+  it('leaves the add-a-device form with Cancel, adding nothing', async () => {
+    const onDeviceChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<KioskSettingsScreen onBack={vi.fn()} onDeviceChanged={onDeviceChanged} />);
+    await screen.findByText('No device is stored on this phone.');
+
+    await user.click(screen.getByRole('button', { name: 'Add a device' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByRole('heading', { name: 'Kiosk settings' })).toBeInTheDocument();
+    expect(onDeviceChanged).not.toHaveBeenCalled();
   });
 
   it('goes back to the admin menu', async () => {

@@ -37,6 +37,9 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
   const [adding, setAdding] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Forgetting throws away this phone's only copy of the device's key, and the
+  // dashboard shows a secret once, so one stray tap must not do it.
+  const [confirmingForget, setConfirmingForget] = useState(false);
 
   const refresh = useCallback(() => {
     listDevices()
@@ -56,6 +59,7 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
           setAdding(false);
           refresh();
         }}
+        onCancel={() => setAdding(false)}
       />
     );
   }
@@ -81,6 +85,7 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
   async function handleForget() {
     setBusy(true);
     setProblem(null);
+    setConfirmingForget(false);
     try {
       const fallback = await forgetDevice();
       onDeviceChanged(fallback);
@@ -154,19 +159,43 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
         </p>
       )}
 
-      <div className="buttons">
-        <button
-          type="button"
-          className="button button--danger"
-          disabled={busy || devices === null}
-          onClick={() => void handleForget()}
-        >
-          Forget this device
-        </button>
-        <button type="button" className="button button--quiet" onClick={onBack}>
-          Back
-        </button>
-      </div>
+      {confirmingForget ? (
+        <div className="buttons">
+          <p className="notice notice--wait" role="status">
+            Forget the active device on this phone? To use it here again you will need a new secret
+            from the dashboard (Devices → the device → new secret).
+          </p>
+          <button
+            type="button"
+            className="button button--danger"
+            disabled={busy}
+            onClick={() => void handleForget()}
+          >
+            Yes, forget it
+          </button>
+          <button
+            type="button"
+            className="button button--quiet"
+            onClick={() => setConfirmingForget(false)}
+          >
+            Keep it
+          </button>
+        </div>
+      ) : (
+        <div className="buttons">
+          <button
+            type="button"
+            className="button button--danger"
+            disabled={busy || devices === null || devices.length === 0}
+            onClick={() => setConfirmingForget(true)}
+          >
+            Forget this device
+          </button>
+          <button type="button" className="button button--quiet" onClick={onBack}>
+            Back
+          </button>
+        </div>
+      )}
     </div>
   );
 }

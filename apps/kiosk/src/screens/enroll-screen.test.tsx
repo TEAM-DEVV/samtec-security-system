@@ -113,7 +113,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderScreen(onDone = vi.fn(), initialTask: Task = 'enroll') {
+async function renderScreen(
+  onDone = vi.fn(),
+  initialTask: Task = 'enroll',
+  fingerprintsAllowed = true,
+) {
   const device = await aPairedKiosk();
   render(
     <EnrollScreen
@@ -122,6 +126,7 @@ async function renderScreen(onDone = vi.fn(), initialTask: Task = 'enroll') {
       engine={new MockFaceEngine()}
       onDone={onDone}
       initialTask={initialTask}
+      fingerprintsAllowed={fingerprintsAllowed}
       // No real half-second waits, and a short challenge.
       betweenCaptures={1}
       challengeSeconds={2}
@@ -209,6 +214,24 @@ describe('EnrollScreen', () => {
       expect(sample.model).toBe('human-faceres-1');
     }
     expect(body.consentId).toBe(CONSENT_RECORDED.id);
+  });
+
+  it('offers the fingerprint after a face passes, but only on a kiosk that allows fingerprints', async () => {
+    const user = userEvent.setup();
+    await renderScreen(vi.fn(), 'enroll', false);
+    await reachConsent(user);
+    await user.type(screen.getByLabelText(/Last 4 digits/), '1234');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: /Record consent/ }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Enrolled' }, { timeout: 12_000 }),
+    ).toBeInTheDocument();
+    // Switched off on the dashboard: the server would refuse, so nothing offers it.
+    expect(
+      screen.queryByRole('button', { name: 'Save their fingerprint on this phone' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Save their fingerprint now/)).not.toBeInTheDocument();
   });
 
   it('carries both the administrator’s token and the device signature', async () => {

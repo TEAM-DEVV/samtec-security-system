@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { $api } from '@/lib/api';
 import { useCursorPages } from '@/lib/cursor-pages';
-import { downloadFromApi } from '@/lib/download';
+import { DownloadFailed, downloadFromApi } from '@/lib/download';
 import { formatCedis, formatDate, formatDateTime, formatMinutes } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
 import { exclusionReasonLabels, isTheMaker, runStatusDescriptions } from '@/lib/payroll';
@@ -43,6 +43,7 @@ export function PayrollRunPage() {
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
   const [paidOn, setPaidOn] = useState('');
+  const [downloadError, setDownloadError] = useState<string>();
 
   const run = $api.useQuery('get', '/payroll/runs/{runId}', {
     params: { path: { runId } },
@@ -364,14 +365,28 @@ export function PayrollRunPage() {
 
             {run.data.status === 'LOCKED' || run.data.status === 'PAID' ? (
               <div className="border-t pt-4">
+                {downloadError ? (
+                  <LoadErrorAlert
+                    title="The bank file could not be downloaded"
+                    error={new Error(downloadError)}
+                    onRetry={() => setDownloadError(undefined)}
+                  />
+                ) : null}
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    void downloadFromApi(
+                  onClick={() => {
+                    setDownloadError(undefined);
+                    downloadFromApi(
                       `/payroll/runs/${encodeURIComponent(runId)}/bank-export`,
                       `payroll-run-${runId}.csv`,
-                    )
-                  }
+                    ).catch((error: unknown) => {
+                      setDownloadError(
+                        error instanceof DownloadFailed
+                          ? error.message
+                          : 'The download failed. Please try again.',
+                      );
+                    });
+                  }}
                 >
                   <Download aria-hidden="true" className="size-4" />
                   Download the bank file

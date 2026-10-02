@@ -4,7 +4,11 @@ import { forgetDevice, loadDevice, type PairedDevice } from '@/lib/device';
 import type { FaceEngine } from '@/lib/face';
 import { HumanFaceEngine } from '@/lib/face-human';
 import { MockFaceEngine } from '@/lib/face-mock';
-import { HEARTBEAT_MILLISECONDS, startHeartbeat } from '@/lib/heartbeat';
+import {
+  ADMIN_HEARTBEAT_MILLISECONDS,
+  HEARTBEAT_MILLISECONDS,
+  startHeartbeat,
+} from '@/lib/heartbeat';
 import { AdminMenuScreen } from '@/screens/admin-menu-screen';
 import { AdminSignInScreen } from '@/screens/admin-sign-in-screen';
 import { ClockScreen } from '@/screens/clock-screen';
@@ -109,14 +113,30 @@ export function App({ engine }: AppProps = {}) {
   // Starts as soon as the phone is paired and runs for as long as the app is
   // open. Not tied to a screen: a kiosk sitting on "Ready" all night is exactly
   // when the server most needs the tick (see `lib/heartbeat.ts`).
+  //
+  // While an administrator is signed in it beats every 15 seconds, and it
+  // restarts (beating at once) when they sign in: an administrator who has
+  // just switched fingerprints on at the dashboard sees it here straight
+  // away, not a minute later.
+  const beatEvery = admin === null ? HEARTBEAT_MILLISECONDS : ADMIN_HEARTBEAT_MILLISECONDS;
   useEffect(() => {
     if (device === null) {
       return;
     }
-    return startHeartbeat(device, HEARTBEAT_MILLISECONDS, (response) => {
+    return startHeartbeat(device, beatEvery, (response) => {
       setPasskeysEnabled(response.passkeysEnabled);
     });
-  }, [device]);
+  }, [device, beatEvery]);
+
+  /**
+   * Every change of device goes through here, so the old device's
+   * fingerprint setting is forgotten until the new device's first heartbeat
+   * answers.
+   */
+  function changeDevice(next: PairedDevice | null) {
+    setPasskeysEnabled(false);
+    setDevice(next);
+  }
 
   // An administrator who walks away must not leave a session on a wall. The
   // server's token dies in fifteen minutes regardless; this makes the screen
@@ -155,7 +175,7 @@ export function App({ engine }: AppProps = {}) {
   }
 
   if (device === null) {
-    return <PairingScreen onPaired={setDevice} />;
+    return <PairingScreen onPaired={changeDevice} />;
   }
 
   /** Signs the administrator out and returns to the everyday clock-in screen. */
@@ -202,7 +222,7 @@ export function App({ engine }: AppProps = {}) {
 
   if (adminScreen === 'settings' && admin !== null) {
     return (
-      <KioskSettingsScreen onBack={() => setAdminScreen('menu')} onDeviceChanged={setDevice} />
+      <KioskSettingsScreen onBack={() => setAdminScreen('menu')} onDeviceChanged={changeDevice} />
     );
   }
 
@@ -213,6 +233,7 @@ export function App({ engine }: AppProps = {}) {
         admin={admin}
         engine={camera}
         initialTask={enrollTask}
+        fingerprintsAllowed={passkeysEnabled}
         // Leaving a task returns to the menu, not straight out: enrolling
         // somebody and then saving a fingerprint should not need signing in
         // twice. "Back to clock-in" on the menu is the only way out.
@@ -232,7 +253,7 @@ export function App({ engine }: AppProps = {}) {
         // request, and without this the phone has no way back at all. If
         // another device is still stored here, forgetting this one falls
         // back to it rather than forcing the set-up form unnecessarily.
-        void forgetDevice().then(setDevice);
+        void forgetDevice().then(changeDevice);
       }}
     />
   );

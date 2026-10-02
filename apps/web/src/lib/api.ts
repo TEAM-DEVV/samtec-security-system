@@ -79,7 +79,7 @@ function withAccessToken(request: Request): Request {
  * Pages never notice either. Looked up on every request instead of once at
  * startup, so the mock API used in tests can intercept the requests.
  */
-async function fetchWithSession(request: Request): Promise<Response> {
+export async function fetchWithSession(request: Request): Promise<Response> {
   // A request's body can be sent only once, so keep unsent copies for the retries.
   const afterConfirmation = request.clone();
   const response = await sendWithRefresh(request);
