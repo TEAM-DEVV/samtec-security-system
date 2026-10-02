@@ -4,7 +4,7 @@ import type {
   BiometricCollisionList,
   EmployeeBiometrics,
 } from '@samtec/contracts';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, NeedsPassword, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   type BiometricReasonBody,
   biometricReasonSchema,
@@ -40,6 +40,7 @@ export class BiometricReviewsController {
     return this.reviews.employeeBiometrics(caller, employeeId);
   }
 
+  @NeedsPassword()
   @Post('employees/:employeeId/biometrics/revoke')
   @Roles('ADMIN')
   @HttpCode(200)
@@ -51,6 +52,7 @@ export class BiometricReviewsController {
     return this.reviews.revoke(caller, employeeId, body);
   }
 
+  @NeedsPassword()
   @Post('employees/:employeeId/biometrics/unblock')
   @Roles('ADMIN')
   @HttpCode(200)
@@ -62,6 +64,7 @@ export class BiometricReviewsController {
     return this.reviews.liftBlock(caller, employeeId, body);
   }
 
+  @NeedsPassword()
   @Post('employees/:employeeId/biometric-consents/withdraw')
   @Roles('ADMIN')
   @HttpCode(200)
@@ -84,6 +87,7 @@ export class BiometricReviewsController {
     return this.reviews.requestExemption(caller, employeeId, body);
   }
 
+  @NeedsPassword()
   @Post('employees/:employeeId/biometric-exemption/review')
   @Roles('ADMIN')
   @HttpCode(200)
@@ -104,6 +108,7 @@ export class BiometricReviewsController {
     return this.reviews.listCollisions(caller, query);
   }
 
+  @NeedsPassword()
   @Post('biometric-collisions/:credentialId/resolve')
   @Roles('ADMIN')
   @HttpCode(200)

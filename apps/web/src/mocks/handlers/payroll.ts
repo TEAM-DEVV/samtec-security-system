@@ -46,7 +46,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
-import { userForRequest } from './auth';
+import { needsPassword, userForRequest } from './auth';
 
 /**
  * The mock payroll API (docs/plan/09-payroll-engine-ghana.md), with the real
@@ -488,6 +488,8 @@ export const payrollHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Record<string, unknown> = await request.json();
       const bad =
         idProblem(params.runId, 'runId') ??
@@ -572,6 +574,8 @@ export const payrollHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Record<string, unknown> = await request.json();
       const bad =
         idProblem(params.runId, 'runId') ??
@@ -608,6 +612,8 @@ export const payrollHandlers = [
     ({ params, request }) => {
       const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const bad = idProblem(params.runId, 'runId');
       if (bad) return bad;
       const run = findRun(params.runId);
@@ -970,6 +976,8 @@ export const payrollHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Record<string, unknown> = await request.json();
       const fields = ['bankName', 'accountName', 'accountNumber', 'momoNumber'];
       const bad =

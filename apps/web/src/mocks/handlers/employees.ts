@@ -26,7 +26,7 @@ import {
   validationProblem,
 } from '../helpers';
 import { canSeeSite } from '../scope';
-import { userForRequest } from './auth';
+import { needsPassword, userForRequest } from './auth';
 
 /**
  * The mock API keeps its own copy of the employees, so the write handlers can
@@ -374,6 +374,8 @@ export const employeeHandlers = [
       if (!roleAllowed(pageRoles.employeeChanges, user.role)) {
         return forbidden();
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       if (!isUuid(params.employeeId)) {
         return validationProblem('employeeId', 'Must be a valid ID.');
       }

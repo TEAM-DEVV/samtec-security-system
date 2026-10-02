@@ -33,6 +33,16 @@ change, and when, is written on the account (`adminRequested*` and
 asks the administrator for their own password before such a change. The rule
 is in docs/plan/06, "One administrator, with a password".
 
+The password step itself is `POST /auth/confirm-password`: a right password
+hands back a new access token for the same session that carries the
+confirmation for five minutes (`passwordConfirmedAt` on `SignedInUser`), and
+every route marked `@NeedsPassword()` (`PasswordConfirmationGuard`) refuses a
+token without one with `403` and `code: PASSWORD_CONFIRMATION_REQUIRED`. A
+refresh carries a fresh confirmation over to the new token. A kiosk session
+passes as it is: its own sign-in was the password step. The contract marks
+the same operations with `x-needs-password: true`, and
+`test/password-confirmation.e2e-spec.ts` checks that the two lists agree.
+
 ## Rules that must hold
 
 - Passwords are hashed with scrypt. Nobody ever sees another person's password: accounts get a one-time link and the owner chooses their own.

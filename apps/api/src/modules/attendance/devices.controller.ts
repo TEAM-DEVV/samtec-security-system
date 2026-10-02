@@ -6,7 +6,13 @@ import type {
   FingerEnrollmentWindow,
 } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import {
+  Caller,
+  NeedsPassword,
+  OnKiosk,
+  Roles,
+  type SignedInUser,
+} from '../../common/auth.decorators.js';
 import {
   idSchema,
   type ListDevicesQuery,
@@ -37,6 +43,7 @@ export class DevicesController {
 
   // A kiosk sets itself up, and may only register a kiosk (the service checks).
   @OnKiosk()
+  @NeedsPassword()
   @Post()
   async register(
     @Caller() caller: SignedInUser,
@@ -60,6 +67,7 @@ export class DevicesController {
     return this.devices.get(caller, deviceId);
   }
 
+  @NeedsPassword()
   @Patch(':deviceId')
   update(
     @Caller() caller: SignedInUser,
@@ -84,6 +92,7 @@ export class DevicesController {
   }
 
   @OnKiosk()
+  @NeedsPassword()
   @Post(':deviceId/rotate-secret')
   @HttpCode(200)
   async rotateSecret(

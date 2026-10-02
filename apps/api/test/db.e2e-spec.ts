@@ -62,6 +62,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       companyId: admin2.companyId,
       role: 'ADMIN',
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
       employeeId: null,
     });
   }
@@ -90,6 +91,21 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
       .send({ email, password: TEST_PASSWORD })
       .expect(200);
     expect(response.body.status).toBe('AUTHENTICATED');
+    return confirmed(response.body.accessToken);
+  }
+
+  /**
+   * Confirms the password, as the dashboard does before a sensitive action,
+   * and returns the access token that carries the confirmation. The tokens
+   * the tests share are confirmed once here; test/password-confirmation
+   * .e2e-spec.ts is where the step itself is tested.
+   */
+  async function confirmed(accessToken: string): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/auth/confirm-password')
+      .set(...bearer(accessToken))
+      .send({ password: TEST_PASSWORD })
+      .expect(200);
     return response.body.accessToken;
   }
 
@@ -110,7 +126,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         code: totpCode(ADMIN_TOTP_SECRET, totpStep()),
       })
       .expect(200);
-    return verified.body.accessToken;
+    return confirmed(verified.body.accessToken);
   }
 
   function bearer(token: string): [string, string] {
@@ -1241,6 +1257,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
         companyId: admin2.companyId,
         role: 'ADMIN',
         onKiosk: false,
+        passwordConfirmedAt: new Date(),
         employeeId: null,
       });
 
@@ -1297,6 +1314,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
           companyId: company.id,
           role: 'ADMIN',
           onKiosk: false,
+          passwordConfirmedAt: new Date(),
           employeeId: null,
         });
         return { companyId: company.id, adminId: alone.id, token };
@@ -1352,6 +1370,7 @@ describe.skipIf(!databaseUrl)('Phase 1 on a real database (e2e)', () => {
           companyId: extra.companyId,
           role: 'ADMIN',
           onKiosk: false,
+          passwordConfirmedAt: new Date(),
           employeeId: null,
         });
       } finally {

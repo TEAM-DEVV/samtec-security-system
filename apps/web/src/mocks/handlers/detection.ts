@@ -26,7 +26,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
-import { userForRequest } from './auth';
+import { needsPassword, userForRequest } from './auth';
 
 /**
  * The mock ghost-detection API (docs/plan/08-ghost-detection-engine.md), with
@@ -189,6 +189,8 @@ export const detectionHandlers = [
       if (user.role !== 'ADMIN') {
         return forbidden();
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const rule = memory.rules.find((row) => row.code === params.ruleCode);
       if (!rule) {
         return notFound('No rule exists with this code.');

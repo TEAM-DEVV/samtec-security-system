@@ -188,6 +188,7 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
         role: 'ADMIN',
         employeeId: null,
         onKiosk,
+        passwordConfirmedAt: onKiosk ? null : new Date(),
       });
     adminToken = await sign(false);
     adminOnKiosk = await sign(true);

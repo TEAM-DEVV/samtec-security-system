@@ -3,6 +3,7 @@ import type {
   AuthenticatedSession,
   CurrentUser,
   LoginResponse,
+  PasswordConfirmation,
   TwoFactorSetup,
 } from '@samtec/contracts';
 import { type DefaultBodyType, HttpResponse, http, type PathParams } from 'msw';
@@ -10,6 +11,7 @@ import { MOCK_PASSWORD, MOCK_TWO_FACTOR_CODE, mockUsers } from '../data/users';
 import {
   apiUrl,
   type OrProblem,
+  passwordConfirmationRequired,
   textField,
   tooManyRequests,
   unauthorized,
@@ -17,6 +19,8 @@ import {
 } from '../helpers';
 
 const ACCESS_TOKEN_SECONDS = 900;
+/** A password confirmation covers five minutes, like the real API's. */
+const PASSWORD_CONFIRMATION_SECONDS = 300;
 /** An obviously fake two-factor secret. The real API creates a new random one each time. */
 const MOCK_TWO_FACTOR_SECRET = 'MOCKSECRETMOCKSECRET';
 /** Like the real API: this many wrong passwords for one email lock it out… */
@@ -202,15 +206,55 @@ export const authHandlers = [
 
   http.post<PathParams, DefaultBodyType, OrProblem<AccessTokenResponse>>(
     apiUrl('/auth/refresh'),
-    () => {
+    ({ request }) => {
       const user = mockUsers.find((candidate) => candidate.id === memory.signedInUserId);
       if (!user) {
         return unauthorized('Sign in to continue.');
       }
+      // Like the real API: a fresh password confirmation on the token being
+      // replaced carries over to the new one.
+      const confirmedUntil = passwordConfirmedUntil(request);
       return HttpResponse.json<AccessTokenResponse>({
-        accessToken: accessTokenFor(user),
+        accessToken:
+          confirmedUntil === undefined
+            ? accessTokenFor(user)
+            : confirmedTokenFor(user, confirmedUntil),
         expiresInSeconds: ACCESS_TOKEN_SECONDS,
       });
+    },
+  ),
+
+  http.post<PathParams, DefaultBodyType, OrProblem<PasswordConfirmation>>(
+    apiUrl('/auth/confirm-password'),
+    async ({ request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      const body: unknown = await request.json().catch(() => undefined);
+      const password = textField(body, 'password');
+      if (!password) {
+        return validationProblem('password', 'Enter your password.');
+      }
+      // The same per-email counter as signing in, like the real API.
+      const throttleKey = user.email;
+      const failures = memory.passwordFailures.get(throttleKey) ?? 0;
+      if (failures >= MAX_PASSWORD_FAILURES) {
+        return tooManyRequests(LOCK_SECONDS);
+      }
+      if (password !== MOCK_PASSWORD) {
+        memory.passwordFailures.set(throttleKey, failures + 1);
+        return validationProblem('password', 'Your password is incorrect.');
+      }
+      memory.passwordFailures.delete(throttleKey);
+      return HttpResponse.json<PasswordConfirmation>(
+        {
+          accessToken: confirmedTokenFor(user, Date.now() + PASSWORD_CONFIRMATION_SECONDS * 1000),
+          expiresInSeconds: ACCESS_TOKEN_SECONDS,
+          confirmedForSeconds: PASSWORD_CONFIRMATION_SECONDS,
+        },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
     },
   ),
 
@@ -237,11 +281,40 @@ export const authHandlers = [
  * real API's `AccessTokenGuard`.
  */
 export function userForRequest(request: Request): CurrentUser | undefined {
-  const authorization = request.headers.get('Authorization');
+  const token = bearerToken(request);
   const user = mockUsers.find(
-    (candidate) => authorization === `Bearer ${accessTokenFor(candidate)}`,
+    (candidate) =>
+      token === accessTokenFor(candidate) ||
+      token?.startsWith(`${accessTokenFor(candidate)}.confirmed-until.`),
   );
   return user && !memory.endedUserIds.has(user.id) ? user : undefined;
+}
+
+/**
+ * The real API's `PasswordConfirmationGuard`, for the mock handlers of
+ * sensitive actions: the 403 to answer with when the request's token carries
+ * no password confirmation under five minutes old, or undefined to go ahead.
+ */
+export function needsPassword(
+  request: Request,
+): ReturnType<typeof passwordConfirmationRequired> | undefined {
+  return passwordConfirmedUntil(request) === undefined ? passwordConfirmationRequired() : undefined;
+}
+
+function bearerToken(request: Request): string | undefined {
+  const authorization = request.headers.get('Authorization');
+  return authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
+}
+
+/** When the request's token stops counting as password-confirmed, or undefined when it never did. */
+function passwordConfirmedUntil(request: Request): number | undefined {
+  const until = Number(bearerToken(request)?.split('.confirmed-until.')[1]);
+  return Number.isFinite(until) && until > Date.now() ? until : undefined;
+}
+
+/** A readable fake token that also says until when the password counts as confirmed. */
+function confirmedTokenFor(user: CurrentUser, until: number): string {
+  return `${accessTokenFor(user)}.confirmed-until.${until}`;
 }
 
 function signIn(user: CurrentUser): AuthenticatedSession {

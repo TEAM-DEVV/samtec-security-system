@@ -45,6 +45,7 @@ describe.skipIf(!databaseUrl)('Phase 2 pairing on a real database (e2e)', () => 
       companyId: company.companyId,
       role: 'ADMIN',
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
       employeeId: null,
     });
     gateA = await registerDevice(app, company, company.siteA, 'Gate A');

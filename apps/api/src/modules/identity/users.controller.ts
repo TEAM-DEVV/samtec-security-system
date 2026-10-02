@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { UserAccount, UserAccountList, UserAccountWithPasswordSetup } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, NeedsPassword, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   type CreateUserBody,
   createUserSchema,
@@ -30,6 +30,7 @@ export class UsersController {
     return this.users.list(caller, query);
   }
 
+  @NeedsPassword()
   @Post()
   async create(
     @Caller() caller: SignedInUser,
@@ -53,6 +54,7 @@ export class UsersController {
     return this.users.get(caller, userId);
   }
 
+  @NeedsPassword()
   @Patch(':userId')
   update(
     @Caller() caller: SignedInUser,
@@ -62,6 +64,7 @@ export class UsersController {
     return this.users.update(caller, userId, body);
   }
 
+  @NeedsPassword()
   @Post(':userId/deactivate')
   @HttpCode(200)
   deactivate(
@@ -71,6 +74,7 @@ export class UsersController {
     return this.users.deactivate(caller, userId);
   }
 
+  @NeedsPassword()
   @Post(':userId/reactivate')
   @HttpCode(200)
   reactivate(
@@ -80,6 +84,7 @@ export class UsersController {
     return this.users.reactivate(caller, userId);
   }
 
+  @NeedsPassword()
   @Post(':userId/reset-sign-in')
   @HttpCode(200)
   async resetSignIn(

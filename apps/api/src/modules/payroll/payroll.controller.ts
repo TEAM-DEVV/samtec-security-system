@@ -20,7 +20,7 @@ import type {
   TaxTableList,
 } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, NeedsPassword, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import {
   type ApproveRunBody,
   approveRunSchema,
@@ -161,6 +161,7 @@ export class PayrollController {
   // Only an ADMIN approves or rejects, and the service then refuses anybody who
   // worked on the run. Two different rules: one about the role, one about the
   // person, and the second answers 403 after the run has been found.
+  @NeedsPassword()
   @Post('runs/:runId/approve')
   @HttpCode(200)
   @Roles('ADMIN')
@@ -183,6 +184,7 @@ export class PayrollController {
     return this.approval.reject(caller, runId, body);
   }
 
+  @NeedsPassword()
   @Post('runs/:runId/mark-paid')
   @HttpCode(200)
   @Roles('ADMIN')
@@ -198,6 +200,7 @@ export class PayrollController {
    * The bank file. It carries every worker's account number, so it is a
    * download rather than JSON, it is never cached, and asking for it is audited.
    */
+  @NeedsPassword()
   @Get('runs/:runId/bank-export')
   async bankExport(
     @Caller() caller: SignedInUser,

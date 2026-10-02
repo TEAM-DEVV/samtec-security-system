@@ -15,6 +15,13 @@ export interface SignedInUser {
    * (docs/plan/13 section 2).
    */
   onKiosk: boolean;
+  /**
+   * When this session last confirmed its password (`POST
+   * /auth/confirm-password`), or null. A sensitive route (`@NeedsPassword()`)
+   * needs one under five minutes old (docs/plan/06, "One administrator, with
+   * a password").
+   */
+  passwordConfirmedAt: Date | null;
 }
 
 export const IS_PUBLIC_KEY = 'samtec:isPublic';
@@ -45,6 +52,19 @@ export const ROLES_KEY = 'samtec:roles';
  */
 export const Roles = (...roles: UserRole[]): MethodDecorator & ClassDecorator =>
   SetMetadata(ROLES_KEY, roles);
+
+export const NEEDS_PASSWORD_KEY = 'samtec:needsPassword';
+
+/**
+ * Marks a sensitive route: the caller must have confirmed their own password
+ * in the last five minutes (`POST /auth/confirm-password`), or the route
+ * answers 403 with `code: PASSWORD_CONFIRMATION_REQUIRED` and the dashboard
+ * asks for it. Every operation marked `x-needs-password: true` in the
+ * contract carries this, and `test/password-confirmation.e2e-spec.ts` checks
+ * that the two lists agree.
+ */
+export const NeedsPassword = (): MethodDecorator & ClassDecorator =>
+  SetMetadata(NEEDS_PASSWORD_KEY, true);
 
 /**
  * Hands a controller method the signed-in caller:

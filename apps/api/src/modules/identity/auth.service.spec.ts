@@ -38,7 +38,7 @@ function makeAuth() {
   const audit = new AuditService(prisma);
   const accounts = new AccountsService(prisma, tokens, audit);
   const auth = new AuthService(prisma, tokens, throttle.asService(), audit, accounts);
-  return { db, auth, throttle, accounts };
+  return { db, auth, throttle, accounts, tokens };
 }
 
 describe('login', () => {
@@ -507,5 +507,84 @@ describe('changing your own password', () => {
     const fresh = await auth.login('ama@samtec.example', 'a brand new long password', 'DASHBOARD');
     expect(fresh.kind).toBe('session');
     expect(JSON.stringify(db.auditRows)).not.toContain('brand new');
+  });
+});
+
+describe('confirming your password before a sensitive action', () => {
+  const signedIn = (user: { id: string; companyId: string }) => ({
+    userId: user.id,
+    companyId: user.companyId,
+    role: 'ADMIN' as const,
+    employeeId: null,
+    onKiosk: false,
+    passwordConfirmedAt: null,
+  });
+
+  it('hands back a token that carries the confirmation, and audits the step', async () => {
+    const { db, auth, tokens } = makeAuth();
+    const user = db.addUser({
+      email: 'ama@samtec.example',
+      passwordHash,
+      role: 'ADMIN',
+      twoFactorEnabledAt: new Date(),
+    });
+
+    const confirmed = await auth.confirmPassword(signedIn(user), 'demo-password');
+
+    expect(confirmed.confirmedForSeconds).toBe(300);
+    const carried = await tokens.verifyAccessToken(confirmed.accessToken);
+    expect(carried?.userId).toBe(user.id);
+    expect(carried?.passwordConfirmedAt).toBeInstanceOf(Date);
+    expect(Date.now() - (carried?.passwordConfirmedAt?.getTime() ?? 0)).toBeLessThan(5_000);
+    expect(db.auditEntries).toContainEqual({
+      action: 'auth.password_confirmed',
+      entityId: user.id,
+    });
+  });
+
+  it('refuses a wrong password as a field problem, counting it with the sign-in lockout', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({
+      email: 'ama@samtec.example',
+      passwordHash,
+      role: 'ADMIN',
+      twoFactorEnabledAt: new Date(),
+    });
+
+    const wrong = await auth.confirmPassword(signedIn(user), 'guess').catch((e: unknown) => e);
+    expect(wrong).toBeInstanceOf(BadRequestException);
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await auth.confirmPassword(signedIn(user), 'guess').catch(() => undefined);
+    }
+    // Five wrong answers: the email is locked, for this step and for signing in alike.
+    const locked = await auth
+      .confirmPassword(signedIn(user), 'demo-password')
+      .catch((e: unknown) => e);
+    expect(locked).toBeInstanceOf(RateLimitException);
+    const login = await auth
+      .login('ama@samtec.example', 'demo-password', 'DASHBOARD')
+      .catch((e: unknown) => e);
+    expect(login).toBeInstanceOf(RateLimitException);
+    expect(db.auditEntries).toContainEqual({
+      action: 'auth.lockout_triggered',
+      entityId: user.id,
+    });
+  });
+
+  it('refuses an account that may no longer be used', async () => {
+    const { db, auth } = makeAuth();
+    const user = db.addUser({
+      email: 'gone@samtec.example',
+      passwordHash,
+      role: 'ADMIN',
+      twoFactorEnabledAt: new Date(),
+      isActive: false,
+    });
+
+    const refused = await auth
+      .confirmPassword(signedIn(user), 'demo-password')
+      .catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(UnauthorizedException);
   });
 });

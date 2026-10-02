@@ -153,6 +153,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         role: 'ADMIN',
         employeeId: null,
         onKiosk,
+        passwordConfirmedAt: onKiosk ? null : new Date(),
       });
     enroller = await sign(company.adminUserId, false);
     enrollerOnKiosk = await sign(company.adminUserId, true);
@@ -226,6 +227,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
         role: 'SUPERVISOR',
         employeeId: company.supervisorEmployeeId,
         onKiosk: false,
+        passwordConfirmedAt: new Date(),
       });
 
       const toAdmin = await panel(enroller, worker.id).expect(200);

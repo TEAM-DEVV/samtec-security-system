@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
+import { PasswordConfirmationDialog } from '@/components/password-confirmation-dialog';
 
 interface RenderOptions {
   /** The web address the test starts at. Defaults to the home page. */
@@ -21,6 +22,7 @@ export function renderWithProviders(ui: ReactElement, { route = '/' }: RenderOpt
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+      <PasswordConfirmationDialog />
     </QueryClientProvider>,
   );
   return { ...result, queryClient };

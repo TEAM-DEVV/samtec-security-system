@@ -118,6 +118,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         role: 'ADMIN',
         employeeId: null,
         onKiosk,
+        passwordConfirmedAt: onKiosk ? null : new Date(),
       });
     kioskAdmin = await signIn(true);
     dashboardAdmin = await signIn(false);
@@ -127,6 +128,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       role: 'ADMIN',
       employeeId: null,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
 
     kiosk = await registerDevice('Kiosk door test kiosk', 'FACE_KIOSK');
@@ -762,6 +764,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         role: 'ADMIN',
         employeeId: null,
         onKiosk: true,
+        passwordConfirmedAt: null,
       });
       const worker = await newStarter();
 
