@@ -27,8 +27,8 @@ export const EMBEDDING_LENGTH = 512;
 export const MIN_ANTI_SPOOFING = 0.6;
 /** A face smaller than this in the frame is too far away to judge. */
 export const MIN_FACE_PIXELS = 224;
-/** The head turn has to be finished inside this. */
-export const CHALLENGE_SECONDS = 20;
+/** The head turn has to be finished inside this. 30, not 20: real phones showed an honest worker can need a few tries to land the turn, and a tight clock sent them back to the start of enrollment. */
+export const CHALLENGE_SECONDS = 30;
 
 /** Which way the kiosk asks the head to turn. Chosen at random, one at a time. */
 export type HeadTurn = 'LEFT' | 'RIGHT';
