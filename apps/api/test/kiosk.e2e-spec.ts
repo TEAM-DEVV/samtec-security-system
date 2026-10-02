@@ -403,7 +403,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
       return faces * 0.4;
     };
     const sampleAt = (level: number, extra: Record<string, unknown> = {}) => ({
-      model: 'human-faceres-1',
+      model: 'arcface-mbf-1',
       embedding: faceAt(level),
       real: 0.9,
       live: 0.9,
@@ -457,7 +457,7 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
         where: { id: enrolled.body.credentialId },
       });
       expect(row.status).toBe('ACTIVE');
-      expect(row.faceModel).toBe('human-faceres-1');
+      expect(row.faceModel).toBe('arcface-mbf-1');
       expect(row.templateSealed).not.toBeNull();
       // Sealed numbers, never the numbers themselves and never a picture.
       expect(Buffer.from(row.templateSealed ?? []).includes(Buffer.from('0.4'))).toBe(false);

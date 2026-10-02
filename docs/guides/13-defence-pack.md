@@ -373,23 +373,24 @@ ask for and decide an exemption, and the duplicate queue
 
 **How a face match actually works** (`face-match.ts`, `face-thresholds.ts`):
 
-- A face becomes **1024 numbers** (the `human-faceres-1` model). No photo is
-  ever stored.
+- A face becomes **512 numbers** (the `arcface-mbf-1` model — ArcFace, the
+  family of models real security products use). No photo is ever stored.
 - Those numbers are sealed with AES-256-GCM before they touch the database, with
   a key derived from the server's `AUTH_SECRET`. The seal is bound to the
   company, the employee and the credential, so a row cannot be moved to another
   person.
 - To identify someone the server compares against every enrolled face in the
-  company (**1:N**) and needs two things: a similarity of at least **0.80** (threshold set `ft-3`), and
+  company (**1:N**) and needs two things: a similarity of at least **0.40** (threshold set `ft-4`), and
   a **lead of 0.05** over the runner-up. A close second means "not sure", not a
-  guess. With only one worker on file there is no runner-up, so the 0.80 alone
-  must turn a stranger away — which is why it is set above the most
-  stranger-like pair ever measured (0.79).
-- Three camera frames must agree with each other (0.75), and an anti-spoofing
+  guess. On this model's scale the same person scores about 0.9 and strangers
+  about 0 — on 43 test people, the most stranger-like pair ever measured was
+  0.212 — so 0.40 has a wide margin on both sides, and with only one worker on
+  file it alone turns a stranger away.
+- Three camera frames must agree with each other (0.70), and an anti-spoofing
   score must pass (0.60) — a photo held up to the camera fails.
 - At enrollment a **more suspicious** check looks for a face that is already
-  somebody else's. Its number is **lower** — 0.70, not 0.80 — and that makes it
-  catch *more*, not less: anything reaching 0.70 is held as a **possible
+  somebody else's. Its number is **lower** — 0.35, not 0.40 — and that makes it
+  catch *more*, not less: anything reaching 0.35 is held as a **possible
   duplicate** for an administrator to review — any administrator, including
   the one who enrolled it, now that issue #99 removed the second-person rule.
   Being asked about a stranger costs a minute; a ghost getting in costs a
@@ -708,36 +709,34 @@ and payment details are never on a list a supervisor can read.
 
 **"What stops a guard clocking in for a friend?"**
 The face is matched 1:N against everyone enrolled, needing both a similarity of
-0.80 and a clear lead of 0.05 over the runner-up (threshold set `ft-3`), with three frames agreeing and
+0.40 and a clear lead of 0.05 over the runner-up (threshold set `ft-4`), with three frames agreeing and
 an anti-spoofing check that a held-up photo fails. If a fingerprint is used it is
 never alone — it is tied to the face or to a typed staff number, and the method
 is stamped on the punch. The one case it does not settle is two nearly identical
 faces; see the twins question below.
 
-**"Where did 0.80 come from? Why not 0.6 or 0.9?"**
-From a failure in testing, which is the honest answer and a good one. On
-1 October 2026 a stranger clocked in as the only enrolled worker. Two things were
-wrong, and both were fixed:
-- **The kiosk was sending an old picture's numbers.** To save work, the face
-  library reused a measurement for up to three seconds while the picture barely
-  changed, so the "look straight" sample was really the face of the turned head
-  — and two strangers in profile look far more alike than their faces do. The
-  kiosk now measures every frame afresh.
-- **The comparison asked the wrong question.** The library's formula measured
-  how far apart two faces' numbers are, and light and distance push all of a
-  face's numbers up or down together. The system now compares the *angle*
-  between them (cosine similarity), which ignores that and keeps only the shape
-  of the face.
+**"Where did 0.40 come from? And why did the thresholds change three times?"**
+From failures in testing, which is the honest answer and a good one — each set
+is named (`ft-1` to `ft-4`) and stamped on every attempt, so no change can
+rewrite history ([the threshold report](14-face-threshold-report.md), sections
+12 and 13):
+- **The kiosk was sending an old picture's numbers.** The face library reused a
+  measurement for up to three seconds, so the "look straight" sample was really
+  the turned head. Fixed: every frame is measured afresh.
+- **The comparison asked the wrong question.** Distance between the numbers is
+  swayed by light; the system now compares the *angle* (cosine similarity).
+- **The measuring model itself was too weak.** Even with both fixes, a real
+  stranger scored 0.85–0.89 against the one enrolled worker and was greeted by
+  her name (2 October 2026). The measurer was replaced with **ArcFace**, the
+  model family real security products use. On photographs of 43 people (4,983
+  stranger pairs) the old measurer's most stranger-like pair reached 0.79 —
+  above its own match line; ArcFace kept every stranger pair below 0.212 while
+  the same person scores about 0.9. `match` sits at 0.40: roughly double the
+  worst stranger ever measured, and less than half the typical owner.
 
-Both were tested on photographs of 43 people (4,983 stranger pairs). Accepting
-honest owners about as often, the old rule let 32 stranger pairs through and
-the new one none; the most stranger-like pair scored 0.79, so `match` sits at
-0.80. The set is named `ft-3` and stamped on every attempt, so a later change can
-never make an old attempt look as if it were judged by new numbers
-([the threshold report](14-face-threshold-report.md), section 12). The honest
-part of the answer: photographs are not a kiosk. The phone test — the worker
-and a stranger, several tries each — is what confirms it, and the pilot with
-volunteers is still owed before a paying client.
+The honest part of the answer: photographs are not a kiosk. The phone test —
+the worker and a stranger, several tries each — is what confirms it, and the
+pilot with volunteers is still owed before a paying client.
 
 **"What about identical twins?"** — and expect this one, because it is the
 sharpest question available about any face system.

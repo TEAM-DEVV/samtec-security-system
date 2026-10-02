@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('Phase 3 biometric tables on a real database (e2e)
         deviceId: kioskId,
         templateSealed: TEMPLATE,
         keyVersion: 1,
-        faceModel: 'human-faceres-1',
+        faceModel: 'arcface-mbf-1',
         consentId,
         enrolledByUserId: ENROLLER,
         dedupe: 'PASSED',

@@ -6,7 +6,7 @@
  * it misbehaves the replacement goes in here and no screen changes
  * (`face.ts` explains the seam; docs/plan/02 records the dependency).
  *
- * Three decisions worth knowing:
+ * Four decisions worth knowing:
  *
  * - **The models are served from this app's own origin** (`/models`,
  *   committed in `public/models/`). Never a CDN: a tampered model that always
@@ -15,6 +15,10 @@
  * - **The library loads lazily.** Human and its TensorFlow are megabytes; the
  *   everyday screen must not wait for them to paint "Ready". The import
  *   starts with `start()` and stays loaded for the life of the app.
+ * - **The measuring is not Human's.** Human finds the face, the mesh, the
+ *   head turn and the liveness scores; the numbers the server compares come
+ *   from ArcFace (`face-arcface.ts`), because Human's own measurer let a
+ *   stranger clock in as the one enrolled worker (2 October 2026).
  * - **The mapping from Human's answer to a `FaceReading` is a pure function**
  *   (`readingFrom`), because it is the only part a test runner without a
  *   camera can pin down. Whether the real models accept a real face is the
@@ -28,6 +32,7 @@ import {
   type FaceReading,
   type HeadTurn,
 } from './face';
+import { ArcFaceMeasurer } from './face-arcface';
 
 /** How far the head must turn, in radians of yaw, to count as turned. */
 const TURNED_RADIANS = 0.35;
@@ -47,12 +52,15 @@ const YAW_SIGN = 1;
 
 /** The slice of Human's `FaceResult` the mapping reads. */
 export interface DetectedFace {
+  /** Filled in by the ArcFace measurer, not by Human. */
   embedding?: number[];
   real?: number;
   live?: number;
   /** `[x, y, width, height]` in video pixels. */
   box: [number, number, number, number];
   rotation?: { angle?: { yaw?: number } } | null;
+  /** Human's 468 mesh points, which the measurer cuts the face out along. */
+  mesh?: number[][];
 }
 
 /**
@@ -155,7 +163,9 @@ export function humanConfig(modelBasePath: string) {
       },
       mesh: { enabled: true },
       iris: { enabled: false },
-      description: { enabled: true, modelPath: 'faceres.json', skipFrames: 0, skipTime: 0 },
+      // Human's own measurer (faceres) stays off: ArcFace measures instead
+      // (`face-arcface.ts` says why). The mesh above is what it cuts along.
+      description: { enabled: false },
       emotion: { enabled: false },
       antispoof: { enabled: true, modelPath: 'antispoof.json', skipFrames: 0, skipTime: 0 },
       liveness: { enabled: true, modelPath: 'liveness.json', skipFrames: 0, skipTime: 0 },
@@ -170,7 +180,7 @@ export function humanConfig(modelBasePath: string) {
 
 /** What `start()` needs of Human, loaded lazily and kept for the app's life. */
 interface LoadedHuman {
-  detect: (video: HTMLVideoElement) => Promise<{ face: DetectedFace[] }>;
+  detect: (source: HTMLVideoElement | HTMLCanvasElement) => Promise<{ face: DetectedFace[] }>;
 }
 
 export class HumanFaceEngine implements FaceEngine {
@@ -188,9 +198,15 @@ export class HumanFaceEngine implements FaceEngine {
   private generation = 0;
   /** The one download of the models, shared by `prepare()` and `start()`. */
   private loading: Promise<void> | null = null;
+  /** Measures the face ArcFace's way (`face-arcface.ts`). */
+  private readonly measurer: ArcFaceMeasurer;
+  /** The frame being judged, drawn once so Human and ArcFace see the same pixels. */
+  private readonly frame: HTMLCanvasElement;
 
   constructor(modelBasePath = '/models') {
     this.modelBasePath = modelBasePath;
+    this.measurer = new ArcFaceMeasurer(modelBasePath);
+    this.frame = document.createElement('canvas');
   }
 
   /**
@@ -215,7 +231,10 @@ export class HumanFaceEngine implements FaceEngine {
   private async loadModels(): Promise<void> {
     const { default: Human } = await import('@vladmandic/human');
     const human = new Human(humanConfig(this.modelBasePath));
+    // The measurer downloads beside Human's models, not after them.
+    const measurerReady = this.measurer.prepare();
     await human.load();
+    await measurerReady;
     // The first detection compiles the shaders, which takes seconds on a
     // phone. Spending them here, on a blank frame, means the guard never
     // waits for them in the middle of a head turn.
@@ -281,7 +300,30 @@ export class HumanFaceEngine implements FaceEngine {
         problem: 'The camera is not ready yet.',
       };
     }
-    const result = await this.human.detect(this.video);
+    // The frame is drawn once, and both models judge those exact pixels: a
+    // video element keeps playing between two reads, so detecting on it and
+    // then measuring it would cut the face out of a *later* frame.
+    this.frame.width = this.video.videoWidth || 640;
+    this.frame.height = this.video.videoHeight || 480;
+    const paint = this.frame.getContext('2d');
+    if (!paint) {
+      return {
+        sample: null,
+        facePixels: 0,
+        turnedTo: null,
+        problem: 'The camera is not ready yet.',
+      };
+    }
+    paint.drawImage(this.video, 0, 0);
+    const result = await this.human.detect(this.frame);
+    const face = result.face[0];
+    if (result.face.length === 1 && face?.mesh?.length) {
+      try {
+        face.embedding = await this.measurer.measure(this.frame, face.mesh);
+      } catch {
+        // No numbers, so readingFrom answers "could not be measured" below.
+      }
+    }
     return readingFrom(result.face);
   }
 

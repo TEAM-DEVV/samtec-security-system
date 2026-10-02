@@ -83,7 +83,7 @@ describe.skipIf(!databaseUrl)('The biometric people rules (e2e)', () => {
     return faces * 0.4;
   };
   const sampleAt = (level: number) => ({
-    model: 'human-faceres-1',
+    model: 'arcface-mbf-1',
     embedding: faceAt(level),
     real: 0.9,
     live: 0.9,

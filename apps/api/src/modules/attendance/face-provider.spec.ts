@@ -50,9 +50,9 @@ describe('FaceProvider', () => {
   const ama = stored(provider, 'ama', 'face-ama', 0.6);
 
   it('says which model, key version and thresholds it works to', () => {
-    expect(provider.model).toBe('human-faceres-1');
+    expect(provider.model).toBe('arcface-mbf-1');
     expect(provider.keyVersion).toBe(1);
-    expect(provider.thresholdVersion).toBe('ft-3');
+    expect(provider.thresholdVersion).toBe('ft-4');
   });
 
   it('opens the faces it sealed and names the person at clock-in', () => {
@@ -183,7 +183,7 @@ describe('FaceProvider', () => {
           employeeId: 'quiet',
           credentialId: 'face-quiet',
         }),
-      ).toThrow(/^a face template is exactly 1,024 real numbers$/);
+      ).toThrow(/^a face template is exactly 512 real numbers$/);
     });
   });
 });

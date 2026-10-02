@@ -47,7 +47,7 @@ describe.skipIf(!databaseUrl)('Fingerprints on the kiosk (e2e)', () => {
   const bearer = (token: string): [string, string] => ['Authorization', `Bearer ${token}`];
   const api = () => request(app.getHttpServer());
   const sampleAt = (level: number) => ({
-    model: 'human-faceres-1',
+    model: 'arcface-mbf-1',
     embedding: faceAt(level),
     real: 0.9,
     live: 0.9,

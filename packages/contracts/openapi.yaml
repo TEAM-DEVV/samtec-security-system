@@ -6764,12 +6764,12 @@ components:
       properties:
         model:
           type: string
-          const: human-faceres-1
+          const: arcface-mbf-1
           description: The face model that made the numbers. Faces from different models can never be compared.
         embedding:
           type: array
-          minItems: 1024
-          maxItems: 1024
+          minItems: 512
+          maxItems: 512
           items:
             type: number
         real:

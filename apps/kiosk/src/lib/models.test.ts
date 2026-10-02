@@ -22,21 +22,22 @@ const MODELS_FOLDER = fileURLToPath(new URL('../../public/models', import.meta.u
 describe('the committed face models', () => {
   const readme = readFileSync(join(MODELS_FOLDER, 'README.md'), 'utf8');
   const files = readdirSync(MODELS_FOLDER)
-    .filter((name: string) => name.endsWith('.json') || name.endsWith('.bin'))
+    .filter((name: string) => !name.endsWith('.md'))
     .sort();
 
-  it('are exactly the ten files Human is configured to load', () => {
+  it('are exactly the eleven files the kiosk is configured to load', () => {
     expect(files).toEqual([
       'antispoof.bin',
       'antispoof.json',
+      'arcface-mbf.onnx',
       'blazeface.bin',
       'blazeface.json',
       'facemesh.bin',
       'facemesh.json',
-      'faceres.bin',
-      'faceres.json',
       'liveness.bin',
       'liveness.json',
+      'ort-wasm-simd-threaded.mjs',
+      'ort-wasm-simd-threaded.wasm',
     ]);
   });
 

@@ -211,8 +211,8 @@ describe('EnrollScreen', () => {
     // Exactly three, as the contract requires, and each a full template.
     expect(body.samples).toHaveLength(3);
     for (const sample of body.samples) {
-      expect(sample.embedding).toHaveLength(1024);
-      expect(sample.model).toBe('human-faceres-1');
+      expect(sample.embedding).toHaveLength(512);
+      expect(sample.model).toBe('arcface-mbf-1');
     }
     expect(body.consentId).toBe(CONSENT_RECORDED.id);
   });

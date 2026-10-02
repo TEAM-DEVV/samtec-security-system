@@ -1,20 +1,19 @@
 /**
  * Comparing faces, as pure rules (docs/plan/13-biometrics-design.md section 3).
- * A face is never a photo here: it is a list of 1,024 numbers that the kiosk's
- * model (Human) made from the camera picture.
+ * A face is never a photo here: it is a list of 512 numbers that the kiosk's
+ * model (ArcFace, `ft-4`) made from the camera picture.
  *
- * The score is the **cosine** of the angle between the two lists (`ft-3`):
+ * The score is the **cosine** of the angle between the two lists:
  *
  *   similarity = clamp(Σ aᵢbᵢ ÷ (‖a‖ × ‖b‖), 0, 1)
  *
- * Until `ft-3` it was Human's own distance formula, `1 − √(25 Σ(aᵢ − bᵢ)²)
- * ÷ 100`, rescaled. Real phones showed why that was the wrong question to
- * ask: it measures how far apart the numbers are, and a face's numbers grow
- * and shrink together with light, distance and framing — so one camera at one
- * gate pulled everybody's faces close, and a stranger clocked in as the only
- * enrolled worker. The angle ignores that overall size and keeps only the
- * shape of the face. On the same photographs of 43 people (the threshold
- * report, section 12), it made half as many mistakes as the distance did.
+ * Two real failures shaped this file. Until `ft-3` the score was Human's own
+ * distance formula, which light and framing fooled; the cosine replaced it.
+ * Under `ft-3` the *model* (faceres) was still too weak: a real stranger
+ * scored 0.85–0.89 against the one enrolled worker and was greeted by her
+ * name, so `ft-4` replaced the model with ArcFace, which kept every stranger
+ * pair in the 43-person photo lab below 0.22 while the same person scores
+ * about 0.9 (the threshold report, sections 12 and 13).
  *
  * Nothing in this file reads the database, decrypts anything or logs anything.
  */
