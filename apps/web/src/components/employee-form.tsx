@@ -5,13 +5,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { todayInGhana } from '@/lib/format';
+import { formatLongDate, todayInGhana } from '@/lib/format';
 import { describeApiError, isProblemDetails } from '@/lib/problem';
 
 // The contract's limits (`CreateEmployeeRequest`, `PersonName`).
 const NAME_MAX_LENGTH = 60;
 const POSITION_MIN_LENGTH = 2;
 const POSITION_MAX_LENGTH = 60;
+const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_MAX_LENGTH = 254;
 /** The same shapes the API checks. Checking here only saves a round trip. */
 const GHANA_PHONE = /^\+233\d{9}$/;
@@ -256,6 +257,14 @@ export function EmployeeForm({
               describedBy('hireDate') ?? (editing ? 'employee-fixed-note' : undefined)
             }
           />
+          {/* The date box reads typed numbers in the browser's own order, so
+              "01/10" can silently mean 10 January. Spelling the chosen day out
+              lets a wrong month be seen before it is saved. */}
+          {CALENDAR_DATE.test(hireDate) && (
+            <p className="text-muted-foreground text-xs">
+              That is {formatLongDate(new Date(`${hireDate}T00:00:00Z`))}.
+            </p>
+          )}
         </div>
       </div>
 

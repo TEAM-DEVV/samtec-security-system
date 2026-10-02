@@ -27,6 +27,15 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
         connectionString: config.databaseUrl,
         // Give up quickly when the database cannot be reached at all.
         connectionTimeoutMillis: 5_000,
+        // The API runs as serverless functions, and several warm copies run
+        // at once. Left at the driver's default of 10 connections EACH, a
+        // busy minute exhausted the database's session pool (EMAXCONNSESSION,
+        // 2 Oct 2026) and unlucky requests answered 500. A copy rarely needs
+        // more than one or two at a time; idle ones are let go quickly so
+        // sleeping copies hold no seats.
+        max: 3,
+        idleTimeoutMillis: 10_000,
+        allowExitOnIdle: true,
       }),
       // Short error messages. The detailed format can repeat the values being
       // saved, such as Ghana Card numbers, and those must never reach the logs.

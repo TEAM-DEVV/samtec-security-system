@@ -157,6 +157,53 @@ describe.skipIf(!databaseUrl)('correcting an employee start date (e2e)', () => {
     expect(JSON.stringify(refused.body)).toContain('ended before that date');
   });
 
+  it('posts an unposted worker and pulls a future start date back, as one Edit save does', async () => {
+    // The dashboard's Edit form sends the posting first, then the start date.
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/employees')
+      .set('Authorization', `Bearer ${confirmed}`)
+      .send({
+        firstName: 'Nana',
+        lastName: 'Perkins',
+        phone: '+233200214147',
+        ghanaCardNumber: 'GHA-123344555-4',
+        position: 'GUARD',
+        hireDate: '2099-10-04',
+      })
+      .expect(201);
+    const id = created.body.id as string;
+    const post = await prisma.post.create({ data: { companyId, siteId, name: 'Main Gate' } });
+    const shift = await prisma.shiftPattern.create({
+      data: { companyId, name: 'Day Shift', startMinutes: 360, endMinutes: 1080 },
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/employees/${id}`)
+      .set('Authorization', `Bearer ${confirmed}`)
+      .send({ siteId, postId: post.id, shiftPatternId: shift.id })
+      .expect(200);
+    const answer = await changeStartDate(id, '2026-10-01').expect(200);
+
+    expect(answer.body.hireDate).toBe('2026-10-01');
+    expect(answer.body.currentSite?.id).toBe(siteId);
+  });
+
+  it('heals a record whose period had drifted from the hire date', async () => {
+    // A half-finished earlier correction can leave the employment period
+    // starting on a different day than the record's hire date. The next
+    // correction lines them up again instead of matching on the old date.
+    const id = await hire('2026-10-04');
+    await prisma.employmentPeriod.updateMany({
+      where: { employeeId: id },
+      data: { startsOn: new Date('2026-01-10T00:00:00Z') },
+    });
+
+    await changeStartDate(id, '2026-10-01').expect(200);
+
+    const period = await prisma.employmentPeriod.findFirstOrThrow({ where: { employeeId: id } });
+    expect(period.startsOn.toISOString().slice(0, 10)).toBe('2026-10-01');
+  });
+
   it('refuses a leaver', async () => {
     const id = await hire('2026-09-01');
     await request(app.getHttpServer())

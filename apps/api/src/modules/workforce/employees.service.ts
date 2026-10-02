@@ -367,10 +367,21 @@ export class EmployeesService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.employee.update({ where: { id: employeeId }, data: { hireDate: to } });
-      await tx.employmentPeriod.updateMany({
-        where: { companyId: viewer.companyId, employeeId, startsOn: from },
-        data: { startsOn: to },
+      // The first employment period means "employed since hiring", so it
+      // starts exactly on the corrected date — found as the earliest one, not
+      // by matching the old date, so a record whose dates have drifted apart
+      // (a half-saved earlier correction) is healed rather than refused.
+      const firstPeriod = await tx.employmentPeriod.findFirst({
+        where: { companyId: viewer.companyId, employeeId },
+        orderBy: { startsOn: 'asc' },
+        select: { id: true },
       });
+      if (firstPeriod) {
+        await tx.employmentPeriod.update({
+          where: { id: firstPeriod.id },
+          data: { startsOn: to },
+        });
+      }
       // Earlier: the posting that began with the old start date begins with
       // the new one. Later: nothing may stay posted before the new start.
       await tx.siteAssignment.updateMany({
