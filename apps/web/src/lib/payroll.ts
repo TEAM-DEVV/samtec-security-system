@@ -33,7 +33,7 @@ export const runStatusLabels: Record<PayrollRunStatus, string> = {
 /** What the status means for whoever is looking at it. */
 export const runStatusDescriptions: Record<PayrollRunStatus, string> = {
   DRAFT: 'Worked out but not sent to anybody. Calculating again makes a new draft.',
-  PENDING_APPROVAL: 'Waiting for an administrator who did not prepare it to approve or reject it.',
+  PENDING_APPROVAL: 'Waiting for an administrator to approve or reject it, with their password.',
   LOCKED: 'Approved and frozen. Payslips are made. Nothing about it can change again.',
   PAID: 'The money has gone, and the payment is recorded.',
   REJECTED: 'Sent back for good. The answer is to calculate a fresh draft.',
