@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Res,
+} from '@nestjs/common';
 import type { Employee, EmployeeList } from '@samtec/contracts';
 import type { Response } from 'express';
 import {
@@ -10,7 +21,9 @@ import {
 } from '../../common/auth.decorators.js';
 import { EmployeesService } from './employees.service.js';
 import {
+  type ChangeStartDateBody,
   type CreateEmployeeBody,
+  changeStartDateSchema,
   createEmployeeSchema,
   idSchema,
   type ListEmployeesQuery,
@@ -23,7 +36,7 @@ import {
 
 /**
  * `/api/v1/employees`. Contract: operations `listEmployees`, `getEmployee`,
- * `createEmployee`, `updateEmployee` and `terminateEmployee`.
+ * `createEmployee`, `updateEmployee`, `changeEmployeeStartDate` and `terminateEmployee`.
  */
 @Controller('employees')
 export class EmployeesController {
@@ -72,6 +85,19 @@ export class EmployeesController {
     @Body({ schema: updateEmployeeSchema }) body: UpdateEmployeeBody,
   ): Promise<Employee> {
     return this.employees.update(caller, employeeId, body);
+  }
+
+  // Its own route, so only this correction asks for the password: editing a
+  // phone number or a posting stays one click.
+  @NeedsPassword()
+  @Put(':employeeId/start-date')
+  @Roles('ADMIN', 'HR_PAYROLL')
+  changeStartDate(
+    @Caller() caller: SignedInUser,
+    @Param('employeeId', { schema: idSchema }) employeeId: string,
+    @Body({ schema: changeStartDateSchema }) body: ChangeStartDateBody,
+  ): Promise<Employee> {
+    return this.employees.changeStartDate(caller, employeeId, body);
   }
 
   @NeedsPassword()

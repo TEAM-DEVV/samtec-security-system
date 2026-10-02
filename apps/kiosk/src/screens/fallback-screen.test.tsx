@@ -183,6 +183,7 @@ describe('FallbackScreen · a supervisor co-signs', () => {
           outcome: 'MATCHED',
           worker: { displayName: 'Abena O.', staffNumber: 'SV-0001' },
           fingerprint: null,
+          nobodyPostedHere: false,
         },
       },
       { ...PUNCHED, body: { ...PUNCHED.body, method: 'PIN_FALLBACK' } },

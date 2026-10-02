@@ -1140,6 +1140,49 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /employees/{employeeId}/start-date:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    put:
+      tags: [Employees]
+      operationId: changeEmployeeStartDate
+      x-needs-password: true
+      summary: Correct the date an employee started
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Corrects a start date typed wrongly at
+        hiring. The employment period and the first site posting move with
+        it, so the worker counts as employed from the new date. Refused
+        (`409`) for a leaver, and for a later date when attendance is
+        already recorded before it, or a posting ended before it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeStartDateRequest"
+            examples:
+              correction:
+                summary: The start date was typed two days late
+                value:
+                  hireDate: "2026-10-01"
+      responses:
+        "200":
+          description: The employee, with the corrected start date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /sites:
     get:
       tags: [Sites]
@@ -5687,6 +5730,16 @@ components:
           maxLength: 500
           description: Extra detail. Required when `reason` is `OTHER`.
 
+    ChangeStartDateRequest:
+      type: object
+      additionalProperties: false
+      required: [hireDate]
+      properties:
+        hireDate:
+          type: string
+          format: date
+          description: The corrected first working day.
+
     SiteStatus:
       type: string
       description: |
@@ -6814,13 +6867,19 @@ components:
 
     KioskIdentifyResponse:
       type: object
-      required: [attemptId, outcome, worker, fingerprint]
+      required: [attemptId, outcome, worker, fingerprint, nobodyPostedHere]
       properties:
         attemptId:
           type: string
           format: uuid
         outcome:
           $ref: "#/components/schemas/AttemptOutcome"
+        nobodyPostedHere:
+          type: boolean
+          description: >-
+            `true` when no worker with a face in use is posted today to the
+            site this kiosk stands on, so nobody could have been recognised.
+            It names nobody, so the kiosk may say it plainly.
         worker:
           description: The matched person; `null` unless `outcome` is `MATCHED`.
           oneOf:
@@ -7025,7 +7084,7 @@ components:
 
     FaceEnrollmentResult:
       type: object
-      required: [credentialId, dedupe, employeeStatus]
+      required: [credentialId, dedupe, employeeStatus, postedHere]
       properties:
         credentialId:
           type: string
@@ -7034,6 +7093,13 @@ components:
           $ref: "#/components/schemas/DedupeResult"
         employeeStatus:
           $ref: "#/components/schemas/EmployeeStatus"
+        postedHere:
+          type: boolean
+          description: >-
+            Whether the worker is posted today to the site this kiosk stands
+            on. A kiosk only recognises workers posted to its own site, so
+            `false` means they cannot clock in here until an administrator
+            posts them (Employees → the worker → Edit → Current site).
 
     PasskeyOptionsRequest:
       type: object

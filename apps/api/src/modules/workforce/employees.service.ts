@@ -18,6 +18,7 @@ import { AccountsService } from '../identity/accounts.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { fullNameOf, toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
 import {
+  type ChangeStartDateBody,
   type CreateEmployeeBody,
   type ListEmployeesQuery,
   type TerminateEmployeeBody,
@@ -305,6 +306,89 @@ export class EmployeesService {
           entityType: 'employee',
           entityId: employeeId,
           detail: { changedFields: Object.keys(body).join(',') },
+        },
+        tx,
+      );
+    });
+    return this.get(viewer, employeeId);
+  }
+
+  /**
+   * Corrects the start date typed at hiring. Contract: `changeEmployeeStartDate`.
+   *
+   * The employment period that began on the old date moves with it, and so
+   * does the posting, so the worker counts as employed from the new date.
+   * An earlier date is always safe. A later one is refused when it would
+   * leave something already recorded before the new start: a clock-in, or a
+   * posting that had already ended.
+   */
+  async changeStartDate(
+    viewer: SignedInUser,
+    employeeId: string,
+    body: ChangeStartDateBody,
+  ): Promise<ApiEmployee> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId: viewer.companyId },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee exists with this ID.');
+    }
+    if (employee.status === 'TERMINATED') {
+      throw new ConflictException(
+        'This employee has left the company. Their record is kept as history and cannot be changed.',
+      );
+    }
+    const from = employee.hireDate;
+    const to = toDatabaseDate(body.hireDate);
+    if (to.getTime() === from.getTime()) {
+      return this.get(viewer, employeeId);
+    }
+    const later = to > from;
+    if (later) {
+      const clockedInBefore = await this.prisma.punchEvent.findFirst({
+        where: { companyId: viewer.companyId, employeeId, serverTime: { lt: to } },
+        select: { id: true },
+      });
+      if (clockedInBefore) {
+        throw new ConflictException(
+          'This worker already clocked in before that date. Pick a start date on or before their first clock-in.',
+        );
+      }
+      const postingEndedBefore = await this.prisma.siteAssignment.findFirst({
+        where: { companyId: viewer.companyId, employeeId, endsOn: { lt: to } },
+        select: { id: true },
+      });
+      if (postingEndedBefore) {
+        throw new ConflictException(
+          'This worker has a site posting that ended before that date. Pick an earlier start date.',
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employee.update({ where: { id: employeeId }, data: { hireDate: to } });
+      await tx.employmentPeriod.updateMany({
+        where: { companyId: viewer.companyId, employeeId, startsOn: from },
+        data: { startsOn: to },
+      });
+      // Earlier: the posting that began with the old start date begins with
+      // the new one. Later: nothing may stay posted before the new start.
+      await tx.siteAssignment.updateMany({
+        where: {
+          companyId: viewer.companyId,
+          employeeId,
+          startsOn: later ? { lt: to } : from,
+        },
+        data: { startsOn: to },
+      });
+      await this.audit.record(
+        {
+          companyId: viewer.companyId,
+          actorUserId: viewer.userId,
+          action: 'employee.start_date_changed',
+          entityType: 'employee',
+          entityId: employeeId,
+          detail: { from: toIsoDate(from), to: toIsoDate(to) },
         },
         tx,
       );

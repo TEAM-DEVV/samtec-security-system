@@ -19,7 +19,7 @@ import type { BiometricConsent, Prisma } from '../../generated/prisma/client.js'
 import type { EmployeeStatus } from '../../generated/prisma/enums.js';
 import { AuditService } from '../identity/audit.service.js';
 import { SignInThrottleService } from '../identity/sign-in-throttle.service.js';
-import { EmployeesService } from '../workforce/employees.service.js';
+import { currentAssignmentFilter, EmployeesService } from '../workforce/employees.service.js';
 import type { EnrollFaceBody, RecordConsentBody } from './attendance.schemas.js';
 import {
   ATTENDANCE_TRANSACTION_OPTIONS as BIOMETRIC_TRANSACTION_OPTIONS,
@@ -249,7 +249,19 @@ export class BiometricsService {
           },
           tx,
         );
-        return { credentialId, dedupe, employeeStatus };
+        // A kiosk only recognises workers posted to its own site, so the
+        // administrator is told straight away when this one is not: enrolling
+        // somebody who then cannot clock in here, with no hint why, is how a
+        // working face check looked broken on the first phone test.
+        const postedHere =
+          (await tx.siteAssignment.count({
+            where: {
+              employeeId: body.employeeId,
+              siteId: device.siteId,
+              ...currentAssignmentFilter(),
+            },
+          })) > 0;
+        return { credentialId, dedupe, employeeStatus, postedHere };
       }, BIOMETRIC_TRANSACTION_OPTIONS);
     } catch (error) {
       throw isLockTimeout(error) ? new BiometricsBusyException() : error;

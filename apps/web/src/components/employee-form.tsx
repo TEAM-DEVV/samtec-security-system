@@ -122,7 +122,7 @@ export function EmployeeForm({
       setMistake(`The position needs at least ${POSITION_MIN_LENGTH} characters.`);
       return;
     }
-    if (!editing && values.hireDate === '') {
+    if (values.hireDate === '') {
       setMistake('Choose the date this person started.');
       return;
     }
@@ -248,24 +248,22 @@ export function EmployeeForm({
           <Input
             id="employee-hire-date"
             type="date"
-            required={!editing}
-            readOnly={editing}
+            required
             value={hireDate}
             onChange={(event) => setHireDate(event.target.value)}
             aria-invalid={badField === 'hireDate' || undefined}
             aria-describedby={
               describedBy('hireDate') ?? (editing ? 'employee-fixed-note' : undefined)
             }
-            className={editing ? 'text-muted-foreground' : undefined}
           />
         </div>
       </div>
 
       {editing && (
         <p id="employee-fixed-note" className="text-muted-foreground text-xs">
-          The Ghana Card number and the start date cannot be changed here. The card number
-          identifies this person for life, and the start date is already tied to the attendance and
-          the pay recorded since.
+          The Ghana Card number cannot be changed here: it identifies this person for life.
+          Correcting the start date asks for your password, because attendance and pay are counted
+          from it.
         </p>
       )}
 

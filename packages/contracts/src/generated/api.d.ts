@@ -519,6 +519,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/employees/{employeeId}/start-date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct the date an employee started
+         * @description **Roles:** ADMIN, HR_PAYROLL. Corrects a start date typed wrongly at hiring. The employment period and the first site posting move with it, so the worker counts as employed from the new date. Refused (`409`) for a leaver, and for a later date when attendance is already recorded before it, or a posting ended before it.
+         */
+        put: operations["changeEmployeeStartDate"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites": {
         parameters: {
             query?: never;
@@ -2626,6 +2649,13 @@ export interface components {
             /** @description Extra detail. Required when `reason` is `OTHER`. */
             note?: string;
         };
+        ChangeStartDateRequest: {
+            /**
+             * Format: date
+             * @description The corrected first working day.
+             */
+            hireDate: string;
+        };
         /**
          * @description - `ACTIVE` — guards are currently posted here.
          *     - `INACTIVE` — the contract has ended or is paused. Kept for history.
@@ -3242,6 +3272,8 @@ export interface components {
             /** Format: uuid */
             attemptId: string;
             outcome: components["schemas"]["AttemptOutcome"];
+            /** @description `true` when no worker with a face in use is posted today to the site this kiosk stands on, so nobody could have been recognised. It names nobody, so the kiosk may say it plainly. */
+            nobodyPostedHere: boolean;
             /** @description The matched person; `null` unless `outcome` is `MATCHED`. */
             worker: components["schemas"]["KioskWorker"] | null;
             /** @description Set when the matched person (the worker, or the supervisor for `CO_SIGN`) has a fingerprint key on this device. The finger is then required: send the result to `POST /kiosk/confirm`, or for a `CO_SIGN` as `assertion` in `POST /kiosk/assisted-punches`. */
@@ -3353,6 +3385,8 @@ export interface components {
             credentialId: string;
             dedupe: components["schemas"]["DedupeResult"];
             employeeStatus: components["schemas"]["EmployeeStatus"];
+            /** @description Whether the worker is posted today to the site this kiosk stands on. A kiosk only recognises workers posted to its own site, so `false` means they cannot clock in here until an administrator posts them (Employees → the worker → Edit → Current site). */
+            postedHere: boolean;
         };
         PasskeyOptionsRequest: {
             /** Format: uuid */
@@ -4727,6 +4761,7 @@ export type Employee = components['schemas']['Employee'];
 export type CreateEmployeeRequest = components['schemas']['CreateEmployeeRequest'];
 export type UpdateEmployeeRequest = components['schemas']['UpdateEmployeeRequest'];
 export type TerminateEmployeeRequest = components['schemas']['TerminateEmployeeRequest'];
+export type ChangeStartDateRequest = components['schemas']['ChangeStartDateRequest'];
 export type SiteStatus = components['schemas']['SiteStatus'];
 export type GhanaRegion = components['schemas']['GhanaRegion'];
 export type Site = components['schemas']['Site'];
@@ -5612,6 +5647,38 @@ export interface operations {
         };
         responses: {
             /** @description The employee, now terminated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    changeEmployeeStartDate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeStartDateRequest"];
+            };
+        };
+        responses: {
+            /** @description The employee, with the corrected start date. */
             200: {
                 headers: {
                     [name: string]: unknown;

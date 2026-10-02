@@ -58,6 +58,7 @@ const MATCHED = {
     outcome: 'MATCHED',
     worker: { displayName: 'Kwame A.', staffNumber: 'SMT-00042' },
     fingerprint: null,
+    nobodyPostedHere: false,
   },
 };
 
