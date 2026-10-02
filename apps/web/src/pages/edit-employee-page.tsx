@@ -31,25 +31,39 @@ export function EditEmployeePage() {
   // must not reveal which people were looked at.
   usePageTitle(employee.data ? `Edit ${employee.data.staffNumber}` : 'Edit employee');
 
-  const update = $api.useMutation('patch', '/employees/{employeeId}', {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['get', '/employees'] });
-      void navigate(routes.employee(employeeId));
-    },
-  });
+  const update = $api.useMutation('patch', '/employees/{employeeId}');
+  // The start date has a route of its own, which asks for the password; the
+  // API client opens that dialog by itself, so this page only sends it.
+  const changeStart = $api.useMutation('put', '/employees/{employeeId}/start-date');
 
-  function submit(values: EmployeeValues) {
+  async function submit(values: EmployeeValues) {
     const record = employee.data;
     if (record === undefined) {
       return;
     }
     const body = onlyWhatChanged(record, values);
-    if (Object.keys(body).length === 0) {
+    const newStart = values.hireDate !== record.hireDate ? values.hireDate : null;
+    if (Object.keys(body).length === 0 && newStart === null) {
       // Nothing to save, so go back rather than send a change the API refuses.
       void navigate(routes.employee(employeeId));
       return;
     }
-    update.mutate({ params: { path: { employeeId } }, body });
+    try {
+      if (Object.keys(body).length > 0) {
+        await update.mutateAsync({ params: { path: { employeeId } }, body });
+      }
+      if (newStart !== null) {
+        await changeStart.mutateAsync({
+          params: { path: { employeeId } },
+          body: { hireDate: newStart },
+        });
+      }
+    } catch {
+      // The form shows the mutation's error; stay on the page to fix it.
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ['get', '/employees'] });
+    void navigate(routes.employee(employeeId));
   }
 
   return (
@@ -98,9 +112,9 @@ export function EditEmployeePage() {
             <EmployeeForm
               initial={employee.data}
               submitLabel="Save changes"
-              pending={update.isPending}
-              error={update.error}
-              onSubmit={submit}
+              pending={update.isPending || changeStart.isPending}
+              error={update.error ?? changeStart.error}
+              onSubmit={(values) => void submit(values)}
             />
           </CardContent>
         </Card>

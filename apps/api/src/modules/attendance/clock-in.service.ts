@@ -200,6 +200,9 @@ export class ClockInService {
       outcome: outcomeOf(found.outcome),
       worker: person,
       fingerprint: fingerprint ? { options: fingerprint as unknown as FingerprintOptions } : null,
+      // Nobody to compare with means nobody can be recognised, whoever
+      // stands there. It names nobody, so the kiosk may say so plainly.
+      nobodyPostedHere: faces.length === 0,
     };
   }
 

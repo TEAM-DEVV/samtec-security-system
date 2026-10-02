@@ -564,6 +564,16 @@ export function EnrollScreen({
                 // who else works for this company.
                 'This face looks like someone already enrolled. An administrator can review it on the dashboard under Duplicate faces. Once that is cleared, a fingerprint can be saved for them here.'}
           </p>
+          {!stage.result.postedHere && (
+            // A kiosk only recognises workers posted to its own site. Said
+            // now, while the administrator is still standing here, rather
+            // than discovered later as a face that "does not work".
+            <p className="notice notice--wait" role="status">
+              {chosen?.fullName ?? 'This worker'} is not posted to this kiosk’s site, so they cannot
+              clock in here yet. Post them on the dashboard: Employees →{' '}
+              {chosen?.fullName ?? 'the worker'} → Edit → Current site.
+            </p>
+          )}
           <div className="buttons">
             {stage.result.dedupe === 'PASSED' && offerFingerprints && (
               <button

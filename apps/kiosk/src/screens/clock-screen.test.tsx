@@ -49,6 +49,7 @@ const MATCHED = {
     outcome: 'MATCHED',
     worker: { displayName: 'Kwame A.', staffNumber: 'SMT-00042' },
     fingerprint: null,
+    nobodyPostedHere: false,
   },
 };
 
@@ -59,6 +60,7 @@ const NOT_RECOGNISED = {
     outcome: 'NOT_RECOGNISED',
     worker: null,
     fingerprint: null,
+    nobodyPostedHere: false,
   },
 };
 
@@ -187,6 +189,18 @@ describe('ClockScreen', () => {
     expect(shown).not.toMatch(/NOT_RECOGNISED|AMBIGUOUS|LOW_LIVENESS/);
     expect(shown).not.toMatch(/0\.\d\d/);
     expect(shown).not.toMatch(/score|match|confiden/i);
+  });
+
+  it('says plainly when nobody is posted to this kiosk’s site, naming nobody', async () => {
+    answers = [{ ...NOT_RECOGNISED, body: { ...NOT_RECOGNISED.body, nobodyPostedHere: true } }];
+    const user = userEvent.setup();
+    await renderScreen();
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+
+    expect(
+      await screen.findByText(/Nobody is posted to this kiosk’s site yet/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Not recognised. Please try again.')).not.toBeInTheDocument();
   });
 
   it('offers the fallbacks only after three failures in a row', async () => {

@@ -1,4 +1,5 @@
 import type {
+  ChangeStartDateRequest,
   CreateEmployeeRequest,
   Employee,
   EmployeeList,
@@ -359,6 +360,37 @@ export const employeeHandlers = [
       employee.fullName = [employee.firstName, employee.otherNames, employee.lastName]
         .filter(Boolean)
         .join(' ');
+      employee.updatedAt = new Date().toISOString();
+      return HttpResponse.json<Employee>(employee);
+    },
+  ),
+
+  http.put<{ employeeId: string }, ChangeStartDateRequest, OrProblem<Employee>>(
+    apiUrl('/employees/:employeeId/start-date'),
+    async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.employeeChanges, user.role)) {
+        return forbidden();
+      }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
+      const employee = employees.find((candidate) => candidate.id === params.employeeId);
+      if (!employee) {
+        return notFound('No employee exists with this ID.');
+      }
+      if (employee.status === 'TERMINATED') {
+        return conflict(
+          'This employee has left the company. Their record is kept as history and cannot be changed.',
+        );
+      }
+      const body = await request.json();
+      if (!CALENDAR_DATE.test(body.hireDate ?? '')) {
+        return validationProblem('hireDate', 'Must be a date like 2026-09-15.');
+      }
+      employee.hireDate = body.hireDate;
       employee.updatedAt = new Date().toISOString();
       return HttpResponse.json<Employee>(employee);
     },

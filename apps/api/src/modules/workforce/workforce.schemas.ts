@@ -124,6 +124,10 @@ export const terminateEmployeeSchema = z
   });
 export type TerminateEmployeeBody = z.infer<typeof terminateEmployeeSchema>;
 
+/** Contract: `ChangeStartDateRequest`. */
+export const changeStartDateSchema = z.strictObject({ hireDate: calendarDate });
+export type ChangeStartDateBody = z.infer<typeof changeStartDateSchema>;
+
 export const listSitesQuerySchema = z.strictObject({
   limit,
   cursor: cursor.optional(),

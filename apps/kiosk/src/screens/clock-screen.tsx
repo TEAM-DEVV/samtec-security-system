@@ -272,8 +272,15 @@ export function ClockScreen({
       if (answer.outcome !== 'MATCHED' || answer.worker === null) {
         // AMBIGUOUS, NOT_RECOGNISED and LOW_LIVENESS all say the same thing to
         // the person standing there. Telling them apart would tell a stranger
-        // something about the faces we hold.
-        countFailure('Not recognised. Please try again.', direction);
+        // something about the faces we hold. The one exception names nobody:
+        // with no worker posted to this kiosk's site, nobody can be
+        // recognised, and saying so saves an administrator an afternoon.
+        countFailure(
+          answer.nobodyPostedHere
+            ? 'Nobody is posted to this kiosk’s site yet, so nobody can clock in here. An administrator can post workers on the dashboard: Employees → the worker → Edit → Current site.'
+            : 'Not recognised. Please try again.',
+          direction,
+        );
         return;
       }
       if (answer.fingerprint !== null) {

@@ -86,6 +86,7 @@ beforeEach(() => {
         credentialId: '01927c3e-dddd-7000-8000-000000000001',
         dedupe: 'PASSED',
         employeeStatus: 'ACTIVE',
+        postedHere: true,
       },
     },
   };
@@ -234,6 +235,29 @@ describe('EnrollScreen', () => {
     expect(screen.queryByText(/Save their fingerprint now/)).not.toBeInTheDocument();
   });
 
+  it('warns, before the administrator leaves, when the worker is not posted to this kiosk’s site', async () => {
+    answers['/kiosk/face-enrollments'] = {
+      status: 200,
+      body: {
+        credentialId: '01927c3e-dddd-7000-8000-000000000001',
+        dedupe: 'PASSED',
+        employeeStatus: 'ACTIVE',
+        postedHere: false,
+      },
+    };
+    const user = userEvent.setup();
+    await renderScreen();
+    await reachConsent(user);
+    await user.type(screen.getByLabelText(/Last 4 digits/), '1234');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: /Record consent/ }));
+
+    expect(
+      await screen.findByText(/is not posted to this kiosk’s site/, {}, { timeout: 12_000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Edit → Current site/)).toBeInTheDocument();
+  });
+
   it('carries both the administrator’s token and the device signature', async () => {
     const user = userEvent.setup();
     await renderScreen();
@@ -259,6 +283,7 @@ describe('EnrollScreen', () => {
         credentialId: '01927c3e-dddd-7000-8000-000000000002',
         dedupe: 'COLLISION',
         employeeStatus: 'PENDING_ENROLLMENT',
+        postedHere: true,
       },
     };
     const user = userEvent.setup();
