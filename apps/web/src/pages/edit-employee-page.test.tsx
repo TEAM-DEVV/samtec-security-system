@@ -71,6 +71,9 @@ describe('EditEmployeePage', () => {
       const started = await screen.findByLabelText('Started on');
       await user.clear(started);
       await user.type(started, '2020-01-15');
+      // The chosen day is spelled out, so a month/day mix-up is visible
+      // before it is saved.
+      expect(screen.getByText(/That is Wednesday, 15 January 2020\./)).toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
       expect(await screen.findByText('Their record')).toBeInTheDocument();
