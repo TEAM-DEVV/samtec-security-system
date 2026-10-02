@@ -2,6 +2,10 @@ import type { paths } from '@samtec/contracts';
 import createFetchClient from 'openapi-fetch';
 import createClient from 'openapi-react-query';
 import { env } from './env';
+import {
+  askForPasswordConfirmation,
+  isPasswordConfirmationRequired,
+} from './password-confirmation';
 import { clearSession, getSession, updateAccessToken } from './session';
 
 /**
@@ -63,15 +67,41 @@ function withAccessToken(request: Request): Request {
 }
 
 /**
- * Sends every API request with the access token, and when the API answers
- * 401 because the token expired (it lasts 15 minutes), gets a new one with
- * the refresh cookie and sends the request once more. Pages never notice.
+ * Sends every API request with the access token, and sends it once more
+ * when the API's answer was about the session rather than the request:
  *
- * Looked up on every request instead of once at startup, so the mock API used
- * in tests can intercept the requests.
+ * - 401 because the token expired (it lasts 15 minutes): gets a new one with
+ *   the refresh cookie first.
+ * - 403 with `code: PASSWORD_CONFIRMATION_REQUIRED` (a sensitive action):
+ *   opens the "Confirm with your password" dialog first, and retries only
+ *   when the person confirmed. One confirmation covers five minutes.
+ *
+ * Pages never notice either. Looked up on every request instead of once at
+ * startup, so the mock API used in tests can intercept the requests.
  */
 async function fetchWithSession(request: Request): Promise<Response> {
-  // A request's body can be sent only once, so keep an unsent copy for the retry.
+  // A request's body can be sent only once, so keep unsent copies for the retries.
+  const afterConfirmation = request.clone();
+  const response = await sendWithRefresh(request);
+  if (response.status !== 403 || !isOurApi(request.url)) {
+    return response;
+  }
+  const body: unknown = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (!isPasswordConfirmationRequired(body) || !(await askForPasswordConfirmation())) {
+    return response;
+  }
+  return globalThis.fetch(withAccessToken(afterConfirmation));
+}
+
+function isOurApi(url: string): boolean {
+  return new URL(url).origin === env.apiOrigin;
+}
+
+/** The request with the access token, sent again with a fresh one after a 401. */
+async function sendWithRefresh(request: Request): Promise<Response> {
   const retry = request.clone();
   const sentWith = getSession()?.accessToken;
   const response = await globalThis.fetch(withAccessToken(request));

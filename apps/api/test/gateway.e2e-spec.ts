@@ -112,6 +112,7 @@ describe.skipIf(!databaseUrl)('The ZKTeco gateway (e2e)', () => {
       role: 'ADMIN',
       employeeId: null,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     const kiosk = await api()
       .post('/api/v1/devices')

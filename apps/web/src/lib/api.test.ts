@@ -2,9 +2,10 @@ import { HttpResponse, http } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { fetchClient } from '@/lib/api';
 import { env } from '@/lib/env';
+import { setPasswordConfirmationAsker } from '@/lib/password-confirmation';
 import { getSession, startSession } from '@/lib/session';
 import { server } from '@/mocks/node';
-import { signInForTests } from '@/test/session';
+import { confirmPasswordForTests, signInForTests } from '@/test/session';
 
 /** Counts requests to one API path while `run` executes. */
 async function countRequests(path: string, run: () => Promise<void>): Promise<number> {
@@ -160,5 +161,45 @@ describe('fetchClient session handling', () => {
 
     expect(refreshes).toBe(0);
     expect(getSession()?.accessToken).toBe(before);
+  });
+
+  it('asks for the password when a sensitive action needs it, then sends the action again', async () => {
+    await signInForTests('admin@samtec.example', { confirmPassword: false });
+    const deviceId = (await fetchClient.GET('/devices')).data?.items[0]?.id ?? '';
+    let asked = 0;
+    setPasswordConfirmationAsker(async () => {
+      asked += 1;
+      await confirmPasswordForTests();
+      return true;
+    });
+    try {
+      const rotated = await fetchClient.POST('/devices/{deviceId}/rotate-secret', {
+        params: { path: { deviceId } },
+      });
+      expect(rotated.response.status).toBe(200);
+      // The next sensitive action is covered by the same confirmation.
+      const again = await fetchClient.POST('/devices/{deviceId}/rotate-secret', {
+        params: { path: { deviceId } },
+      });
+      expect(again.response.status).toBe(200);
+      expect(asked).toBe(1);
+    } finally {
+      setPasswordConfirmationAsker(null);
+    }
+  });
+
+  it('leaves a sensitive action refused when the person gives up', async () => {
+    await signInForTests('admin@samtec.example', { confirmPassword: false });
+    const deviceId = (await fetchClient.GET('/devices')).data?.items[0]?.id ?? '';
+    setPasswordConfirmationAsker(async () => false);
+    try {
+      const refused = await fetchClient.POST('/devices/{deviceId}/rotate-secret', {
+        params: { path: { deviceId } },
+      });
+      expect(refused.response.status).toBe(403);
+      expect(refused.error?.code).toBe('PASSWORD_CONFIRMATION_REQUIRED');
+    } finally {
+      setPasswordConfirmationAsker(null);
+    }
   });
 });

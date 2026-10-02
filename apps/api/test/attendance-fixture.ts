@@ -247,6 +247,7 @@ export async function tokensFor(app: NestExpressApplication, company: Attendance
       role,
       employeeId,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
   return {
     admin: await sign(company.adminUserId, 'ADMIN', null),

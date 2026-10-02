@@ -156,7 +156,27 @@ function fromHttpException(
     };
   }
 
-  return { type: 'about:blank', title: titleFor(status), status, detail, instance, traceId };
+  // A machine-readable code, when the exception carries one the contract
+  // knows (today: PASSWORD_CONFIRMATION_REQUIRED).
+  const code = problemCodeOf(exception);
+  return {
+    type: 'about:blank',
+    title: titleFor(status),
+    status,
+    detail,
+    instance,
+    traceId,
+    ...(code ? { code } : {}),
+  };
+}
+
+const PROBLEM_CODES = ['PASSWORD_CONFIRMATION_REQUIRED'] as const satisfies ReadonlyArray<
+  NonNullable<ProblemDetails['code']>
+>;
+
+function problemCodeOf(exception: HttpException): NonNullable<ProblemDetails['code']> | undefined {
+  const code = (exception as { code?: unknown }).code;
+  return PROBLEM_CODES.find((known) => known === code);
 }
 
 /**

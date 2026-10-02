@@ -9,7 +9,7 @@ Rehearse in Phase 6, deliver in Phase 8.
 1. **Open on the pain (2 minutes):** "Every month you pay people. How many of them actually stood a post? Today you cannot prove it. This system makes it provable."
 2. **Enroll (3 minutes):** register a new guard live at the face kiosk, the wow moment. Show the consent step, which signals professionalism.
 3. **Clock in and watch the dashboard (2 minutes):** the guard clocks in, the dashboard updates within seconds, and the site board shows who is on post right now.
-4. **Payroll run (4 minutes):** close the seeded month, create a draft, approve it as a second user to show maker–checker, open a payslip PDF and the bank export file.
+4. **Payroll run (4 minutes):** close the seeded month, create a draft, approve it yourself after confirming your password, open a payslip PDF and the bank export file.
 5. **The decisive moment (3 minutes):** run the detection sweep live. Three planted ghosts appear with their evidence: an employee who never clocked in, one face enrolled under two names, and a guard "at two sites at once". Then say: "This is the money you stop losing every month."
 6. **Close (1 minute):** a pilot offer: one site, one month, their real roster. Success means ghosts found or attendance verified.
 

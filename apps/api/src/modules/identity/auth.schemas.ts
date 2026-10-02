@@ -57,3 +57,9 @@ export const changePasswordSchema = z.strictObject({
   newPassword: newPasswordSchema,
 });
 export type ChangePasswordBody = z.infer<typeof changePasswordSchema>;
+
+/** Contract: `ConfirmPasswordRequest`. */
+export const confirmPasswordSchema = z.strictObject({
+  password: z.string().min(1, 'Enter your password.').max(128),
+});
+export type ConfirmPasswordBody = z.infer<typeof confirmPasswordSchema>;

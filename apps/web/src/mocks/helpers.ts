@@ -48,6 +48,21 @@ export function forbidden(): HttpResponse<ProblemDetails> {
   });
 }
 
+/**
+ * The real API's 403 for a sensitive action taken without a fresh password
+ * confirmation (PasswordConfirmationGuard): the dashboard opens its dialog
+ * on the `code`, then sends the request again.
+ */
+export function passwordConfirmationRequired(): HttpResponse<ProblemDetails> {
+  return problemResponse({
+    type: 'about:blank',
+    title: 'Forbidden',
+    status: 403,
+    detail: 'Confirm with your password to continue.',
+    code: 'PASSWORD_CONFIRMATION_REQUIRED',
+  });
+}
+
 export function notFound(detail: string): HttpResponse<ProblemDetails> {
   return problemResponse({ type: 'about:blank', title: 'Not Found', status: 404, detail });
 }

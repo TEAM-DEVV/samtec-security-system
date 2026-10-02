@@ -36,10 +36,10 @@ Stand still. No slides yet, no screen. This is the part you must know cold.
 >
 > My project stops this. A guard proves they are present with their **face**,
 > on a company device at the site. That proof becomes a worked shift. The shift
-> becomes pay, calculated to Ghana's PAYE and SSNIT rules. A second person must
-> approve the pay, and then it is locked so nobody — not even an administrator
-> — can quietly change it. And every night, eleven rules hunt through the data
-> for pay without presence.
+> becomes pay, calculated to Ghana's PAYE and SSNIT rules. Approving the pay
+> needs the administrator's own password again, and then it is locked so
+> nobody — not even an administrator — can quietly change it. And every night,
+> eleven rules hunt through the data for pay without presence.
 >
 > In one sentence: **SAMTEC pays people from evidence, and keeps the
 > evidence.**"
@@ -48,7 +48,7 @@ If you say nothing else well today, say this part well. Every question the
 panel asks afterwards is really a question about this chain:
 
 ```
-face at the gate → punch → worked shift → pay → second-person approval → locked
+face at the gate → punch → worked shift → pay → password-confirmed approval → locked
                                                   ↑ eleven rules watch it all
 ```
 
@@ -71,11 +71,12 @@ Show the architecture diagram (from [docs/plan/03](../plan/03-system-architectur
 > Three ideas run through everything. First: **evidence is never edited.**
 > Punches, consent records, audit lines and locked pay runs are append-only in
 > the database itself — a trigger rejects changes, so even an administrator
-> cannot rewrite history. Second: **nobody important acts alone.** Approving
-> pay, deciding a duplicate face, creating an administrator — each needs a
-> second person, and the database checks it, not just the screen. Third: **a
-> rule never punishes anybody.** Detection raises a question with evidence; a
-> human answers it in writing, and the answer is audited."
+> cannot rewrite history. Second: **every sensitive action needs a password,
+> and leaves a record.** Approving pay, deciding a duplicate face, creating an
+> administrator — any admin can do each alone, but doing it asks for that
+> administrator's password again, and the action is always in the audit log.
+> Third: **a rule never punishes anybody.** Detection raises a question with
+> evidence; a human answers it in writing, and the answer is audited."
 
 Panel members hear hundreds of projects. "The database itself enforces it"
 is what separates this one — return to that phrase whenever pressed.
@@ -130,11 +131,13 @@ Use the seeded month. Payroll → the month → the run.
 
 **DO:** open the run → show the lines → submit.
 
-> **SAY:** "I prepared this run, so the system will not let *me* approve it.
-> A different person must." **DO:** approve as the second account. "The moment
-> it is approved it locks — the database refuses any change to the figures from
-> now on — and the payslip PDF is written in the same transaction, so what was
-> sent is exactly what exists." **DO:** open a payslip PDF, show the bank file.
+> **SAY:** "I prepared this run, so now I approve it myself — but the system
+> asks me to confirm my password again first, because approving pay is a
+> sensitive action." **DO:** approve → confirm the password in the dialog →
+> the run approves. "The moment it is approved it locks — the database refuses
+> any change to the figures from now on — and the payslip PDF is written in the
+> same transaction, so what was sent is exactly what exists." **DO:** open a
+> payslip PDF, show the bank file.
 
 ### Step 4 — Catch the ghosts (1½ minutes) · Ghost detection
 
@@ -181,7 +184,7 @@ talking; a recovered demo impresses more than a smooth one.
 |---|---|
 | The kiosk misbehaves | "Let me show you the result instead" → the Live board already has seeded clock-ins; talk over those. |
 | The dashboard won't load | The night-before screenshots (take them — every screen in Parts 3's steps). Say plainly: "the live system is deployed at samtec-test.vercel.app; here is what it shows." |
-| Approval refuses | That IS the feature. Say: "the system is refusing because this account prepared the run — exactly what it is for", then use the second account. |
+| Approval refuses (`PASSWORD_CONFIRMATION_REQUIRED`) | That IS the feature. Say: "it wants me to confirm my password before it lets me approve pay" — type it into the dialog and continue. |
 | Detection finds nothing | Open a previously resolved alert and walk its evidence instead. |
 | A question stops you | "I don't know, but it is written in <the design doc / the security chapter / the decision list>." Name the paper. Never guess. |
 
@@ -190,8 +193,10 @@ talking; a recovered demo impresses more than a smooth one.
 - [ ] Rehearsed aloud, timed, three times.
 - [ ] The demo machine: repository pulled, `pnpm check` green, database seeded,
       both accounts signed in, kiosk paired.
-- [ ] **Two accounts that can act on payroll** (the maker and the checker) —
-      confirmed working, passwords in your head, 2FA phones in the room.
+- [ ] **Payroll approval works with one account** — confirmed: submitting,
+      approving behind the password dialog, and marking paid all succeed for
+      the administrator who prepared the run; password and 2FA phone ready in
+      the room.
 - [ ] Screenshots of every demo screen, saved locally, in presentation order.
 - [ ] Read Part 5 of [the defence pack](13-defence-pack.md) once more — the
       questions and short answers.
@@ -210,6 +215,6 @@ If you memorise nothing else:
 | The point of it all | "SAMTEC pays people from evidence, and keeps the evidence." |
 | Data safety | "Templates, never photos; encrypted; consent recorded word-for-word; wiped 90 days after someone leaves." |
 | Trust in the numbers | "Every important record is append-only in the database itself — history cannot be rewritten." |
-| Fraud by insiders | "Nobody important acts alone: pay, faces, administrators and device keys all need a second person, checked by the database." |
+| Fraud by insiders | "Any admin can act, but sensitive actions need their password, everything is in the audit log, and ghost detection still flags suspicious patterns." |
 | Accuracy | "Money is tested to the pesewa against payslips we calculated by hand." |
 | Honesty | "I can name every limit, and each one is written down with its numbers." |

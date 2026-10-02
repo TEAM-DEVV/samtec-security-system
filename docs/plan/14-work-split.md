@@ -20,7 +20,7 @@ Eight phases. Five are finished or nearly so.
 | 4 | Payroll: Ghana tax, payslips, bank file | **Done — Samuel.** The eight tables, the calculation, every endpoint, the payslip PDF, the bank file and the three screens |
 | 5 | Ghost detection: the rules that catch fake workers | **Done — Francis.** All eleven rules, the queue, the sweep, the three dashboard screens, and the daily run as a Vercel Cron entry |
 | 6 | Reports and the final visual pass | **Reports done — Samuel.** The key figures, both CSV downloads and the run summary PDF. Left: Francis's final visual pass, the last build step of the whole project |
-| 7 | Security hardening | **Done — Francis.** Two-administrator rules for accounts and device keys, the load test, backup and restore with a daily schedule, the threat model, the whole-system four-lens review (20 findings, 3 blockers, all fixed) and the drafted security chapter |
+| 7 | Security hardening | **Done — Francis.** Two-administrator rules for accounts and device keys (replaced by the password step in issue #99), the load test, backup and restore with a daily schedule, the threat model, the whole-system four-lens review (20 findings, 3 blockers, all fixed) and the drafted security chapter |
 | 8 | Deploy, defence pack, presentation | Not started — both |
 
 ## The split, from here to the end
@@ -66,16 +66,17 @@ to be defended, not just built.
   house style, the traps, and which existing files to copy from.
 
 **In one sentence:** close a month, calculate what each guard is owed from the
-shifts the attendance module already confirmed, have a second person approve
-it, lock it so it can never change, and produce a payslip and a bank file.
+shifts the attendance module already confirmed, approve it with a password
+confirmation, lock it so it can never change, and produce a payslip and a
+bank file.
 
 **Why it is safe to give away.** Payroll owns five brand-new tables that
 nothing else writes to, and it reads attendance only through one service call.
 It is the cleanest seam in the whole system.
 
-**Done when** you can close September, calculate a run, fail to approve it as
-the same person who prepared it, approve it as somebody else, and open a
-payslip whose numbers add up by hand to the pesewa.
+**Done when** you can close September, calculate a run, approve it yourself
+after confirming your password, and open a payslip whose numbers add up by
+hand to the pesewa.
 
 ## Job B · The kiosk app (`apps/kiosk`) — **started**
 

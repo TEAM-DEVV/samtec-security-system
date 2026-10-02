@@ -5,7 +5,7 @@ import type {
   EmployeePayTermsList,
 } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, NeedsPassword, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import { EmployeePayService } from './employee-pay.service.js';
 import {
   idSchema,
@@ -60,6 +60,7 @@ export class EmployeePayController {
     return terms;
   }
 
+  @NeedsPassword()
   @Put(':employeeId/payment-details')
   async setPaymentDetails(
     @Caller() caller: SignedInUser,

@@ -38,7 +38,7 @@ import {
   validationProblem,
 } from '../helpers';
 import { canSeeSite } from '../scope';
-import { userForRequest } from './auth';
+import { needsPassword, userForRequest } from './auth';
 
 /**
  * The mock Biometrics API and the live punch board, with the real API's
@@ -249,6 +249,8 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Body = await request.json();
       const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
       if (bad) return bad;
@@ -277,6 +279,8 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Body = await request.json();
       const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
       if (bad) return bad;
@@ -332,6 +336,8 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Body = await request.json();
       const bad =
         idProblem(params.employeeId, 'employeeId') ??
@@ -365,6 +371,8 @@ export const biometricHandlers = [
       // Only an ADMIN records it, so the exemption it files needs a different ADMIN.
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Body = await request.json();
       const bad = idProblem(params.employeeId, 'employeeId') ?? reasonProblem(body);
       if (bad) return bad;
@@ -416,6 +424,8 @@ export const biometricHandlers = [
     async ({ params, request }) => {
       const { user, refused } = signedInAs(request, ['ADMIN']);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body: Body = await request.json();
       const samePerson = body.verdict === 'SAME_PERSON';
       const bad =

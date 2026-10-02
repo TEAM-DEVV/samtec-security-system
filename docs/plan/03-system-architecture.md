@@ -75,7 +75,7 @@ guard's finger or face
       · both the device time and the server receive time are stored
   → pairing: clock-in + clock-out → work segments → daily hours
   → exception queue: missing clock-out, shift across midnight, overlapping segments
-  → payroll run at period close → lines copied → maker submits → checker approves and locks
+  → payroll run at period close → lines copied → submitted → approved (password-confirmed) and locks
   → payslips and bank export
   (the detection engine flags anomalies all along the way)
 ```

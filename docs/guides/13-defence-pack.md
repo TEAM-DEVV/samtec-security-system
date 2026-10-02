@@ -62,7 +62,7 @@ One sentence: **SAMTEC pays people from evidence, and keeps the evidence.**
      payroll: hours × pay terms, PAYE, SSNIT  ← the money
             │
             ▼
-     a second person approves, then it locks  ← nobody pays alone
+     the administrator confirms a password, then it locks  ← audited, not solo
             │
             ▼
      eleven rules hunt for pay without presence   ← the last net
@@ -77,10 +77,11 @@ document sits at one of those arrows.
    payroll runs are append-only — the *database itself* refuses to change them
    with a trigger, not just the code. A correction is a new row that says what it
    corrects. This is why the system can be trusted about the past.
-2. **Nobody important acts alone.** Approving pay, deciding a duplicate face,
-   letting someone work without biometrics, creating an administrator, switching
-   on a device key: each needs a **second person**, and the database enforces
-   that with a CHECK, not just the screen.
+2. **Every sensitive action needs the administrator's password.** Approving
+   pay, deciding a duplicate face, letting someone work without biometrics,
+   creating an administrator, switching on a device key: any ADMIN may do
+   each of these alone now, but only after confirming their password again,
+   and every one is written to the audit log.
 3. **A rule never punishes anybody.** Detection raises a question with the rows
    it looked at. A human answers it in writing, and the answer is audited.
 4. **People are never deleted.** A leaver becomes `TERMINATED`. History has to
@@ -112,8 +113,8 @@ smartphone, and a phone-based clock-in can be done from a bed. So: **the company
 owns the device, and the device lives at the site.** There is no geofence,
 because there is nothing to fence — the terminal cannot move. The trade is that
 we must now trust the terminal, which is why every device signs its requests with
-a secret, a device key is born switched off, and a second administrator must
-switch it on.
+a secret, a device key is born switched off, and switching it on is a separate,
+password-confirmed step any administrator can take.
 
 ### The four roles
 
@@ -176,7 +177,7 @@ Two conventions worth stating at the defence:
 
 | Table | What it holds | The part worth knowing |
 |---|---|---|
-| `devices` | A terminal or kiosk, registered by an ADMIN for one site for life. | Its secret is stored **only encrypted** (AES-256-GCM) and signs every request. The rate limit and failed-signature counters live on this row. A key is born switched off, and whoever issued it may not switch it on. |
+| `devices` | A terminal or kiosk, registered by an ADMIN for one site for life. | Its secret is stored **only encrypted** (AES-256-GCM) and signs every request. The rate limit and failed-signature counters live on this row. A key is born switched off; switching it on is a separate, password-confirmed step any administrator — including the issuer — can take. |
 | `punch_events` | One punch exactly as a device reported it. | **The ground truth.** Append-only — a trigger refuses every change and delete, which is why the table has no `updated_at` at all. `deviceEventId` makes the same punch sent twice land once. |
 | `work_segments` | One worked shift: a clock-in paired with its clock-out. | Its hours belong to `workDate`, the Ghana date it started. A database **exclusion constraint** forbids two confirmed segments of one person from overlapping — you cannot be paid twice for the same hour. |
 | `attendance_exceptions` | Anything a person must look at: a missing clock-out, an unknown number, two sites at once. | `dedupeKey` is unique per company, so the same problem can never be raised twice, whoever raises it. |
@@ -268,7 +269,7 @@ flow), `/auth/logout`, `GET /auth/me`, `POST /auth/set-password` (the one-time
 link) and `POST /auth/change-password`.
 
 **User management** (`/users`, ADMIN only): create, change, deactivate,
-reactivate, reset a sign-in, and `POST /users/{id}/confirm-admin`.
+reactivate and reset a sign-in — each one password-confirmed.
 
 **Three guards run on every request, in this order:**
 
@@ -280,17 +281,23 @@ reactivate, reset a sign-in, and `POST /users/{id}/confirm-admin`.
 
 A route is only open to the world if it is marked `@Public()`.
 
-**The two-administrator rule (Phase 7).** Creating, promoting, resetting or
-switching on an ADMIN account leaves it `AWAITING_CONFIRMATION` until a
-*different* ADMIN confirms it. Same for a device key. This closes the "one
-person, two accounts" hole — one person could otherwise be both people in every
-two-person rule.
+**One administrator, with a password (issue #99, replacing Phase 7's
+two-administrator rule).** Until 1 October 2026, creating, promoting,
+resetting or switching on an ADMIN account left it `AWAITING_CONFIRMATION`
+until a *different* ADMIN confirmed it, and a device key's issuer could not
+switch it on either. The owner removed both: a company with only one or two
+administrators kept finding itself deadlocked, or simply slowed down, by a
+rule built for a bigger team. Any ADMIN can now do each of these alone — the
+account is usable as soon as its password is set — but the action, and a
+long list of other sensitive ones, now asks that administrator to confirm
+their own password first (`POST /auth/confirm-password`, good for five
+minutes), and is written to the audit log either way.
 
-**Know this one:** the sole-administrator shortcut is deliberate. Deactivating
-the *other* administrator needs nobody's approval, because otherwise a company
-whose only other admin has left is locked out for ever. A Phase 7 review found
-that this shortcut counted admins by `isActive`, which re-opened the hole — it
-is fixed, with a test.
+**Know this one:** the old rule's sole-administrator shortcut was a real
+source of bugs — a Phase 7 review found it once counted admins by
+`isActive`, which reopened the very hole it existed to close. That whole
+mechanism, shortcut included, is gone now; the password step applies the
+same way whether a company has one administrator or ten.
 
 ### 3.2 workforce — the people and the places
 
@@ -383,9 +390,11 @@ ask for and decide an exemption, and the duplicate queue
 - At enrollment a **more suspicious** check looks for a face that is already
   somebody else's. Its number is **lower** — 0.70, not 0.80 — and that makes it
   catch *more*, not less: anything reaching 0.70 is held as a **possible
-  duplicate** for a second administrator to decide. Being asked about a stranger
-  costs a minute; a ghost getting in costs a salary every month, so this is the
-  one place the system deliberately errs towards asking.
+  duplicate** for an administrator to review — any administrator, including
+  the one who enrolled it, now that issue #99 removed the second-person rule.
+  Being asked about a stranger costs a minute; a ghost getting in costs a
+  salary every month, so this is the one place the system deliberately errs
+  towards asking.
 - **The scores never leave the server.**
 
 **Fingerprints, and the honest limit.** On a phone or laptop kiosk the
@@ -407,9 +416,10 @@ hardware waiting on a paying client.
   reviews can never disagree.
 - A `SAME_PERSON` decision is **final**. The loser's face ends up `BLOCKED` and
   stays blocked.
-- Withdrawing consent is ADMIN-only and *files a request*; a different ADMIN
-  approves it. Meanwhile the worker is `PENDING`, and co-signed punches raise an
-  `INACTIVE_EMPLOYEE` exception and are paid only after approval.
+- Withdrawing consent is ADMIN-only, wipes the face and moves the worker back
+  to `PENDING_ENROLLMENT`. It files no request by itself: asking for an
+  exemption is a separate step, and the same administrator may take it
+  immediately and approve it too, with their password.
 - A leaver's face is wiped after **90 days**, by a sweep that rides on the
   heartbeat.
 - Every decision takes a lock on the employee row
@@ -457,9 +467,11 @@ table was built.
   conversation, and paying a ghost is a loss nobody notices.
 - **R7 — the supervisor's own patterns.** This is why a supervisor never sees
   this queue.
-- **R11 — ghost relationships.** Flags indirect links between the people
-  deciding a two-person review, instead of blocking them, so a company with only
-  two administrators never deadlocks.
+- **R11 — ghost relationships.** Flags an indirect link between the decider and
+  the worker — such as an administrator whose own face was wiped — instead of
+  blocking the decision, so a small company is warned rather than stuck. It no
+  longer flags the administrator who enrolled a face deciding that face's own
+  review: since issue #99 that is normal.
 
 **Know this one:** R7 fed a terminal's free-text `deviceEventId` into a UUID
 column, so the sweep silently skipped R7 for any company whose terminal had ever
@@ -492,9 +504,9 @@ confirmed shifts.
    regular and overtime; basic pro-rated for days employed; allowances added;
    SSNIT taken; PAYE worked out through the graduated bands; net is what is
    left. Every input is **copied onto the line**.
-5. It is **submitted**, then **approved by a different person**, then **marked
-   paid**. Approving locks it for ever, and the payslip PDF is written in the
-   same transaction.
+5. It is **submitted**, then **approved** — the same administrator may approve
+   it now, after confirming their password — and **marked paid**. Approving
+   locks it for ever, and the payslip PDF is written in the same transaction.
 
 **The rules that must hold**
 
@@ -502,7 +514,8 @@ confirmed shifts.
 - Only the pro-rated basic and the overtime are rounded — once each, half-up.
   Everything else is addition and subtraction of numbers already printed, so a
   payslip always adds up by eye.
-- Whoever prepared a run may never approve it.
+- Whoever prepared a run may approve it themselves now; approving, marking
+  paid and the bank export all ask for the administrator's password.
 - A locked run is immutable in the database, not just in the code. A mistake is
   corrected by an **adjustment line** that points at the line it adjusts.
 
@@ -590,17 +603,17 @@ an error state**; that is a repository rule, not a nicety.
 | New device | `new-device-page.tsx` | ADMIN | Registers one. The secret appears **once**. |
 | One device | `device-detail-page.tsx` | ADMIN | Its details, last seen, rotate its secret, open a finger-enrollment window. |
 | Kiosk attempts | `kiosk-attempts-page.tsx` | ADMIN | Every face and finger attempt, matched or not. Scores stay on the server. |
-| Duplicate faces | `duplicate-faces-page.tsx` | ADMIN | New faces that looked like somebody already enrolled. A **second** administrator decides: same person, or not. |
+| Duplicate faces | `duplicate-faces-page.tsx` | ADMIN | New faces that looked like somebody already enrolled. Any administrator decides, password-confirmed: same person, or not. |
 | Users | `users-page.tsx` | ADMIN | Sign-in accounts: who can open the dashboard, with which role. |
 | New user | `new-user-page.tsx` | ADMIN | Creates one; the person chooses their own password from a one-time link. |
-| One user | `user-detail-page.tsx` | ADMIN | Change the role, deactivate, reactivate, reset a sign-in, **confirm an administrator**. |
+| One user | `user-detail-page.tsx` | ADMIN | Change the role, deactivate, reactivate, reset a sign-in — each password-confirmed. |
 
 ### 4.4 Payroll and reports
 
 | Screen | File | Who | What it shows |
 |---|---|---|---|
 | Payroll | `payroll-page.tsx` | ADMIN, HR | The months and their runs. A supervisor runs the roster, never the money. |
-| One run | `payroll-run-page.tsx` | ADMIN, HR | The lines, the statutory summary, and the decision: submit, then approve or reject (**a different person than the one who calculated it** — the API refuses otherwise), then mark paid. The bank file and the summary PDF download from here. |
+| One run | `payroll-run-page.tsx` | ADMIN, HR | The lines, the statutory summary, and the decision: submit, then approve or reject — the person who calculated it may do this now, with their password — then mark paid. The bank file and the summary PDF download from here. |
 | My payslips | `my-payslips-page.tsx` | GUARD (and ADMIN, HR) | A worker's own pay, month by month, with the PDF. **The one money page a guard may open**, and only for themselves. |
 | Reports | `reports-page.tsx` | ADMIN, HR, SUPERVISOR | Who is present, absence, and what payroll costs — with the CSV downloads. Counted from the same tables the other pages read, so a report can never disagree with the page beside it. |
 
@@ -733,7 +746,7 @@ each other, where the same person scores 0.78, give five wrong matches in two
 hundred, and no setting of the two clock-in numbers fixes that at a price worth
 paying. Thresholds cannot separate two nearly identical faces, and that is a
 property of face recognition rather than a bug in this build. What the system does
-do is *notice*: enrollment holds such a pair for a second administrator — in the
+do is *notice*: enrollment holds such a pair for review — in the
 study all eight of the near-twins were held — so a human has looked at both
 records and decided they are two people. The right fix, which is written up as a
 recommendation and is not built yet, is to require the second factor for exactly
@@ -743,8 +756,8 @@ enough.
 
 **"What if the face fails — a scar, bad light, a wet camera?"**
 Three failed attempts allow a staff-number-plus-finger fallback, and the punch is
-**flagged** as such. Beyond that an administrator can request an exemption, which
-a *second* administrator must approve. Nobody is stuck outside the gate, and no
+**flagged** as such. Beyond that an administrator can request an exemption and
+approve it themselves, with their password. Nobody is stuck outside the gate, and no
 route around the biometrics is silent.
 
 **"Can an administrator not just fix the numbers?"**
@@ -753,17 +766,21 @@ database — a trigger rejects every UPDATE and DELETE. A correction is a new ro
 that says what it corrects, and every one of them is audited with who and when.
 
 **"What stops one dishonest administrator?"**
-Every serious action needs a second person, checked by the database: approving
-pay, deciding a duplicate face, granting an exemption, creating or promoting an
-administrator, switching on a device key. Whoever prepares a payroll run can
-never approve it.
+Any admin can act — approving pay, deciding a duplicate face, granting an
+exemption, creating or promoting an administrator, switching on a device key —
+but a sensitive action needs that administrator's own password again, every
+one is written to the audit log, and ghost detection still flags suspicious
+patterns.
 
 **"Then what stops one person holding two administrator accounts?"**
-That was a real hole, and it is closed: a new or promoted administrator stays
-`AWAITING_CONFIRMATION` until a *different* administrator confirms it. One
-deliberate exception remains and is documented — switching the *other*
-administrator off needs nobody, or a company whose last other admin resigned is
-locked out for ever.
+Less than it used to. Until 1 October 2026, a new or promoted administrator
+stayed `AWAITING_CONFIRMATION` until a different administrator confirmed it;
+issue #99 removed that, because a company with only one or two administrators
+kept finding itself deadlocked by it. What is left: every account change is
+audited by name, so two accounts quietly run by one person leave a trail, and
+rule R11 flags a decision made by an account that a handler created, reset or
+promoted. That is weaker than a second account by construction, and the report
+says so plainly.
 
 **"How do you know the system works?"**
 Tests, and reviews with teeth. Money and the biometric rules are tested to the

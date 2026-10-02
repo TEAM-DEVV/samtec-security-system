@@ -13,6 +13,7 @@ import type {
   AuthenticatedSession,
   CurrentUser,
   LoginResponse,
+  PasswordConfirmation,
   TwoFactorSetup,
 } from '@samtec/contracts';
 import type { Request, Response } from 'express';
@@ -26,7 +27,9 @@ import {
 import { AppConfig } from '../../config/app-config.js';
 import {
   type ChangePasswordBody,
+  type ConfirmPasswordBody,
   changePasswordSchema,
+  confirmPasswordSchema,
   type EnableTwoFactorBody,
   enableTwoFactorSchema,
   type LoginBody,
@@ -123,7 +126,10 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<AccessTokenResponse> {
     this.assertTrustedOrigin(request);
-    const rotated = await this.auth.refresh(readCookie(request, REFRESH_COOKIE_NAME));
+    // The token being replaced: a fresh password confirmation on it carries over.
+    const header = request.headers.authorization;
+    const previous = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
+    const rotated = await this.auth.refresh(readCookie(request, REFRESH_COOKIE_NAME), previous);
     setRefreshCookie(response, rotated.refreshToken, this.config);
     return { accessToken: rotated.accessToken, expiresInSeconds: rotated.expiresInSeconds };
   }
@@ -153,6 +159,23 @@ export class AuthController {
   @HttpCode(204)
   async setPassword(@Body({ schema: setPasswordSchema }) body: SetPasswordBody): Promise<void> {
     await this.auth.setPassword(body.token, body.newPassword);
+  }
+
+  /**
+   * The password step before a sensitive action. Dashboard only: a kiosk
+   * session never reaches a sensitive route, and this route is not marked
+   * `@OnKiosk()` either.
+   */
+  @Post('confirm-password')
+  @HttpCode(200)
+  async confirmPassword(
+    @Caller() caller: SignedInUser,
+    @Body({ schema: confirmPasswordSchema }) body: ConfirmPasswordBody,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<PasswordConfirmation> {
+    const confirmation = await this.auth.confirmPassword(caller, body.password);
+    response.setHeader('Cache-Control', 'no-store');
+    return confirmation;
   }
 
   @Post('change-password')

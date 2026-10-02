@@ -297,6 +297,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/confirm-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm your password before a sensitive action
+         * @description **Roles:** any signed-in user, on the dashboard. The password step that replaced the two-person rules (docs/plan/06, "One administrator, with a password"): any administrator may act alone, but every operation marked `x-needs-password: true` first needs the caller to have confirmed their own password in the last five minutes.
+         *
+         *     A right password answers a new access token for the same session that carries the confirmation for five minutes. Replace the current token with it and send the sensitive request again; one confirmation covers five minutes of work, and `POST /auth/refresh` carries a confirmation that is still fresh over to the token it issues. A wrong password answers `400` with the field `password` (never `401`, so the dashboard does not try a refresh) and counts towards the same per-email lockout as signing in: five wrong answers in 15 minutes lock sign-in and this step alike. The confirmation is written to the audit log (`auth.password_confirmed`).
+         *
+         *     A kiosk session cannot call this (it answers `403`) and never needs to: the administrator typed their password to sign in on the kiosk, that session lasts 15 minutes and can reach only the kiosk screens, so the one sensitive operation open to it (registering the kiosk itself) goes ahead without a second prompt.
+         */
+        post: operations["confirmPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -2193,6 +2217,11 @@ export interface components {
             instance?: string;
             /** @description The ID of the request, also written to the server logs. */
             traceId: string;
+            /**
+             * @description A machine-readable reason, present only when the dashboard has to do something other than show `detail`. `PASSWORD_CONFIRMATION_REQUIRED` (status `403`) means the operation is a sensitive one and the caller has not confirmed their password in the last five minutes: call `POST /auth/confirm-password`, use the access token it returns, and send the request again.
+             * @enum {string}
+             */
+            code?: "PASSWORD_CONFIRMATION_REQUIRED";
             /** @description Present on validation errors, with one entry per invalid field. */
             errors?: components["schemas"]["ValidationIssue"][];
         };
@@ -2327,6 +2356,24 @@ export interface components {
         SetPasswordRequest: {
             token: components["schemas"]["PasswordSetupToken"];
             newPassword: components["schemas"]["NewPassword"];
+        };
+        ConfirmPasswordRequest: {
+            /** @description The signed-in user's own password. */
+            password: string;
+        };
+        PasswordConfirmation: {
+            /** @description A new access token for the same session, carrying the password confirmation. Replace the current token with it: every request from now on, including a refresh, keeps the confirmation. */
+            accessToken: string;
+            /**
+             * @description How long the access token itself lasts (15 minutes).
+             * @example 900
+             */
+            expiresInSeconds: number;
+            /**
+             * @description How long the confirmation lasts (5 minutes). After that, the next sensitive action asks for the password again.
+             * @example 300
+             */
+            confirmedForSeconds: number;
         };
         ChangePasswordRequest: {
             currentPassword: string;
@@ -4554,7 +4601,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
-        /** @description You are signed in, but your role is not allowed to do this. */
+        /** @description You are signed in, but either your role is not allowed to do this, or the operation is a sensitive one (marked `x-needs-password: true`) and you have not confirmed your password in the last five minutes. The second case carries `code: PASSWORD_CONFIRMATION_REQUIRED`: call `POST /auth/confirm-password`, use the access token it returns, and send the request again. */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -4650,6 +4697,8 @@ export type CreateUserRequest = components['schemas']['CreateUserRequest'];
 export type UpdateUserRequest = components['schemas']['UpdateUserRequest'];
 export type NewPassword = components['schemas']['NewPassword'];
 export type SetPasswordRequest = components['schemas']['SetPasswordRequest'];
+export type ConfirmPasswordRequest = components['schemas']['ConfirmPasswordRequest'];
+export type PasswordConfirmation = components['schemas']['PasswordConfirmation'];
 export type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 export type LoginResponse = components['schemas']['LoginResponse'];
@@ -5189,6 +5238,35 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    confirmPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password was right. Use this token from now on. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordConfirmation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
         };
     };

@@ -26,7 +26,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
-import { endMockSessions, userForRequest } from './auth';
+import { endMockSessions, needsPassword, userForRequest } from './auth';
 
 /**
  * The mock Users API (ADMIN screens) plus choosing and changing a password.
@@ -177,6 +177,8 @@ export const userHandlers = [
       if (!caller.user) {
         return caller.problem;
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body = await request.json();
       // Like the real API's strict schema: no fields beyond the contract's.
       const allowed = ['email', 'fullName', 'role', 'employeeId'];
@@ -242,6 +244,8 @@ export const userHandlers = [
       if (!caller.user) {
         return caller.problem;
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
@@ -315,6 +319,8 @@ export const userHandlers = [
       if (!caller.user) {
         return caller.problem;
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
@@ -339,6 +345,8 @@ export const userHandlers = [
       if (!caller.user) {
         return caller.problem;
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;
@@ -369,6 +377,8 @@ export const userHandlers = [
       if (!caller.user) {
         return caller.problem;
       }
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const found = findAccount(params.userId);
       if (!found.account) {
         return found.problem;

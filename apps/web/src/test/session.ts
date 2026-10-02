@@ -1,13 +1,25 @@
 import { fetchClient } from '@/lib/api';
-import { type SignedInSession, startSession } from '@/lib/session';
+import { type SignedInSession, startSession, updateAccessToken } from '@/lib/session';
 import { MOCK_PASSWORD, MOCK_TWO_FACTOR_CODE } from '@/mocks/data/users';
+
+interface SignInOptions {
+  /**
+   * Whether to take the password step straight away, so sensitive actions
+   * go ahead in the test without the dialog (the default). A test of the
+   * dialog itself passes false.
+   */
+  confirmPassword?: boolean;
+}
 
 /**
  * Signs a mock account in the way the real screens would, and remembers the
  * session in the dashboard. Every protected mock endpoint needs this first.
  * Handles all three sign-in outcomes, so any mock account works.
  */
-export async function signInForTests(email = 'supervisor@samtec.example'): Promise<void> {
+export async function signInForTests(
+  email = 'supervisor@samtec.example',
+  { confirmPassword = true }: SignInOptions = {},
+): Promise<void> {
   const login = await fetchClient.POST('/auth/login', { body: { email, password: MOCK_PASSWORD } });
   if (!login.data) {
     throw new Error(`Mock sign-in failed for ${email}: ${login.error?.detail}`);
@@ -43,4 +55,19 @@ export async function signInForTests(email = 'supervisor@samtec.example'): Promi
     }
   }
   startSession({ accessToken: session.accessToken, user: session.user });
+
+  if (confirmPassword) {
+    await confirmPasswordForTests();
+  }
+}
+
+/** Takes the password step, as the dialog does, so sensitive actions go ahead. */
+export async function confirmPasswordForTests(): Promise<void> {
+  const confirmed = await fetchClient.POST('/auth/confirm-password', {
+    body: { password: MOCK_PASSWORD },
+  });
+  if (!confirmed.data) {
+    throw new Error(`Mock password confirmation failed: ${confirmed.error?.detail}`);
+  }
+  updateAccessToken(confirmed.data.accessToken);
 }

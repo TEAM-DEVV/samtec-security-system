@@ -127,9 +127,9 @@ the same value travels from the database to the dashboard unchanged.
     with `describe.skipIf(!process.env.TEST_DATABASE_URL)`, the way the
     existing database specs do, so it skips when no database is configured.
 - **Test the rules, not just the happy path.** Prove the things that would be
-  a scandal if they broke: that the same person cannot approve their own run,
-  that a locked run cannot be edited, that a guard reading somebody else's
-  payslip gets 404.
+  a scandal if they broke: that approving payroll is refused without a fresh
+  password confirmation, that a locked run cannot be edited, that a guard
+  reading somebody else's payslip gets 404.
 - Money is tested with hand-calculated examples, **to the pesewa**.
 
 Run everything CI runs, and do it before calling any work finished:

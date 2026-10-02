@@ -53,8 +53,8 @@ Everything needed to recalculate a payslip is **copied into the line** when the 
 ### biometric_credentials
 
 - Stores **templates only**, never images: a face template is 1,024 numbers from the kiosk, encrypted with AES-256-GCM and bound to its own row. The key is derived from `AUTH_SECRET`, which is kept outside the database. A ZKTeco finger stays on the terminal; we store only the proof that it was enrolled.
-- Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (a second ADMIN decided this face may be used) or NOT_CHECKED (a terminal finger).
-- A COLLISION keeps the employee pending until a second ADMIN decides: never the one who enrolled this face, nor anyone who revoked or withdrew a face of either record. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked for good. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
+- Records who enrolled it and the duplicate-check result: PASSED, COLLISION, CLEARED (an ADMIN decided this face may be used) or NOT_CHECKED (a terminal finger).
+- A COLLISION keeps the employee pending until an ADMIN decides — any ADMIN, including the one who enrolled this face. For one person with two records (SAME_PERSON), the reviewer names the record to keep, and the other record is blocked, though an ADMIN can later lift the block (`POST /employees/{id}/biometrics/unblock`) so the worker enrols again from scratch. Phase 5's rule R1 reads these rows. This is how the system catches ghost worker trick number one: one person enrolled under two names.
 - Consents and clock-in attempts are separate append-only tables, and fingerprint keys live in `device_passkeys`. The full design is in [Biometrics design](13-biometrics-design.md).
 
 ### Rehiring (decided for Phase 1)
@@ -83,10 +83,10 @@ The API connects as the owner of the tables, and row-level security does not res
 | A repeated punch is stored once | Unique `(device_id, device_event_id)` (Phase 2) |
 | Consents and clock-in attempts can only grow (the retention sweep may only clear an attempt's network address); faces, exemptions and fingerprint keys are never deleted | Database triggers (Phase 3, built) |
 | At most one face in use per employee; one live fingerprint key per worker per kiosk; one exemption waiting or approved per employee | Partial unique indexes (Phase 3, built) |
-| A wiped face never comes back; a block is final; a collision decision and an exemption decision are final; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
+| A wiped face never comes back; a collision decision and an exemption decision are final once made, though a SAME_PERSON block can later be lifted; statuses only move forward; a key's signature counter only goes up | Database triggers (Phase 3, built) |
 | A payroll period is exactly one calendar month, is closed once and never reopens | Database CHECK and trigger (Phase 4, built) |
 | Every payroll line adds up: gross is the sum of its parts, and net is gross minus employee SSNIT, PAYE and other deductions | Database CHECK on every line (Phase 4, built) |
-| Whoever calculated or submitted a payroll run can never approve or reject it | Database CHECK (Phase 4, built) |
+| Whoever calculated or submitted a payroll run may also approve or reject it — approving, marking paid and the bank export are password-confirmed instead | Service rule, password-confirmed (Phase 4; the maker-is-not-checker database CHECK was dropped by issue #99, 1 October 2026) |
 | A run's status only moves forward, a locked run and its lines never change, and a month has at most one approved run | Database triggers and a partial unique index (Phase 4, built) |
 | A tax table version a run has used can never be edited; its bands run 1..n with no gaps and the last has no upper limit | Database triggers (Phase 4, built) |
 | Pay terms are history: a change in pay is a new row, never an edit | Database trigger (Phase 4, built) |
@@ -94,9 +94,9 @@ The API connects as the owner of the tables, and row-level security does not res
 | A bank account name can never hold a line break, or a spreadsheet formula, even behind a leading space | Database CHECK (Phase 4, built) |
 | A payroll row can never hang off another company's record | Database trigger on every child row (Phase 4, built) |
 | A run is born a draft in an open month, and the frozen list of who was left out has the shape the contract promises | Database triggers (Phase 4, built) |
-| The ADMIN who enrolled a face never decides its collision; the ADMIN who asked never decides an exemption | Database CHECKs (Phase 3, built); the service applies the wider rules (docs/plan/13, section 2) |
+| An ADMIN may decide a collision or an exemption even if they enrolled the face or asked for it (issue #99 removed the old exclusion) | Service rule, password-confirmed; ghost detection (R11) still flags other indirect links (Phase 3; updated 1 October 2026) |
 | A serial number only on a ZKTeco terminal; fingerprints only on a kiosk | Database CHECK (Phase 3, built) |
-| A face that collided is never matched at clock-in until a second ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afterwards; one pair of records is never decided two ways | Database CHECKs and triggers (Phase 3, built) |
+| A face that collided is never matched at clock-in until an ADMIN clears it; only a face that collided names a look-alike; a blocked face is never decided afresh as the same review (though its block can be lifted); one pair of records is never decided two ways | Database CHECKs and triggers (Phase 3, built) |
 | The record that loses a SAME_PERSON decision keeps a blocked face, and no face, fingerprint key or exemption in use | A trigger that checks both records when the change is saved (Phase 3, built) |
 | A new face, consent, exemption or fingerprint key starts undecided, on the right kind of device, inside the worker's company; a face needs the worker's own consent, still given (the database sets each consent's time); a blocked record gets nothing live, only a withdrawal of consent or a finger kept BLOCKED as evidence | Database triggers (Phase 3, built) |
 | A collision decision or a block, and anything new for the same worker, happen one at a time, so two ADMINs working at the same moment cannot slip past each other | A lock on the worker's employee row, taken by the triggers (Phase 3, built); services that change several rows lock the workers first (docs/plan/13, section 2) |

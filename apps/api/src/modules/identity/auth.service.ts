@@ -7,12 +7,18 @@ import {
 import type {
   AuthenticatedSession,
   CurrentUser,
+  PasswordConfirmation,
   TwoFactorChallenge,
   TwoFactorSetup,
   TwoFactorSetupRequired,
 } from '@samtec/contracts';
+import type { SignedInUser } from '../../common/auth.decorators.js';
 import { REFRESH_COOKIE_MAX_AGE_SECONDS } from '../../common/cookies.js';
 import { normalizeEmail } from '../../common/emails.js';
+import {
+  hasFreshPasswordConfirmation,
+  PASSWORD_CONFIRMATION_SECONDS,
+} from '../../common/password-confirmation.js';
 import { RateLimitException } from '../../common/rate-limit.exception.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthChallenge, User } from '../../generated/prisma/client.js';
@@ -236,7 +242,16 @@ export class AuthService {
    * the alarm — otherwise an admin action would sign the person out of the
    * session they create next.
    */
-  async refresh(refreshToken: string | undefined): Promise<RotatedSession> {
+  /**
+   * `previousAccessToken` is the token the dashboard is replacing. A password
+   * confirmation still fresh on it carries over to the new token (see
+   * `confirmPassword`), so a refresh in the middle of sensitive work never
+   * asks for the password a second time.
+   */
+  async refresh(
+    refreshToken: string | undefined,
+    previousAccessToken?: string,
+  ): Promise<RotatedSession> {
     if (!refreshToken) {
       throw new UnauthorizedException('Sign in to continue.');
     }
@@ -275,8 +290,18 @@ export class AuthService {
     if (claimed.count === 0) {
       await this.handleRefreshReuse(session.userId, session.user.companyId);
     }
+    const carriedOver = previousAccessToken
+      ? await this.tokens.passwordConfirmationOf(previousAccessToken, session.userId)
+      : null;
+    const passwordConfirmedAt =
+      carriedOver && hasFreshPasswordConfirmation({ passwordConfirmedAt: carriedOver })
+        ? carriedOver
+        : null;
     return {
-      accessToken: await this.tokens.signAccessToken(this.asSignedIn(session.user)),
+      accessToken: await this.tokens.signAccessToken({
+        ...this.asSignedIn(session.user),
+        passwordConfirmedAt,
+      }),
       expiresInSeconds: ACCESS_TOKEN_SECONDS,
       refreshToken: next.refreshToken,
     };
@@ -402,6 +427,50 @@ export class AuthService {
         tx,
       );
     });
+  }
+
+  /**
+   * The password step before a sensitive action (issue #99, docs/plan/06
+   * "One administrator, with a password"). A right password hands back a new
+   * access token for the same session that carries the confirmation for five
+   * minutes; every route marked `@NeedsPassword()` accepts that token and
+   * refuses one without it. The password is checked against the same
+   * per-email lockout as signing in, so guessing here is no easier than
+   * guessing at the sign-in screen, and a wrong password answers `400`
+   * (never `401`, which would make the dashboard try a refresh).
+   */
+  async confirmPassword(caller: SignedInUser, password: string): Promise<PasswordConfirmation> {
+    const user = await this.prisma.user.findUnique({ where: { id: caller.userId } });
+    if (!user || !mayUseAccount(user) || user.passwordHash === null) {
+      throw new UnauthorizedException('Sign in to continue.');
+    }
+    await this.throttle.assertNotLocked('password', user.email);
+
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      const lockedNow = await this.throttle.recordFailure('password', user.email);
+      if (lockedNow) {
+        await this.recordLockout(user, 'password');
+      }
+      throw fieldProblem('password', 'Your password is incorrect.');
+    }
+    await this.throttle.recordSuccess('password', user.email);
+
+    const passwordConfirmedAt = new Date();
+    await this.audit.record({
+      companyId: user.companyId,
+      actorUserId: user.id,
+      action: 'auth.password_confirmed',
+      entityType: 'user',
+      entityId: user.id,
+    });
+    return {
+      accessToken: await this.tokens.signAccessToken({
+        ...this.asSignedIn(user),
+        passwordConfirmedAt,
+      }),
+      expiresInSeconds: ACCESS_TOKEN_SECONDS,
+      confirmedForSeconds: PASSWORD_CONFIRMATION_SECONDS,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -593,6 +662,7 @@ export class AuthService {
       employeeId: user.employeeId,
       // Refreshing only ever happens on the dashboard (the kiosk has no cookie).
       onKiosk: false,
+      passwordConfirmedAt: null,
     };
   }
 }

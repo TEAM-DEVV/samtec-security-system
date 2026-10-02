@@ -42,6 +42,10 @@ export class TokensService {
       eid: user.employeeId,
       // Only a kiosk session carries this, so an older token is a dashboard one.
       ...(user.onKiosk ? { kio: true } : {}),
+      // When the password was last confirmed, as Unix seconds (issue #99).
+      ...(user.passwordConfirmedAt
+        ? { pwc: Math.floor(user.passwordConfirmedAt.getTime() / 1000) }
+        : {}),
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(user.userId)
@@ -72,7 +76,32 @@ export class TokensService {
         companyId: payload.cid,
         employeeId: typeof payload.eid === 'string' ? payload.eid : null,
         onKiosk: payload.kio === true,
+        passwordConfirmedAt: typeof payload.pwc === 'number' ? new Date(payload.pwc * 1000) : null,
       };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The password confirmation carried by an access token that is being
+   * replaced through `POST /auth/refresh`: the dashboard sends its old token
+   * with that request, and a confirmation that is still fresh moves to the
+   * new token, so refreshing never asks for the password again. The old
+   * token may already have expired; only its signature and its owner have to
+   * be right. Anything else answers null.
+   */
+  async passwordConfirmationOf(token: string, userId: string): Promise<Date | null> {
+    try {
+      const { payload } = await jwtVerify(token, this.jwtKey, {
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+        clockTolerance: ACCESS_TOKEN_SECONDS,
+      });
+      if (payload.sub !== userId || payload.kio === true || typeof payload.pwc !== 'number') {
+        return null;
+      }
+      return new Date(payload.pwc * 1000);
     } catch {
       return null;
     }

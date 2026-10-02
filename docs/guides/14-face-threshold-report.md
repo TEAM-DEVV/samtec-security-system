@@ -50,7 +50,7 @@ pnpm --filter @samtec/api face:scores
 |---|---|---|
 | `match` | 0.60 | A clock-in needs at least this score against an enrolled face. |
 | `lead` | 0.05 | …and must beat the runner-up by this much, or the answer is "not sure". |
-| `duplicate` | 0.50 | A new face this close to *another* record is held for a second administrator. |
+| `duplicate` | 0.50 | A new face this close to *another* record is held for review on the dashboard. |
 | `frameAgreement` | 0.70 | The three frames of one capture must agree with each other. |
 | `antiSpoofing` | 0.60 | How sure the kiosk must be that it is looking at a live face. |
 
@@ -267,7 +267,7 @@ property of face recognition, not a defect in this build.
 
 **What does work, and it is already built.** The enrollment check sees these
 pairs. In the same run, `duplicate` at 0.50 holds 12 of 40 new enrollments
-(30%) for a second administrator — and that 12 includes every one of the eight
+(30%) for review on the dashboard — and that 12 includes every one of the eight
 people in the four near-twin pairs. So the system never meets a near-twin pair
 without an administrator having looked at both records and decided they are two
 different people. **That decision is exactly the right moment to require a second
@@ -300,7 +300,7 @@ through immediately above 0.60, so the plateau is narrower than a table sampled
 every 0.10 would suggest. There is no comfortable margin above 0.60 to spend.
 
 The two costs are not equal: a ghost that gets in is paid every month until
-somebody notices, while a stranger wrongly queried costs a second administrator
+somebody notices, while a stranger wrongly queried costs an administrator
 one minute. That is the whole reason `duplicate` (0.50) is **looser** than a
 clock-in (0.60): at enrollment we would rather ask a person than let a ghost
 through.

@@ -28,50 +28,56 @@ That makes two very different attackers, and the system is built for both:
 Most security writing is about the first. SAMTEC's own contribution is mostly
 about the second, so that is where this chapter spends its words.
 
-## 2. Nothing important takes one person
+## 2. One administrator, with a password
 
-The rule the whole design turns on: **any action that could create money or
-create an identity takes two different people.** Not two passwords — two
-accounts, belonging to two people, and the system refuses to let one person
-be both.
+Until issue #99 closed on 1 October 2026, the rule the whole design turned on
+was that **any action that could create money or create an identity took two
+different people.** That rule is gone: a company with only one or two
+administrators kept finding itself deadlocked, or simply slowed down, by a
+safeguard built for a bigger team. The rule now is that **any ADMIN can act
+alone**, and a sensitive action instead asks that administrator to confirm
+their own password, is always written to the audit log, and stays inside the
+reach of ghost detection.
 
-| What | Who may not be the second person |
-|---|---|
-| Approving a payroll run | Whoever calculated it (maker is not checker) |
-| Creating, promoting, resetting or switching on an ADMIN account | Whoever asked for it, and the account itself |
-| Registering a device or rotating its secret | Whoever issued the key |
-| Letting a worker skip biometrics (an exemption) | Whoever recorded it |
-| Deciding a duplicate-face review | Anybody who already acted on that worker |
+| What | Used to need a second person | Now needs |
+|---|---|---|
+| Approving a payroll run | Whoever calculated it (maker is not checker) | The administrator's password |
+| Creating, promoting, resetting or switching on an ADMIN account | Whoever asked for it, and the account itself | The administrator's password |
+| Registering a device or rotating its secret, or switching one on | Whoever issued the key | The administrator's password |
+| Letting a worker skip biometrics (an exemption) | Whoever recorded it | The administrator's password (the same administrator may ask and approve) |
+| Deciding a duplicate-face review | Anybody who already acted on that worker | The administrator's password (including the one who enrolled the face) |
 
-Two things make this hold up under questioning.
+**The new safeguard is enforced once, globally, not per route.**
+`PasswordConfirmationGuard` runs on every request, fourth after the sign-in
+wall, the kiosk limit and the role check, so a sensitive route cannot
+quietly forget to ask for a password the way a hand-written check in each
+handler could. An end-to-end test checks that the contract's list of
+sensitive routes (`x-needs-password: true`) and the guard's own list are the
+same one. There is no database CHECK behind it — no row a constraint could
+inspect to prove a password was just typed — so the backstop is the audit log
+instead: `auth.password_confirmed` and the action it protected are both
+written there, and ghost detection keeps watching for the patterns a stolen
+session would leave.
 
-**Each rule is enforced twice** — once in the service, and once as a database
-CHECK constraint. The service can be bypassed by a bug or by somebody with
-database access; the constraint cannot be bypassed by an ordinary connection
-at all. `apps/api/test/payroll-rules.e2e-spec.ts` and
-`apps/api/test/db.e2e-spec.ts` prove the database half by trying the forbidden
-writes directly against a real PostgreSQL and expecting them to fail.
-
-**The escapes were hunted, not assumed.** Four separate ways round the
-two-administrator rule were found by review after it was built, and all four
-are fixed and pinned by tests:
-
-1. A brand-new administrator has no password, so asking "can another
-   administrator sign in?" counted nobody — and one person could mint
-   pre-confirmed accounts all afternoon.
-2. An account still waiting kept whoever touched it last, so an innocent
-   "their link expired, please resend it" handed the confirmation to somebody
-   new and freed the creator to confirm their own account.
-3. A device key's switch-on was decided from a read taken before the
-   transaction, so firing a rotate and a switch-on together skipped the gate.
-4. Switching the other administrator off — which deliberately needs nobody's
-   approval — made the remaining one the "sole administrator" and handed them
-   a second pre-confirmed account with its one-time link.
-
-The honest remainder: a company with **genuinely one** administrator cannot be
-asked for a second person, so the first account is confirmed on its own and
-audited as `SOLE_ADMINISTRATOR`. That is a limitation, not an oversight, and
-it is written in the threat model.
+**What the old rule cost, and why it was removed.** The rule above used to be
+a literal second account: creating, promoting, resetting or switching on an
+ADMIN waited for a different administrator to confirm it, and a device key's
+issuer could not switch it on either. Both were enforced twice — once in the
+service, once as a database CHECK — and a Phase 7 review hunted down four
+separate ways round them before the rule shipped: a brand-new administrator
+with no password yet could mint pre-confirmed accounts all afternoon if
+"another administrator" was counted by who could sign in; an account still
+waiting kept whoever touched it last, so "please resend their link" could
+quietly hand the confirmation to somebody new; a device's switch-on read its
+gate from before the transaction, so a rotate and a switch-on fired together
+skipped it; and switching the *other* administrator off — which deliberately
+needed nobody's approval — could mint the remaining admin a second
+pre-confirmed account. All four were fixed and pinned by tests. But the rule
+still asked a company with one or two administrators for a person who often
+did not exist, and the one-administrator company already had its own named
+exception (`SOLE_ADMINISTRATOR`, audited). The owner closed issue #99 and
+removed the second-person requirement everywhere, in favour of the password
+step above.
 
 ## 3. The device is not trusted
 
@@ -84,8 +90,9 @@ every message from one as a claim to be checked:
   and a hash of its own contents, so a captured request cannot be replayed.
 - A key works only on the routes for its kind of device: a kiosk key can
   never post raw punches.
-- A new or rotated key is **born switched off**, and the person who issued it
-  may not switch it on. The second administrator's job is to confirm the
+- A new or rotated key is **born switched off**. Switching it on is a
+  separate, password-confirmed step on the dashboard — any administrator may
+  take it, including whoever issued the key — once they have checked the
   device is really at the site.
 - A punch dated in the future is stored but never paired into paid hours. The
   allowance for a device whose clock runs fast is capped at five minutes,
@@ -128,7 +135,7 @@ shapes a ghost makes rather than for a ghost:
 | R8 | Punch times with almost no variation — manufactured logs |
 | R9 | A device's volume spikes, or its clock drifts |
 | R10 | Punches whose device reference matches nobody |
-| R11 | A two-person decision settled by somebody who should not have settled it |
+| R11 | A duplicate-face or exemption decision settled by somebody with an indirect link to the worker |
 
 Two design decisions are worth defending.
 
@@ -139,16 +146,20 @@ each other. Only the alert exists today: payroll's run endpoints are Phase 4
 and not built. This is stated rather than glossed over, because a reader who
 checks will find one control where the design says two.
 
-**One rule was built and then thrown away.** An extra clause for R11 would
-have asked whether the "second administrator" on a decision was somebody
-whose own account was created by the first. It works, and it is wrong: in a
-company with two administrators the second account is *necessarily* made by
-the first, so the clause fires on the very flow the direct rule forces.
-Every honest decision would have raised a permanent HIGH alert. It was
-rejected with that reasoning written down
+**One rule was built, then thrown away — twice.** An early extra clause for
+R11 would have asked whether the "second administrator" on a decision was
+somebody whose own account was created by the first. It worked, and it was
+wrong: in a company with two administrators the second account was
+*necessarily* made by the first, so the clause fired on the very flow the
+direct rule forced. Every honest decision would have raised a permanent HIGH
+alert. It was rejected with that reasoning written down
 ([Ghost detection engine](../plan/08-ghost-detection-engine.md) §9). A rule
 that cries wolf on correct behaviour is worse than no rule, because people
-stop reading the queue.
+stop reading the queue. When issue #99 removed the second-person rule itself
+(1 October 2026), R11 was simplified the same way: it no longer flags the
+administrator who enrolled a face deciding that face's own review, because
+that is normal now. The rest of R11 stands — a decision by somebody whose
+own face was wiped still gets flagged.
 
 ## 6. The data itself
 
@@ -202,7 +213,9 @@ A defence is stronger for saying this plainly.
   last hand-made backup is.
 - **R3 has one control where the design calls for two**, until payroll's run
   endpoints land.
-- **A company with one administrator** cannot be held to the two-person rule.
+- **A company with one administrator has nobody to double-check a
+  password-confirmed action.** The audit log and ghost detection stand in
+  for a second person now, not another account.
 - **The hosting accounts are part of the system.** Whoever can sign in to
   Vercel or Supabase can read the database password and the signing secret.
   No amount of application security changes that.
@@ -210,8 +223,10 @@ A defence is stronger for saying this plainly.
 
 ## 9. What a marker can check live
 
-1. Create an ADMIN account and watch it refuse to sign in until a second
-   administrator confirms it — then try to confirm it yourself.
+1. Try a sensitive action — such as approving payroll or revoking a face —
+   without confirming your password first, and watch it refuse with
+   `PASSWORD_CONFIRMATION_REQUIRED`; then confirm your password and watch the
+   dialog finish the action for you.
 2. Register a device, take the secret, and try to send a punch before anybody
    has switched the device on.
 3. Send the same punch twice and watch the second be counted as a duplicate.

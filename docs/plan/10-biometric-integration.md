@@ -57,7 +57,7 @@ The device captures the fingerprint, stores the templates and matches on board. 
 
 ## Offline and trust rules (all paths)
 
-- Terminals keep punches through an outage, and the gateway's outbox sends them later. The server records its own receive time and keeps the device time. The face kiosk needs the API for every clock-in; offline, the missed hours become a payroll adjustment (Phase 4, maker–checker).
+- Terminals keep punches through an outage, and the gateway's outbox sends them later. The server records its own receive time and keeps the device time. The face kiosk needs the API for every clock-in; offline, the missed hours become a payroll adjustment (Phase 4; approving it is password-confirmed).
 - Every punch is unique by `(device_id, device_event_id)`, so re-syncing is always safe.
 - Each device has its own HMAC secret. Punches from unknown devices are rejected and raise an alert.
 - Templates and embeddings are encrypted at rest and never logged. Consent is recorded at enrollment (Act 843).

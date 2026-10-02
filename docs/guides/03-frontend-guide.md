@@ -289,7 +289,7 @@ The mock handlers check their inputs like the contract says the real API will. F
 
 | Email | What happens after the password |
 |---|---|
-| `admin2@samtec.example` | A six-digit code (the second administrator, for approving payroll) |
+| `admin2@samtec.example` | A six-digit code (a second demo administrator; approving payroll needs only the password) |
 | `supervisor@samtec.example` | Signed straight in |
 | `guard@samtec.example` | Signed straight in; a guard sees only their own records, so the sidebar hides Employees and Sites |
 | `admin@samtec.example` | Asks for a two-factor code (`POST /auth/2fa/verify`) |

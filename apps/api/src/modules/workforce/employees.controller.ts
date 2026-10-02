@@ -1,7 +1,13 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Employee, EmployeeList } from '@samtec/contracts';
 import type { Response } from 'express';
-import { Caller, OnKiosk, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import {
+  Caller,
+  NeedsPassword,
+  OnKiosk,
+  Roles,
+  type SignedInUser,
+} from '../../common/auth.decorators.js';
 import { EmployeesService } from './employees.service.js';
 import {
   type CreateEmployeeBody,
@@ -68,6 +74,7 @@ export class EmployeesController {
     return this.employees.update(caller, employeeId, body);
   }
 
+  @NeedsPassword()
   @Post(':employeeId/terminate')
   @HttpCode(200) // A POST answers 201 by default, but nothing new is created here.
   @Roles('ADMIN', 'HR_PAYROLL')

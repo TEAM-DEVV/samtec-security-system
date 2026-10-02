@@ -7,7 +7,7 @@ import type {
   DetectionSweepResult,
   RiskScoreList,
 } from '@samtec/contracts';
-import { Caller, Roles, type SignedInUser } from '../../common/auth.decorators.js';
+import { Caller, NeedsPassword, Roles, type SignedInUser } from '../../common/auth.decorators.js';
 import type { DetectionRuleCode } from '../../generated/prisma/enums.js';
 import {
   idSchema,
@@ -75,6 +75,7 @@ export class DetectionController {
   }
 
   @Roles('ADMIN')
+  @NeedsPassword()
   @Patch('rules/:ruleCode')
   updateRule(
     @Caller() caller: SignedInUser,

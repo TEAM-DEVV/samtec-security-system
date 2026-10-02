@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router/dom';
+import { PasswordConfirmationDialog } from '@/components/password-confirmation-dialog';
 import { isWorthRetrying } from '@/lib/problem';
 import { router } from './router';
 
@@ -21,6 +22,8 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      {/* Mounted once: the API client opens it before any sensitive action. */}
+      <PasswordConfirmationDialog />
     </QueryClientProvider>
   );
 }

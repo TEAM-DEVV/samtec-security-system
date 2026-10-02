@@ -575,6 +575,61 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /auth/confirm-password:
+    post:
+      tags: [Auth]
+      operationId: confirmPassword
+      summary: Confirm your password before a sensitive action
+      description: >-
+        **Roles:** any signed-in user, on the dashboard. The password step
+        that replaced the two-person rules (docs/plan/06, "One administrator,
+        with a password"): any administrator may act alone, but every
+        operation marked `x-needs-password: true` first needs the caller to
+        have confirmed their own password in the last five minutes.
+
+
+        A right password answers a new access token for the same session that
+        carries the confirmation for five minutes. Replace the current token
+        with it and send the sensitive request again; one confirmation covers
+        five minutes of work, and `POST /auth/refresh` carries a confirmation
+        that is still fresh over to the token it issues. A wrong password
+        answers `400` with the field `password` (never `401`, so the dashboard
+        does not try a refresh) and counts towards the same per-email lockout
+        as signing in: five wrong answers in 15 minutes lock sign-in and this
+        step alike. The confirmation is written to the audit log
+        (`auth.password_confirmed`).
+
+
+        A kiosk session cannot call this (it answers `403`) and never needs
+        to: the administrator typed their password to sign in on the kiosk,
+        that session lasts 15 minutes and can reach only the kiosk screens, so
+        the one sensitive operation open to it (registering the kiosk itself)
+        goes ahead without a second prompt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPasswordRequest"
+      responses:
+        "200":
+          description: The password was right. Use this token from now on.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordConfirmation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /users:
     get:
       tags: [Users]
@@ -603,6 +658,7 @@ paths:
     post:
       tags: [Users]
       operationId: createUser
+      x-needs-password: true
       summary: Create a sign-in account
       description: >-
         **Roles:** ADMIN. SUPERVISOR and GUARD accounts must be linked to an
@@ -682,6 +738,7 @@ paths:
     patch:
       tags: [Users]
       operationId: updateUser
+      x-needs-password: true
       summary: Change an account's name, email, role or employee link
       description: >-
         **Roles:** ADMIN. Send only the fields you want to change. The link rule
@@ -727,6 +784,7 @@ paths:
     post:
       tags: [Users]
       operationId: deactivateUser
+      x-needs-password: true
       summary: Switch an account off
       description: >-
         **Roles:** ADMIN, never on your own account. The account can no longer
@@ -758,6 +816,7 @@ paths:
     post:
       tags: [Users]
       operationId: reactivateUser
+      x-needs-password: true
       summary: Switch an account back on
       description: >-
         **Roles:** ADMIN, never on your own account. Old sessions stay ended.
@@ -792,6 +851,7 @@ paths:
     post:
       tags: [Users]
       operationId: resetUserSignIn
+      x-needs-password: true
       summary: Reset a forgotten password or a lost authenticator
       description: >-
         **Roles:** ADMIN, never on your own account. Clears **both** the
@@ -1043,6 +1103,7 @@ paths:
     post:
       tags: [Employees]
       operationId: terminateEmployee
+      x-needs-password: true
       summary: Record that an employee has left
       description: >-
         **Roles:** ADMIN, HR_PAYROLL. The employee is never deleted. The record
@@ -1397,6 +1458,7 @@ paths:
     post:
       tags: [Devices]
       operationId: registerDevice
+      x-needs-password: true
       summary: Register a clock-in device
       description: >-
         **Roles:** ADMIN. A device belongs to one site for life; to move a
@@ -1473,6 +1535,7 @@ paths:
     patch:
       tags: [Devices]
       operationId: updateDevice
+      x-needs-password: true
       summary: Rename a device, switch it off, or change its Phase 3 settings
       description: >-
         **Roles:** ADMIN. Send only the fields you want to change. A device is
@@ -1518,6 +1581,7 @@ paths:
     post:
       tags: [Devices]
       operationId: rotateDeviceSecret
+      x-needs-password: true
       summary: Give a device a new secret
       description: >-
         **Roles:** ADMIN. The old secret stops working **at once**; there is no
@@ -2599,6 +2663,7 @@ paths:
     post:
       tags: [Biometrics]
       operationId: revokeEmployeeBiometrics
+      x-needs-password: true
       summary: Delete an employee's face and fingerprint keys
       description: >-
         **Roles:** ADMIN. Wipes the stored face at once and switches off every
@@ -2650,6 +2715,7 @@ paths:
     post:
       tags: [Biometrics]
       operationId: unblockEmployeeBiometrics
+      x-needs-password: true
       summary: Lift the block on a record blocked as a duplicate
       description: >-
         **Roles:** ADMIN. A record that lost a duplicate-enrollment review as
@@ -2743,6 +2809,7 @@ paths:
     post:
       tags: [Biometrics]
       operationId: reviewBiometricExemption
+      x-needs-password: true
       summary: Approve or reject a request to work without biometrics
       description: >-
         **Roles:** ADMIN, but never the one who asked (for `CONSENT_WITHDRAWN`,
@@ -2791,6 +2858,7 @@ paths:
     post:
       tags: [Biometrics]
       operationId: withdrawBiometricConsent
+      x-needs-password: true
       summary: Record that a worker withdrew their consent
       description: |
         **Roles:** ADMIN. Wipes the face and switches off the fingerprint keys
@@ -2881,6 +2949,7 @@ paths:
     post:
       tags: [Biometrics]
       operationId: resolveBiometricCollision
+      x-needs-password: true
       summary: Decide whether two faces are the same person
       description: |
         **Roles:** ADMIN, but never the ADMIN who enrolled this face, nor
@@ -3370,6 +3439,7 @@ paths:
     post:
       tags: [Payroll]
       operationId: approvePayrollRun
+      x-needs-password: true
       summary: Approve a run and lock it
       description: >-
         **Roles:** ADMIN, but **never the person who submitted it** (`403`): the
@@ -3465,6 +3535,7 @@ paths:
     post:
       tags: [Payroll]
       operationId: markPayrollRunPaid
+      x-needs-password: true
       summary: Record that a locked run has been paid
       description: >-
         **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never mark a run
@@ -3511,6 +3582,7 @@ paths:
     get:
       tags: [Payroll]
       operationId: downloadPayrollRunBankExport
+      x-needs-password: true
       summary: Download the bank transfer file
       description: >-
         **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
@@ -3994,6 +4066,7 @@ paths:
     put:
       tags: [Payroll]
       operationId: setEmployeePaymentDetails
+      x-needs-password: true
       summary: Set where an employee's salary is paid
       description: >-
         **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
@@ -4263,6 +4336,7 @@ paths:
     patch:
       tags: [Detection]
       operationId: updateDetectionRule
+      x-needs-password: true
       summary: Switch a rule off, or move a threshold
       description: >-
         **Roles:** ADMIN. Audited, with the old and the new value. A rule
@@ -4464,7 +4538,11 @@ components:
       bearerFormat: JWT
       description: >-
         The access token from `POST /auth/login`, sent in the header
-        `Authorization: Bearer <token>`.
+        `Authorization: Bearer <token>`. Operations marked
+        `x-needs-password: true` also need the token to carry a password
+        confirmation under five minutes old, which `POST
+        /auth/confirm-password` adds; without it they answer `403` with
+        `code: PASSWORD_CONFIRMATION_REQUIRED`.
     refreshCookie:
       type: apiKey
       in: cookie
@@ -4735,7 +4813,13 @@ components:
                 detail: Email or password is incorrect.
                 traceId: 01927c3e-9f00-7abc-8def-000000000003
     Forbidden:
-      description: You are signed in, but your role is not allowed to do this.
+      description: >-
+        You are signed in, but either your role is not allowed to do this, or
+        the operation is a sensitive one (marked `x-needs-password: true`) and
+        you have not confirmed your password in the last five minutes. The
+        second case carries `code: PASSWORD_CONFIRMATION_REQUIRED`: call
+        `POST /auth/confirm-password`, use the access token it returns, and
+        send the request again.
       content:
         application/problem+json:
           schema:
@@ -4749,6 +4833,15 @@ components:
                 status: 403
                 detail: Your role does not allow this action.
                 traceId: 01927c3e-9f00-7abc-8def-000000000004
+            passwordConfirmationRequired:
+              summary: Confirm your password first
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: Confirm with your password to continue.
+                code: PASSWORD_CONFIRMATION_REQUIRED
+                traceId: 01927c3e-9f00-7abc-8def-000000000005
     NotFound:
       description: >-
         Nothing was found with this ID, or you are not allowed to see it. Both
@@ -4878,6 +4971,16 @@ components:
         traceId:
           type: string
           description: The ID of the request, also written to the server logs.
+        code:
+          type: string
+          description: >-
+            A machine-readable reason, present only when the dashboard has to
+            do something other than show `detail`. `PASSWORD_CONFIRMATION_REQUIRED`
+            (status `403`) means the operation is a sensitive one and the caller
+            has not confirmed their password in the last five minutes: call
+            `POST /auth/confirm-password`, use the access token it returns, and
+            send the request again.
+          enum: [PASSWORD_CONFIRMATION_REQUIRED]
         errors:
           type: array
           description: Present on validation errors, with one entry per invalid field.
@@ -5094,6 +5197,38 @@ components:
           $ref: "#/components/schemas/PasswordSetupToken"
         newPassword:
           $ref: "#/components/schemas/NewPassword"
+
+    ConfirmPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The signed-in user's own password.
+
+    PasswordConfirmation:
+      type: object
+      required: [accessToken, expiresInSeconds, confirmedForSeconds]
+      properties:
+        accessToken:
+          type: string
+          description: >-
+            A new access token for the same session, carrying the password
+            confirmation. Replace the current token with it: every request
+            from now on, including a refresh, keeps the confirmation.
+        expiresInSeconds:
+          type: integer
+          description: How long the access token itself lasts (15 minutes).
+          examples: [900]
+        confirmedForSeconds:
+          type: integer
+          description: >-
+            How long the confirmation lasts (5 minutes). After that, the next
+            sensitive action asks for the password again.
+          examples: [300]
 
     ChangePasswordRequest:
       type: object

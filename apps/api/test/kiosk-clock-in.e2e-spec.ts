@@ -158,6 +158,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       role: 'ADMIN',
       employeeId: null,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     supervisorToken = await tokens.signAccessToken({
       userId: company.supervisorUserId,
@@ -165,6 +166,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
       role: 'SUPERVISOR',
       employeeId: company.supervisorEmployeeId,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     kiosk = await registerKiosk('Gate kiosk');
     otherKiosk = await registerKiosk('Other gate kiosk');
@@ -723,6 +725,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
         role: 'GUARD',
         employeeId: company.active.id,
         onKiosk: false,
+        passwordConfirmedAt: new Date(),
       });
 
       await board(guard).expect(403);
@@ -761,6 +764,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
         role: 'HR_PAYROLL',
         employeeId: null,
         onKiosk: false,
+        passwordConfirmedAt: new Date(),
       });
 
       await api()
@@ -864,6 +868,7 @@ describe.skipIf(!databaseUrl)('Clocking in at the kiosk (e2e)', () => {
         role: 'ADMIN',
         employeeId: null,
         onKiosk: false,
+        passwordConfirmedAt: new Date(),
       });
 
       const punches = await api()

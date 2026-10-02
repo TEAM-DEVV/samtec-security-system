@@ -21,7 +21,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
-import { userForRequest } from './auth';
+import { needsPassword, userForRequest } from './auth';
 import { revokeMockPasskeysOn } from './biometrics';
 
 /**
@@ -91,6 +91,8 @@ export const deviceHandlers = [
     async ({ request }) => {
       const refused = adminOnly(request);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const body = await request.json();
       const badName = nameProblem(body.name);
       if (badName) return badName;
@@ -155,6 +157,8 @@ export const deviceHandlers = [
     async ({ params, request }) => {
       const refused = adminOnly(request);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       // The real API's order: the shape of the request (400), then the device
       // (404), then the rules for its kind (400), then clashes (409). A
       // refused request changes nothing.
@@ -231,6 +235,8 @@ export const deviceHandlers = [
     ({ params, request }) => {
       const refused = adminOnly(request);
       if (refused) return refused;
+      const unconfirmed = needsPassword(request);
+      if (unconfirmed) return unconfirmed;
       const found = findDevice(params.deviceId);
       if (!found.device) return found.problem;
       // A new key is a new key: the device waits to be switched on again.

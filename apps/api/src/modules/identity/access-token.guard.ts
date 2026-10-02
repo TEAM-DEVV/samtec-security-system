@@ -61,8 +61,6 @@ export class AccessTokenGuard implements CanActivate {
         companyId: true,
         employeeId: true,
         twoFactorEnabledAt: true,
-        adminRequestedAt: true,
-        adminConfirmedAt: true,
       },
     });
     return (

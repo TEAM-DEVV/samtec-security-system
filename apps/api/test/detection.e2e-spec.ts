@@ -84,6 +84,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       role: 'ADMIN',
       employeeId: null,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     hrToken = await tokens.signAccessToken({
       userId: company.hrUserId,
@@ -91,6 +92,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       role: 'HR_PAYROLL',
       employeeId: null,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     supervisorToken = await tokens.signAccessToken({
       userId: company.supervisorUserId,
@@ -98,6 +100,7 @@ describe.skipIf(!databaseUrl)('Ghost detection (e2e)', () => {
       role: 'SUPERVISOR',
       employeeId: company.supervisorEmployeeId,
       onKiosk: false,
+      passwordConfirmedAt: new Date(),
     });
     const kiosk = await api()
       .post('/api/v1/devices')
