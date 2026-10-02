@@ -11,8 +11,8 @@
  * recorded against the name of whoever asked. The object URL is released as soon
  * as the click is over, so the bytes do not sit in memory afterwards.
  */
+import { fetchWithSession } from './api';
 import { env } from './env';
-import { getSession } from './session';
 
 /** What went wrong, in words a person can act on. */
 export class DownloadFailed extends Error {
@@ -40,11 +40,12 @@ export class DownloadFailed extends Error {
  * `/payroll/runs/<id>/bank-export`.
  */
 export async function downloadFromApi(path: string, fileName: string): Promise<void> {
-  const session = getSession();
-  const response = await fetch(`${env.apiBaseUrl}${path}`, {
-    credentials: 'include',
-    headers: session === null ? {} : { Authorization: `Bearer ${session.accessToken}` },
-  });
+  // The same wrapper every API call goes through: it adds the token, renews
+  // it when it has expired, and — for the bank file, a sensitive download —
+  // asks for the administrator's password and tries again.
+  const response = await fetchWithSession(
+    new Request(`${env.apiBaseUrl}${path}`, { credentials: 'include' }),
+  );
   if (!response.ok) {
     throw new DownloadFailed(response.status);
   }

@@ -72,6 +72,12 @@ interface EnrollScreenProps {
    * making the administrator switch.
    */
   initialTask?: Task;
+  /**
+   * Whether this device allows fingerprints (the dashboard's switch, learned
+   * from the heartbeat). When it is off the server refuses every fingerprint,
+   * so the screen must not offer one.
+   */
+  fingerprintsAllowed?: boolean;
   /** Overridable so a test does not sit through three real half-second waits. */
   betweenCaptures?: number;
   challengeSeconds?: number;
@@ -101,9 +107,12 @@ export function EnrollScreen({
   engine,
   onDone,
   initialTask = 'enroll',
+  fingerprintsAllowed = true,
   betweenCaptures = BETWEEN_CAPTURES_MILLISECONDS,
   challengeSeconds = CHALLENGE_SECONDS,
 }: EnrollScreenProps) {
+  // Offered only when the device allows it and the browser has a sensor API.
+  const offerFingerprints = fingerprintsAllowed && passkeysAvailable();
   const [stage, setStage] = useState<Stage>({ name: 'choosing' });
   const [task, setTask] = useState<Task>(initialTask);
   const [employeeId, setEmployeeId] = useState('');
@@ -424,7 +433,7 @@ export function EnrollScreen({
             >
               {task === 'enroll' ? 'Continue' : 'Save their fingerprint'}
             </button>
-            {passkeysAvailable() && (
+            {offerFingerprints && (
               <button
                 type="button"
                 className="button button--quiet"
@@ -547,7 +556,7 @@ export function EnrollScreen({
           >
             {stage.result.dedupe === 'PASSED'
               ? `${chosen?.fullName ?? 'This worker'} can now clock in with their face.${
-                  passkeysAvailable()
+                  offerFingerprints
                     ? ' Save their fingerprint now: without it, they clock in on face alone.'
                     : ''
                 }`
@@ -556,7 +565,7 @@ export function EnrollScreen({
                 'This face looks like someone already enrolled. An administrator can review it on the dashboard under Duplicate faces. Once that is cleared, a fingerprint can be saved for them here.'}
           </p>
           <div className="buttons">
-            {stage.result.dedupe === 'PASSED' && passkeysAvailable() && (
+            {stage.result.dedupe === 'PASSED' && offerFingerprints && (
               <button
                 type="button"
                 className="button button--in"

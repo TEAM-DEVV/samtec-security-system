@@ -8,6 +8,12 @@ const SECRET_MIN_LENGTH = 20;
 
 interface PairingScreenProps {
   onPaired: (device: PairedDevice) => void;
+  /**
+   * A way back, offered when this form was opened from Kiosk settings to add
+   * another device. A phone with no device at all has nowhere to go back to,
+   * so the first set-up shows no Cancel.
+   */
+  onCancel?: () => void;
 }
 
 /**
@@ -24,7 +30,7 @@ interface PairingScreenProps {
  *
  * Design: docs/plan/13-biometrics-design.md section 2.
  */
-export function PairingScreen({ onPaired }: PairingScreenProps) {
+export function PairingScreen({ onPaired, onCancel }: PairingScreenProps) {
   const [deviceId, setDeviceId] = useState('');
   const [secret, setSecret] = useState('');
   const [name, setName] = useState('');
@@ -133,6 +139,16 @@ export function PairingScreen({ onPaired }: PairingScreenProps) {
         <button type="submit" className="button button--in" disabled={saving}>
           {saving ? 'Saving…' : 'Finish set-up'}
         </button>
+        {onCancel !== undefined && (
+          <button
+            type="button"
+            className="button button--quiet"
+            disabled={saving}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        )}
 
         <p className="small muted">
           The secret is turned into a key this phone can use but cannot read back, and the secret

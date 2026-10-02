@@ -125,6 +125,36 @@ describe('the heartbeat', () => {
     expect(seen.every((value) => value === true)).toBe(true);
   });
 
+  it('drops an answer that arrives after it was stopped, so a switched-away device cannot overwrite the new one', async () => {
+    let answer: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const device = await aPairedKiosk();
+    const seen: boolean[] = [];
+    const stop = startHeartbeat(device, TICK, (response) => seen.push(response.passkeysEnabled));
+    // The first tick's request is out and waiting for the server.
+    await vi.waitFor(() => expect(answer).toBeDefined());
+
+    stop();
+    answer?.(
+      new Response(
+        JSON.stringify({ serverTime: '2026-09-26T06:00:01.000Z', passkeysEnabled: true }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(seen).toEqual([]);
+  });
+
   it('never calls onUpdate for a tick that failed', async () => {
     failNext = true;
     const device = await aPairedKiosk();

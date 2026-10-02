@@ -306,9 +306,15 @@ describe('App', () => {
 
     // The first heartbeat, for the device the phone started as.
     await vi.waitFor(() => expect(heartbeatDeviceIds).toContain(gateA.deviceId));
-    const heartbeatsBeforeSwitch = heartbeatDeviceIds.length;
 
     await signInAsAdmin(user);
+    // Signing in restarts the heartbeat at the faster admin pace, which beats
+    // at once — so a fingerprint switch flipped on the dashboard shows here
+    // straight away. Still device A, and still only one heartbeat running.
+    await vi.waitFor(() =>
+      expect(heartbeatDeviceIds.filter((id) => id === gateA.deviceId)).toHaveLength(2),
+    );
+    const heartbeatsBeforeSwitch = heartbeatDeviceIds.length;
     await user.click(await screen.findByRole('button', { name: 'Kiosk settings' }));
     await user.click(await screen.findByRole('button', { name: /Switch to Side gate kiosk/ }));
 
@@ -324,6 +330,6 @@ describe('App', () => {
     // second A arriving after B's first heartbeat.
     const afterSwitch = heartbeatDeviceIds.slice(heartbeatsBeforeSwitch);
     expect(afterSwitch.every((id) => id === gateB.deviceId)).toBe(true);
-    expect(heartbeatDeviceIds.filter((id) => id === gateA.deviceId)).toHaveLength(1);
+    expect(heartbeatDeviceIds.filter((id) => id === gateA.deviceId)).toHaveLength(2);
   });
 });

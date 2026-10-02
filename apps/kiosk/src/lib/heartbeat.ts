@@ -27,6 +27,13 @@ import type { PairedDevice } from '@/lib/device';
 export const HEARTBEAT_MILLISECONDS = 60_000;
 
 /**
+ * While an administrator is signed in on the kiosk: often enough that a
+ * setting just changed on the dashboard (fingerprints on or off) shows here
+ * within seconds.
+ */
+export const ADMIN_HEARTBEAT_MILLISECONDS = 15_000;
+
+/**
  * Starts the tick. Returns the function that stops it.
  *
  * Failures are swallowed on purpose: a gate loses signal, and the next tick
@@ -53,7 +60,12 @@ export function startHeartbeat(
       const response = await callSigned<HeartbeatResponse>(device, 'ingest/heartbeat', {
         deviceClockAt: new Date().toISOString(),
       });
-      onUpdate?.(response);
+      // A reply that arrives after this heartbeat was stopped belongs to a
+      // device the kiosk has switched away from: it must not overwrite the
+      // new device's settings.
+      if (!stopped) {
+        onUpdate?.(response);
+      }
     } catch {
       // Deliberately silent. See above.
     }
