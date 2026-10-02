@@ -92,7 +92,7 @@ export function PayrollPage() {
     <div className="space-y-6">
       <PageHeader
         title="Payroll"
-        description="Each month is opened, worked out, approved by a second person, and then closed."
+        description="Each month is opened, worked out, approved by an administrator (who confirms their password), and then closed."
       />
 
       {actionError ? (

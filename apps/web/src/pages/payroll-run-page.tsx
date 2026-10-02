@@ -214,8 +214,9 @@ export function PayrollRunPage() {
           <CardHeader>
             <CardTitle>What happens next</CardTitle>
             <CardDescription>
-              The person who works a run out can never be the one who approves it. That is the whole
-              point of a second pair of eyes.
+              Whoever worked the run out submits it. Any administrator may then approve or reject
+              it, confirming their password; the decision is written to the audit log with their
+              name.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -223,7 +224,7 @@ export function PayrollRunPage() {
               theyPreparedIt ? (
                 <div className="space-y-3">
                   <div className="grid gap-1.5">
-                    <Label htmlFor="submission-note">Note for the checker (optional)</Label>
+                    <Label htmlFor="submission-note">Note for whoever approves (optional)</Label>
                     <Textarea
                       id="submission-note"
                       value={note}
@@ -324,8 +325,8 @@ export function PayrollRunPage() {
                       className="h-9 w-48 rounded-md border border-input bg-background px-3 text-sm"
                     />
                     <p className="text-muted-foreground text-sm">
-                      This records a payment that has already happened, so no second person is
-                      needed and it works after the month is closed.
+                      This records a payment that has already happened, so it works after the month
+                      is closed. It asks for your password, like approving does.
                     </p>
                   </div>
                   <Button
