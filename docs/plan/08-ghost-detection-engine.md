@@ -20,7 +20,7 @@ review queue. Rules never punish anyone automatically; they surface and score.
 
 | # | Rule | Signal | Severity |
 |---|---|---|---|
-| R1 | **Duplicate enrollment** | A new biometric template matches an existing employee above the threshold at enrollment (1:N comparison); while the review is open, both records are shown to the payroll checker | CRITICAL: blocks activation |
+| R1 | **Duplicate enrollment** | A new biometric template matches an existing employee above the threshold at enrollment (1:N comparison); while the review is open, both records are shown to whoever approves payroll | CRITICAL: blocks activation |
 | R2 | **Identity collision** | A shared phone number, bank account or mobile money number across employees (the Ghana Card number is already a hard database constraint). Version 1 checks the phone; the other two join it when payroll stores them | HIGH |
 | R3 | **Paid without presence** | A payroll line pays more hours than the recorded shifts support, beyond a tolerance | CRITICAL: blocks run submission until resolved |
 | R4 | **Bilocation** | One employee repeatedly has overlapping work segments at two sites | HIGH |
@@ -30,7 +30,7 @@ review queue. Rules never punish anyone automatically; they surface and score.
 | R8 | **Robot regularity** | Punch times with almost no variation over weeks (manufactured logs) | MEDIUM |
 | R9 | **Device anomaly** | A device's punch volume spikes against its history, or its clock drifts by more than 5 minutes | MEDIUM |
 | R10 | **Orphan punches** | Punches whose device user reference matches nobody, repeatedly | MEDIUM: wrong enrollment or someone probing |
-| R11 | **Conflicted decision** | A duplicate review or an exemption was decided by somebody who should not have decided it | HIGH: shown to the payroll checker |
+| R11 | **Conflicted decision** | A duplicate review or an exemption was decided by somebody with an indirect link to the worker — for example, their own face was wiped first | HIGH: shown to whoever approves payroll |
 
 ## How it works
 
@@ -107,7 +107,7 @@ through the exception queue.
 
 But the evidence **records the split** — how many of those minutes were
 `MANUAL` (a person typed them) and how many were `PIN_FALLBACK` (a co-sign or
-a staff number) — so a checker looking at a flagged line sees immediately
+a staff number) — so whoever reviews a flagged line sees immediately
 whether the hours rest on a face or on somebody's word.
 
 Two things R3 knowingly does not handle yet, so nobody mistakes an alert from
@@ -116,8 +116,8 @@ them for a bug:
 - **Paid leave has no record in this system.** A guard on approved leave is
   paid their basic (decision 4 of [Payroll engine (Ghana)](09-payroll-engine-ghana.md))
   and has no shifts, so to R3 the month looks like absence. Until leave
-  exists as a thing the system knows about, the checker resolves that alert
-  with a note saying so — which is the audit trail a leave record would have
+  exists as a thing the system knows about, whoever reviews it resolves that
+  alert with a note saying so — which is the audit trail a leave record would have
   been anyway.
 - **An adjustment line is not judged.** It corrects an earlier period's
   money (decision 20 there); its minutes are not a claim about the period it
@@ -246,30 +246,38 @@ recurrence = times that rule fired for that worker in 90 days
 
 - **R2 has no next-of-kin clause**: the field does not exist. Phone, bank
   account and mobile money do (the last two arrive with payroll).
-- **R11 has no ADMIN-provenance clause, and will not get one.** "Decided by
-  somebody whose ADMIN account was created by the person who handled the
-  worker" became answerable in Phase 7, which records who asked for an
-  administrator account and who confirmed it. It was built, and then
-  **rejected after review**: in a company with two administrators it
-  describes the required flow, not a fraud. The second administrator's
-  account is necessarily made by the first, and R11's direct clause already
-  forces that second administrator to be the one who decides — so every
-  honest decision would have raised a permanent HIGH alert, and R11 has no
-  threshold to turn down. Narrowing it to accounts made under the
-  sole-administrator shortcut changes nothing, because in a company of two
-  that is how the second account was made.
+- **R11 no longer flags the administrator who enrolled a face deciding that
+  face's own review.** Until issue #99 (1 October 2026), every collision and
+  exemption decision legally had to come from a different ADMIN, so a
+  provenance clause for R11 — "decided by somebody whose ADMIN account was
+  created by the person who handled the worker" — became answerable in Phase
+  7, which records who asked for an administrator account and who confirmed
+  it. It was built, and then **rejected after review**: in a company with
+  two administrators it described the required flow, not a fraud. The second
+  administrator's account was necessarily made by the first, and the direct
+  rule already forced that second administrator to be the one who decided —
+  so every honest decision would have raised a permanent HIGH alert, and R11
+  has no threshold to turn down. Narrowing it to accounts made under the
+  sole-administrator shortcut changed nothing, because in a company of two
+  that was how the second account was made. That whole mechanism, shortcut
+  included, is gone since issue #99 removed the second-person rule itself —
+  any ADMIN may now decide a review, including the one who enrolled the
+  face, and that is normal.
 
-  The data cannot tell one person with two accounts from two people who made
-  each other's accounts. That risk is watched by reading the audit log
-  instead ([Security and review gates](06-security-and-review-gates.md),
-  "Two administrators"), and a third administrator removes it. Version 1's
-  clauses stand: decided by somebody who created either record or enrolled
-  the other face.
+  **The rest of R11 stays.** A decision is still flagged when the deciding
+  ADMIN created either record, or revoked or withdrew a face of either one —
+  those links are allowed (so a small company never deadlocks) but shown to
+  whoever approves payroll. The data still cannot tell one person with two
+  accounts from two people who made each other's accounts; that risk is
+  still watched by reading the audit log ([Security and review
+  gates](06-security-and-review-gates.md), "One administrator, with a
+  password").
 
 - **An R11 alert never counts towards a worker's risk score.** It names the
-  worker so a checker can find the record, but it asks whether the right
-  person settled a decision. Letting it weigh on the worker would turn a
-  disagreement between two administrators into a guard who looks risky.
+  worker so a reviewer can find the record, but it asks whether the right
+  person settled a decision. Letting it weigh on the worker would turn an
+  indirect link between an administrator and a decision into a guard who
+  looks risky.
 - **R9 has no offline-window clause**: nothing declares a device's offline
   windows yet. It can also ask about a device's first genuinely busy day: a
   site that opens quietly while people are enrolled, then runs at full

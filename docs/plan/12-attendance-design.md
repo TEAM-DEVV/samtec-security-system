@@ -68,9 +68,9 @@ In Phase 2 a device user number is the **digits of the staff number**: `42`, `00
 | `INACTIVE_EMPLOYEE` | someone who may not clock in punched | dismiss |
 | `OVERLAP` | one person, two shifts at once | keep one, or void both |
 
-**Who sees and resolves:** ADMIN for any site. A SUPERVISOR only exceptions whose every site is theirs: an overlap that reaches a site they do not run is hidden from them (`404`), so they never see a shift at someone else's site, and an ADMIN deals with it. **HR_PAYROLL reads but never creates hours**, which keeps Phase 4's maker–checker split meaningful. **Nobody resolves their own attendance.** A hand-added shift must contain the real punch's time, last at most 16 hours and end in the past, so hours are only ever completed around real biometric evidence. It may not overlap any other live shift of the person, counted or disputed (`409`). The API checks this inside the company's attendance lock; for two counted shifts the database's exclusion constraint is the final guard. Every resolution is audited; its free-text note is not.
+**Who sees and resolves:** ADMIN for any site. A SUPERVISOR only exceptions whose every site is theirs: an overlap that reaches a site they do not run is hidden from them (`404`), so they never see a shift at someone else's site, and an ADMIN deals with it. **HR_PAYROLL reads but never creates hours**, which keeps whoever records attendance separate from whoever later processes pay. **Nobody resolves their own attendance.** A hand-added shift must contain the real punch's time, last at most 16 hours and end in the past, so hours are only ever completed around real biometric evidence. It may not overlap any other live shift of the person, counted or disputed (`409`). The API checks this inside the company's attendance lock; for two counted shifts the database's exclusion constraint is the final guard. Every resolution is audited; its free-text note is not.
 
-**Why one person may resolve alone:** a resolution never pays anyone by itself. The hours it confirms flow into a payroll run, and Phase 4's payroll approval is maker–checker (the person who prepares a run can never approve it), so a second person always reviews the hours before money moves. Each resolution is also in the audit log with who did it, and the hours a person added by hand are marked `MANUAL`, which the Phase 5 ghost rules can count.
+**Why one person may resolve alone:** a resolution never pays anyone by itself. The hours it confirms flow into a payroll run, and approving that run — even by the same administrator who prepared it — needs a password confirmation and is audited, so there is always a deliberate, recorded step before money moves. Each resolution is also in the audit log with who did it, and the hours a person added by hand are marked `MANUAL`, which the Phase 5 ghost rules can count.
 
 ## 6. When the work happens
 
@@ -93,5 +93,5 @@ Everything runs **inside the request that causes it**. There are no background w
 | PIN co-sign by a supervisor | Phase 3 (kiosk) | PIN punches are already flagged (`method`, segment `basis`) |
 | Linking device users to people, re-matching old unknown punches | Phase 3 | needs `biometric_credentials` |
 | Lateness, absence, overtime | Phase 4/6 | only useful once payroll or reports consume them |
-| Voiding a hand-added shift | Phase 4 | who may delete hours is a maker–checker question |
+| Voiding a hand-added shift | Phase 4 | who may delete hours is a payroll-approval question |
 | Device serial numbers and time zones | Phase 3 | Phase 2 clients send times with their UTC offset |

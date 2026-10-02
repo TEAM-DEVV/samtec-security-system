@@ -14,7 +14,7 @@ SAMTEC links three things into one chain that is hard to fake:
 
 1. **Identity.** Every employee is registered with their Ghana Card and their fingerprint or face. The system refuses a second record for the same fingerprint or Ghana Card.
 2. **Presence.** Guards clock in and out with their fingerprint or face on a device at the client site. A signature in a book is no longer enough.
-3. **Pay.** Salaries are calculated only from those verified clock-ins, and a second person must approve every payroll before it is locked.
+3. **Pay.** Salaries are calculated only from those verified clock-ins, and the approving administrator must confirm their password again before it is locked.
 
 If one link is missing (a salary with no clock-ins, or one fingerprint under two names) the system raises an alert for a manager to review.
 
@@ -68,14 +68,14 @@ This is the full business flow the later phases build.
 4. The API pairs each clock-in with a clock-out to calculate hours, including night shifts that cross midnight.
 5. Missing clock-outs or strange patterns go to a supervisor to resolve.
 6. At the end of the month, the payroll officer calculates the payroll: hours, overtime, PAYE tax and SSNIT.
-7. A different person, the checker, approves it. The payroll is then locked forever.
+7. The administrator approves it, confirming their password again. The payroll is then locked forever.
 8. Payslips are produced, and a bank file is exported for payment.
 9. Throughout, the ghost detection engine looks for fraud, such as a guard clocked in at two sites at the same time.
 
 ## How SAMTEC stays secure
 
 - **Least privilege:** every person sees only what their role needs. A guard sees only their own payslips.
-- **Two people for money:** the person who prepares a payroll can never approve it.
+- **A password for money:** the person who prepares a payroll may approve it themselves, but only after confirming their password again, and the step is audited.
 - **Nothing silently changes:** clock-ins and approved payrolls are never edited; corrections are recorded as new entries.
 - **Sensitive data is protected:** fingerprints are stored as encrypted templates, never as pictures, with the employee's consent (Ghana's Data Protection Act, 2012).
 - **Safe defaults in the code:** secure HTTP headers, strict checks on every input, and errors that never reveal internal details.
@@ -92,8 +92,8 @@ This is the full business flow the later phases build.
 
 Use this as a starting point for your defense:
 
-> Security companies lose money to ghost workers because attendance and payroll are not verified. SAMTEC links identity, presence and pay into one chain. Guards are registered with biometrics and their Ghana Card, they clock in with a fingerprint or face at the client site, and salaries are calculated only from those verified clock-ins, with a second person approving every payroll.
+> Security companies lose money to ghost workers because attendance and payroll are not verified. SAMTEC links identity, presence and pay into one chain. Guards are registered with biometrics and their Ghana Card, they clock in with a fingerprint or face at the client site, and salaries are calculated only from those verified clock-ins, with the approving administrator confirming their password and every step recorded in the audit log.
 >
-> Technically, it is a React dashboard and a NestJS API sharing an OpenAPI contract, with PostgreSQL for data. The contract let us build the frontend and backend in parallel. Security runs through every layer: role-based access, maker–checker approval, encrypted biometric templates, and a detection engine that flags anomalies like one fingerprint under two names, or pay without attendance.
+> Technically, it is a React dashboard and a NestJS API sharing an OpenAPI contract, with PostgreSQL for data. The contract let us build the frontend and backend in parallel. Security runs through every layer: role-based access, password-confirmed sensitive actions, encrypted biometric templates, and a detection engine that flags anomalies like one fingerprint under two names, or pay without attendance.
 
 Next: [Set up your computer](02-setup-on-windows.md). Unfamiliar word? See the [Glossary](08-glossary.md).

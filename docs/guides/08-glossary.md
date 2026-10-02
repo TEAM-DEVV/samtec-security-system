@@ -93,7 +93,7 @@ A signed token that proves who is signed in. The dashboard sends it with each re
 Automatic checking of code for mistakes and style problems. We use Biome.
 
 **Maker–checker**
-A control where one person prepares something, such as a payroll, and a different person must approve it.
+The old payroll rule where one person prepared something, such as a payroll run, and a different person had to approve it. Issue #99 (1 October 2026) replaced it: the preparer may now approve it themselves, after confirming their password.
 
 **Middleware**
 Code that runs on every request before it reaches the endpoint, for example to add a request ID.

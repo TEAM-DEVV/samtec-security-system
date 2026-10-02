@@ -5,8 +5,9 @@
 [How a backend module is built here](16-building-a-backend-module.md) for the
 house style.
 
-Money is integers (pesewas). Payroll runs are locked snapshots. Approval needs
-a maker and a different checker. Statutory rates live in a **versioned tax
+Money is integers (pesewas). Payroll runs are locked snapshots. Approving a
+run — even the same person who prepared it — needs that administrator's
+password, and the step is audited. Statutory rates live in a **versioned tax
 table**, not in the code: rates change with every national budget, so we update
 a row instead of deploying new code.
 
@@ -65,8 +66,10 @@ impresses both the examiner and the client.
    at calculation time. Everything is copied into its lines.
 2. A LOCKED run cannot change: a database trigger rejects it. Corrections
    become adjustment lines in the next period, pointing to the original line.
-3. The maker (who creates and submits) is never the checker (who approves).
-   The server compares user IDs, and so does a database CHECK.
+3. Whoever creates and submits a run may also approve it. Approving, marking
+   paid and the bank export all ask the administrator to confirm their
+   password, and every one is audited (issue #99, replacing the old
+   maker-is-not-checker database CHECK).
 4. Detection rule R3 will block a submission when unexplained differences
    appear between paid hours and punched hours — **from Phase 5 onward**. See
    decision 8.
@@ -154,7 +157,7 @@ dropped.
 **8. Payroll does not call ghost detection yet.** Hard rule 4 says detection
 rule R3 blocks a submission — but detection is Phase 5 and payroll is Phase 4.
 So version 1 **records the evidence** on each line
-(`punched_minutes`, so the checker can see paid hours against punched hours)
+(`punched_minutes`, so a reviewer can see paid hours against punched hours)
 and lets the submission through. Francis wires the block in during Phase 5,
 without changing the line's shape.
 
@@ -201,23 +204,25 @@ freeze on attendance edits is future work.
 ## The run's life
 
 **16. States.** `DRAFT → PENDING_APPROVAL → LOCKED → PAID`, and
-`PENDING_APPROVAL → REJECTED`, which is **terminal**. A checker who finds a
-wrong line rejects the run with a reason; the maker fixes the cause and
-calculates a **new** run. Nothing ever moves backwards, so the "only move
+`PENDING_APPROVAL → REJECTED`, which is **terminal**. Whoever finds a
+wrong line rejects the run with a reason; somebody then fixes the cause and
+calculates a **new** run (often the same administrator who prepared the
+first one). Nothing ever moves backwards, so the "only move
 forward" rule in [Data model](04-data-model.md) holds.
 
 **17. Several runs per period are allowed** (drafts and rejected ones), but a
 partial unique index permits **at most one** that is LOCKED or PAID.
 
 **18. Who does what.** `HR_PAYROLL` prepares, submits and reads. `ADMIN`
-approves, rejects and marks paid. An ADMIN may also prepare — and then a
-**different** ADMIN must approve. A `GUARD` may read **only their own**
+approves, rejects and marks paid — the same ADMIN who prepared a run may
+also approve it, after confirming their password (issue #99 removed the
+different-ADMIN requirement). A `GUARD` may read **only their own**
 payslips; a record they may not see answers 404, never 403. A `SUPERVISOR`
 sees no payroll at all.
 
 **19. Marking a run paid** is an ADMIN's job, after the bank file has been
-sent. It records who and when. No second person is required, because the money
-has already left by then — the control that matters is the approval before it.
+sent. It records who and when, and asks for the administrator's password —
+the same control that now covers approval too, in place of a second person.
 
 **20. An adjustment line** is an ordinary line in the **next** period's run
 with `adjusts_line_id` pointing at the original, and an amount that may be
@@ -250,9 +255,10 @@ be unsafe.
 **22. The approval covers the amount, not the destination.** A run is a locked
 snapshot of what each worker is *owed*, and a trigger refuses to change it. But
 `employee_payment_details` is edited in place and the bank export reads it when
-the file is downloaded, which is after the checker has signed the run off. So
+the file is downloaded, which is after the run has been approved. So
 an HR user could have a correct run approved and then move one worker's account
-number before producing the file, and maker–checker would not have covered it.
+number before producing the file, and password-confirmed approval would not
+have covered it.
 
 Version 1 answers this by making the change **visible and traceable**, not by
 blocking it: a worker really does sometimes change bank account between the
@@ -430,8 +436,10 @@ The rules the **database** must enforce, not just the code:
 - A run's status only moves forward; every status carries its full evidence
   (`PENDING_APPROVAL` has a submitter and a time, `LOCKED` also has an
   approver and a time).
-- `CHECK (submitted_by_user_id <> approved_by_user_id)` — maker and checker,
-  in the database itself, the same way the Phase 3 biometric tables do it.
+- The database no longer has a maker-is-not-checker CHECK: issue #99's
+  migration (1 October 2026) dropped `payroll_runs_maker_is_not_checker`.
+  Approving, marking paid and the bank export are password-confirmed
+  instead, and every one is audited.
 - Once a run is LOCKED, a trigger rejects every UPDATE and DELETE on that run
   and on its lines.
 - `CHECK (net_pay_pesewas = gross_pesewas − ssnit_employee_pesewas −
@@ -452,9 +460,9 @@ and operation with its module prefix (`PayrollRun`, `listPayrollRuns`).
 | `GET /payroll/runs`, `GET /payroll/runs/{id}`, `GET /payroll/runs/{id}/lines` | ADMIN, HR_PAYROLL |
 | `POST /payroll/runs` (calculate a draft) | ADMIN, HR_PAYROLL — the caller becomes the maker |
 | `POST /payroll/runs/{id}/submit` | The maker |
-| `POST /payroll/runs/{id}/approve`, `/reject` | ADMIN, never the submitter |
-| `POST /payroll/runs/{id}/mark-paid` | ADMIN |
-| `GET /payroll/runs/{id}/bank-export` | ADMIN, HR_PAYROLL — `text/csv` |
+| `POST /payroll/runs/{id}/approve`, `/reject` | ADMIN, password-confirmed — the submitter may approve their own run |
+| `POST /payroll/runs/{id}/mark-paid` | ADMIN, password-confirmed |
+| `GET /payroll/runs/{id}/bank-export` | ADMIN, HR_PAYROLL, password-confirmed — `text/csv` |
 | `GET /payroll/runs/{id}/statutory-summary` | ADMIN, HR_PAYROLL |
 | `GET /payroll/payslips`, `GET /payroll/payslips/{id}` | The owning guard, ADMIN, HR_PAYROLL |
 | `GET /payroll/payslips/{id}/pdf` | The owning guard, ADMIN, HR_PAYROLL — `application/pdf` |
@@ -496,9 +504,10 @@ the pesewa**:
 8. the top band, above 20,000.
 
 Plus a property-based test proving the lines always sum exactly to the run
-totals, and end-to-end tests proving: the same person cannot approve their own
-run; a locked run cannot be edited (the database refuses); and a guard reading
-another guard's payslip gets 404.
+totals, and end-to-end tests proving: approving, marking paid and the bank
+export all refuse without a fresh password confirmation; a locked run cannot
+be edited (the database refuses); and a guard reading another guard's payslip
+gets 404.
 
 Related: [Data model](04-data-model.md) ·
 [Ghost detection engine](08-ghost-detection-engine.md) ·

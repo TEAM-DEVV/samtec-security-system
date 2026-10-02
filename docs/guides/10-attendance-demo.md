@@ -97,10 +97,11 @@ without it, a `MOCK` device's punches answer `401` (its heartbeats still work).
 
 1. An administrator registers a device of kind `MOCK` on the Devices page
    (or with `POST /api/v1/devices`). They copy the secret it shows once.
-2. **A second administrator switches the device on** — the "Switch on" button
-   on its page, or `PATCH /api/v1/devices/{id}` with `{"status": "ACTIVE"}`. A
-   new key is born switched off, and whoever registered the device may not be
-   the one to switch it on (docs/plan/06, "Two administrators"). Until this
+2. **The same administrator switches the device on** — the "Switch on" button
+   on its page, or `PATCH /api/v1/devices/{id}` with `{"status": "ACTIVE"}`,
+   after confirming their password. A new key is still born switched off, but
+   now any administrator — including whoever registered it — can switch it on
+   (docs/plan/06, "One administrator, with a password"). Until this
    step, every punch the simulator sends answers `401`.
 3. Run the simulator with that device and the staff-number digits of the
    guards enrolled on it:
