@@ -277,7 +277,7 @@ export function ClockScreen({
         // recognised, and saying so saves an administrator an afternoon.
         countFailure(
           answer.nobodyPostedHere
-            ? 'Nobody is posted to this kiosk’s site yet, so nobody can clock in here. An administrator can post workers on the dashboard: Employees → the worker → Edit → Current site.'
+            ? 'Nobody posted to this kiosk’s site has a face enrolled yet, so nobody can clock in here. An administrator can enrol workers here (Admin → Enroll a worker’s face) and post them on the dashboard: Employees → the worker → Edit → Current site.'
             : 'Not recognised. Please try again.',
           direction,
         );
