@@ -198,7 +198,7 @@ describe('ClockScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Start shift' }));
 
     expect(
-      await screen.findByText(/Nobody is posted to this kiosk’s site yet/),
+      await screen.findByText(/Nobody posted to this kiosk’s site has a face enrolled yet/),
     ).toBeInTheDocument();
     expect(screen.queryByText('Not recognised. Please try again.')).not.toBeInTheDocument();
   });

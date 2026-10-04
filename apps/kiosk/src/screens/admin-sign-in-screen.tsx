@@ -92,7 +92,7 @@ export function AdminSignInScreen({ onSignedIn, onCancel }: AdminSignInScreenPro
       <h1>{challengeToken === null ? 'Sign in' : 'Your code'}</h1>
       <p className="muted" style={{ maxWidth: '30rem' }}>
         {challengeToken === null
-          ? 'Only an administrator can sign in here, and only to enrol somebody. The session ends by itself after fifteen minutes.'
+          ? 'Only an administrator can sign in here, for the admin menu: enrolling a worker, saving a fingerprint and kiosk settings. The session ends by itself after fifteen minutes.'
           : 'Open your authenticator app and type the six digits it shows.'}
       </p>
 
