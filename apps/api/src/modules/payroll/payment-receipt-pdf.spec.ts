@@ -78,6 +78,15 @@ describe('a worker destination, masked', () => {
 });
 
 describe('the payment receipt document', () => {
+  it('is still a complete receipt when the run paid nobody', () => {
+    const text = asText({ ...RECEIPT, workers: [] });
+    expect(text).toContain('Total workers paid');
+    expect(text).toContain('(0)');
+    expect(text).toContain(money(0));
+    expect(text).not.toContain('more, listed in full');
+    expect(text).toContain('Akwaaba Bank, Ridge, account **** 0123');
+  });
+
   it('is a PDF a reader will open: header, one page, and a trailer', () => {
     const text = asText(RECEIPT);
     expect(text.startsWith('%PDF-1.4\n')).toBe(true);

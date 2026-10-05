@@ -77,6 +77,19 @@ describe('CompanyPage', () => {
     expect(screen.getByText(/Currently on file:\s*no account number/)).toBeInTheDocument();
   });
 
+  it('lets a payroll officer read the details, but offers them nothing to change', async () => {
+    await signInForTests('hr@samtec.example');
+    renderWithProviders(<CompanyPage />);
+
+    expect(await screen.findByText('Akwaaba Bank')).toBeInTheDocument();
+    expect(screen.getByText('Ridge')).toBeInTheDocument();
+    expect(screen.getByText('**** 0123')).toBeInTheDocument();
+    expect(screen.queryByText('1234567890123')).not.toBeInTheDocument();
+    expect(screen.getByText('Only an administrator can change these details.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Account number')).not.toBeInTheDocument();
+  });
+
   it('shows a clear error rather than a blank form when loading fails', async () => {
     await signInForTests('guard@samtec.example');
     renderWithProviders(<CompanyPage />);

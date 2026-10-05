@@ -540,12 +540,6 @@ export class PayrollApprovalService {
         netPayPesewas: line.netPayPesewas,
         taxYear: line.taxYear,
         adjustmentNote: line.adjustmentNote,
-        // A run cannot be PAID before it is LOCKED, and this writes the
-        // payslip at the moment it locks — so there is never a payment to
-        // stamp yet. `payslips.service.ts` prints the stamp itself, read live
-        // from the run, once one exists; the stored bytes never gain one.
-        paidOn: null,
-        paymentReference: null,
       });
       await tx.payslip.create({
         data: {

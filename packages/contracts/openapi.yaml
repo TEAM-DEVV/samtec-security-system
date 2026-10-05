@@ -8948,6 +8948,8 @@ components:
           employee,
           runStatus,
           paidAt,
+          paidOn,
+          paymentReference,
           basicMonthlyPesewas,
           daysInPeriod,
           daysEmployed,
@@ -9022,6 +9024,19 @@ components:
           description: >-
             When an ADMIN marked the run paid, or `null` while it is only
             locked.
+        paidOn:
+          type: [string, "null"]
+          format: date
+          description: >-
+            The day the money left the company's bank, as the ADMIN recorded
+            it when marking the run paid, or `null` while the run is only
+            locked. Read live from the run, like `runStatus`: the PDF itself
+            is never rebuilt, so this is where the dashboard reads it from.
+        paymentReference:
+          type: [string, "null"]
+          description: >-
+            The bank's reference for that payment, or `null` when none was
+            given or the run is not paid yet.
         basicMonthlyPesewas:
           type: integer
           description: >-

@@ -473,6 +473,8 @@ export const mockPayslips: Payslip[] = augustCalculation.lines.map((line, index)
   employee: line.employee,
   runStatus: 'PAID',
   paidAt: '2026-08-29T10:00:00Z',
+  paidOn: '2026-08-28',
+  paymentReference: 'GCB-TRF-2026-08-0031',
   basicMonthlyPesewas: line.basicMonthlyPesewas,
   daysInPeriod: line.daysInPeriod,
   daysEmployed: line.daysEmployed,

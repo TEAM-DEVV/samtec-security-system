@@ -8,16 +8,13 @@
  *   probing. Their list is scoped to themselves when they name nobody; naming
  *   another employee is the same probe by another route, so it answers 404
  *   too.
- * - **The stored file is returned byte for byte, with one live exception.**
- *   It is never rebuilt to change a figure, because a payslip somebody has
- *   already been shown must not change afterwards, and the stored fingerprint
- *   is what proves it has not. But once the run is marked paid, the PDF is
- *   rebuilt — from exactly the same frozen line, through the same
- *   `buildPayslipPdf` — so it can print the one line that could not have been
- *   true before: when it was paid, and the bank's reference. The stored bytes
- *   and their `pdfSha256` are never touched by this; they stay what was issued
- *   the moment the run locked, which is the figure `pdfSizeBytes` on the
- *   payslip row still describes.
+ * - **The stored file is returned byte for byte.** It is never rebuilt, because
+ *   a payslip somebody has already been shown must not change afterwards, and
+ *   the stored fingerprint is what proves it has not. Whether a run has since
+ *   been marked paid is still worth saying, so `paidOn` and `paymentReference`
+ *   are read live onto the JSON `Payslip` — the same way `runStatus` and
+ *   `paidAt` already were — and the dashboard prints them beside the
+ *   download; the PDF itself stays exactly what was issued at lock time.
  *
  * Almost every field of a payslip is read from the frozen payroll line rather
  * than copied again, which is why so little is stored: the line cannot change
@@ -31,7 +28,7 @@ import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { ListPayslipsQuery } from './payroll.schemas.js';
 import { badCursor, looksLikeAnId } from './payroll-cursor.js';
-import { buildPayslipPdf, payslipFileName } from './payslip-pdf.js';
+import { payslipFileName } from './payslip-pdf.js';
 
 /** Everything a payslip needs to describe itself, and nothing more. */
 const PAYSLIP_INCLUDE = {
@@ -113,11 +110,7 @@ export class PayslipsService {
   }
 
   /**
-   * The stored file, exactly as it was written when the run locked — unless
-   * the run has since been marked paid, in which case this rebuilds the same
-   * document with one line added: when it was paid, and the bank's reference.
-   * See the note at the top of this file for why that is not the same thing
-   * as rebuilding the payslip.
+   * The stored file, exactly as it was written when the run locked.
    *
    * Reading it is audited by the controller rather than here, because the
    * controller is where the response actually leaves.
@@ -127,42 +120,8 @@ export class PayslipsService {
     payslipId: string,
   ): Promise<{ bytes: Uint8Array; fileName: string; employeeId: string }> {
     const payslip = await this.byId(viewer, payslipId);
-    const bytes =
-      payslip.run.status === 'PAID'
-        ? buildPayslipPdf({
-            staffNumber: payslip.line.staffNumber,
-            fullName: payslip.line.fullName,
-            periodStartDate: toIsoDate(payslip.run.period.startsOn),
-            periodEndDate: toIsoDate(payslip.run.period.endsOn),
-            daysInPeriod: payslip.line.daysInPeriod,
-            daysEmployed: payslip.line.daysEmployed,
-            basicMonthlyPesewas: payslip.line.basicMonthlyPesewas,
-            basicPesewas: payslip.line.basicPesewas,
-            overtimeHourlyPesewas: payslip.line.overtimeHourlyPesewas,
-            overtimeMinutes: payslip.line.overtimeMinutes,
-            overtimePesewas: payslip.line.overtimePesewas,
-            taxableAllowancePesewas: payslip.line.taxableAllowancePesewas,
-            nonTaxableAllowancePesewas: payslip.line.nonTaxableAllowancePesewas,
-            grossPesewas: payslip.line.grossPesewas,
-            taxableGrossPesewas: payslip.line.taxableGrossPesewas,
-            ssnitEmployeeBasisPoints: payslip.run.taxTable.ssnitEmployeeBasisPoints,
-            ssnitEmployeePesewas: payslip.line.ssnitEmployeePesewas,
-            ssnitEmployerBasisPoints: payslip.run.taxTable.ssnitEmployerBasisPoints,
-            ssnitEmployerPesewas: payslip.line.ssnitEmployerPesewas,
-            chargeableIncomePesewas: payslip.line.chargeableIncomePesewas,
-            payePesewas: payslip.line.payePesewas,
-            otherDeductionsPesewas: payslip.line.otherDeductionsPesewas,
-            netPayPesewas: payslip.line.netPayPesewas,
-            taxYear: payslip.line.taxYear,
-            adjustmentNote: payslip.line.adjustmentNote,
-            // `markPaid` always sets both together, in the same update that
-            // moves the status to PAID.
-            paidOn: payslip.run.paidOn === null ? null : toIsoDate(payslip.run.paidOn),
-            paymentReference: payslip.run.paymentReference,
-          }).bytes
-        : new Uint8Array(payslip.pdf);
     return {
-      bytes,
+      bytes: new Uint8Array(payslip.pdf),
       fileName: payslipFileName(
         payslip.line.staffNumber,
         toIsoDate(payslip.run.period.endsOn),
@@ -300,6 +259,8 @@ function toApiPayslip(row: {
   run: {
     status: 'DRAFT' | 'PENDING_APPROVAL' | 'LOCKED' | 'PAID' | 'REJECTED';
     paidAt: Date | null;
+    paidOn: Date | null;
+    paymentReference: string | null;
     periodId: string;
     period: { startsOn: Date; endsOn: Date };
     taxTable: { ssnitEmployeeBasisPoints: number; ssnitEmployerBasisPoints: number };
@@ -317,9 +278,12 @@ function toApiPayslip(row: {
       staffNumber: row.line.staffNumber,
       fullName: row.line.fullName,
     },
-    // The two live figures: whether the money has actually gone, and when.
+    // The live figures: whether the money has actually gone, when, the day
+    // it left the bank and the bank's reference. Everything else is frozen.
     runStatus: row.run.status,
     paidAt: row.run.paidAt?.toISOString() ?? null,
+    paidOn: row.run.paidOn === null ? null : toIsoDate(row.run.paidOn),
+    paymentReference: row.run.paymentReference,
     basicMonthlyPesewas: row.line.basicMonthlyPesewas,
     daysInPeriod: row.line.daysInPeriod,
     daysEmployed: row.line.daysEmployed,

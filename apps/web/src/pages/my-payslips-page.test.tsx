@@ -36,6 +36,15 @@ describe('MyPayslipsPage', () => {
     expect(amounts.length).toBeGreaterThan(0);
   });
 
+  it('says when a paid payslip was paid, and the bank reference', async () => {
+    await signInForTests('hr@samtec.example');
+
+    renderWithProviders(<MyPayslipsPage />);
+
+    const stamps = await screen.findAllByText(/Paid .+ · GCB-TRF-2026-08-0031/);
+    expect(stamps.length).toBeGreaterThan(0);
+  });
+
   it('tells a worker with no payslips why, rather than showing an empty table', async () => {
     // The supervisor account has no employee payslips in the mock.
     await signInForTests('supervisor@samtec.example');

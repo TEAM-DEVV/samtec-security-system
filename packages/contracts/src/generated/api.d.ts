@@ -4302,6 +4302,13 @@ export interface components {
              * @description When an ADMIN marked the run paid, or `null` while it is only locked.
              */
             paidAt: string | null;
+            /**
+             * Format: date
+             * @description The day the money left the company's bank, as the ADMIN recorded it when marking the run paid, or `null` while the run is only locked. Read live from the run, like `runStatus`: the PDF itself is never rebuilt, so this is where the dashboard reads it from.
+             */
+            paidOn: string | null;
+            /** @description The bank's reference for that payment, or `null` when none was given or the run is not paid yet. */
+            paymentReference: string | null;
             /** @description The full monthly salary from the pay terms used, before any pro-rating. */
             basicMonthlyPesewas: number;
             /** @description Calendar days in the period: the bottom of the pro-rating fraction. */

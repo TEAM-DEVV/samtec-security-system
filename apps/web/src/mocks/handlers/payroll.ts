@@ -602,6 +602,8 @@ export const payrollHandlers = [
       for (const payslip of state.payslips.filter((row) => row.runId === run.id)) {
         payslip.runStatus = 'PAID';
         payslip.paidAt = run.paidAt;
+        payslip.paidOn = run.paidOn;
+        payslip.paymentReference = run.paymentReference;
       }
       return HttpResponse.json<PayrollRun>(run);
     },
@@ -1061,6 +1063,8 @@ function payslipFor(line: PayrollLine, run: PayrollRun): Payslip {
     employee: line.employee,
     runStatus: run.status,
     paidAt: run.paidAt,
+    paidOn: run.paidOn,
+    paymentReference: run.paymentReference,
     basicMonthlyPesewas: line.basicMonthlyPesewas,
     daysInPeriod: line.daysInPeriod,
     daysEmployed: line.daysEmployed,

@@ -159,6 +159,12 @@ export function MyPayslipsPage() {
                   </TableCell>
                   <TableCell>
                     <RunStatusBadge status={payslip.runStatus} />
+                    {payslip.paidOn === null ? null : (
+                      <p className="mt-1 text-muted-foreground text-xs">
+                        Paid {formatDate(payslip.paidOn)}
+                        {payslip.paymentReference === null ? '' : ` · ${payslip.paymentReference}`}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

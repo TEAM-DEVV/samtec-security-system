@@ -61,15 +61,6 @@ export interface PayslipForPdf {
   taxYear: number;
   /** Set on a correction to an earlier month, and printed as such. */
   adjustmentNote: string | null;
-  /**
-   * When the run was marked paid, or `null` before then. Read live from the
-   * run every time this is built, never stored on the payslip itself — see
-   * `payslips.service.ts` for why the stamp can change after the bytes in the
-   * database never do.
-   */
-  paidOn: string | null;
-  /** The bank's reference for the payment, or `null` if there was none to give. */
-  paymentReference: string | null;
 }
 
 /** The finished document, with what the payslip row has to record about it. */
@@ -267,22 +258,6 @@ function layout(payslip: PayslipForPdf): { lines: Line[]; rules: number[] } {
       y -= 12;
       lines.push({ x: MARGIN, y, size: 9, font: 'H', text: part });
     }
-  }
-
-  // Printed once the run is paid, and never before: before then there is
-  // nothing true to say about it, so the page says nothing new at all.
-  if (payslip.paidOn !== null) {
-    y -= 14;
-    lines.push({
-      x: MARGIN,
-      y,
-      size: 9,
-      font: 'HB',
-      text:
-        payslip.paymentReference === null
-          ? `Paid on ${payslip.paidOn}`
-          : `Paid on ${payslip.paidOn}, reference ${payslip.paymentReference}`,
-    });
   }
 
   y -= 22;

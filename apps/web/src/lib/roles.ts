@@ -35,8 +35,8 @@ export const pageRoles = {
   siteChanges: ['ADMIN', 'HR_PAYROLL'],
   /** `GET /users` and every other Users operation: sign-in accounts are an administrator's job. */
   users: ['ADMIN'],
-  /** `GET /company/bank-account`. Changing it (`PUT`) is ADMIN only too, enforced by the API. */
-  company: ['ADMIN'],
+  /** `GET /company/bank-account`: HR_PAYROLL may read it. Changing it (`PUT`) is ADMIN only, enforced by the API. */
+  company: ['ADMIN', 'HR_PAYROLL'],
   /** `GET /attendance/segments` for the company or a site. A guard sees only themselves, on "My attendance". */
   attendance: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** `GET /attendance/exceptions`: the queue. HR reads it; ADMIN and SUPERVISOR also resolve. */

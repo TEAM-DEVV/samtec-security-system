@@ -12,14 +12,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { $api } from '@/lib/api';
 import { usePageTitle } from '@/lib/page-title';
 import { describeApiError } from '@/lib/problem';
+import { useSession } from '@/lib/session';
 
 const TEXT_MIN = 2;
 const TEXT_MAX = 100;
 const ACCOUNT_NUMBER_SHAPE = /^[0-9]{5,20}$/;
 
 /**
- * The company's own record (ADMIN only): its name, and the bank account its
- * payroll is paid from.
+ * The company's own record: its name, and the bank account its payroll is
+ * paid from. An ADMIN changes it; a payroll officer (HR_PAYROLL) can read it,
+ * so they know which account the bank file and the receipts come from.
  *
  * There is no `GET` anywhere in the API that returns a full account number —
  * this screen's own `GET` shows only the last four digits, the same trap
@@ -31,6 +33,8 @@ const ACCOUNT_NUMBER_SHAPE = /^[0-9]{5,20}$/;
  */
 export function CompanyPage() {
   usePageTitle('Company');
+  const session = useSession();
+  const canEdit = session?.user.role === 'ADMIN';
   const bankAccount = $api.useQuery('get', '/company/bank-account');
 
   return (
@@ -51,7 +55,7 @@ export function CompanyPage() {
       ) : bankAccount.isPending ? (
         <LoadingCard />
       ) : (
-        <BankAccountCard account={bankAccount.data} />
+        <BankAccountCard account={bankAccount.data} canEdit={canEdit} />
       )}
     </div>
   );
@@ -70,7 +74,7 @@ function LoadingCard() {
   );
 }
 
-function BankAccountCard({ account }: { account: CompanyBankAccount }) {
+function BankAccountCard({ account, canEdit }: { account: CompanyBankAccount; canEdit: boolean }) {
   const queryClient = useQueryClient();
   const save = $api.useMutation('put', '/company/bank-account', {
     onSuccess: () => {
@@ -88,21 +92,50 @@ function BankAccountCard({ account }: { account: CompanyBankAccount }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <BankAccountForm
-          // A fresh form after every successful save, so a stale "remove it"
-          // confirmation from one attempt never carries into the next.
-          key={`${account.bankName}|${account.branch}|${account.accountName}|${account.accountNumberMasked}`}
-          account={account}
-          pending={save.isPending}
-          error={save.error}
-          saved={save.isSuccess}
-          onSubmit={(body) => {
-            save.reset();
-            save.mutate({ body });
-          }}
-        />
+        {canEdit ? (
+          <BankAccountForm
+            // A fresh form after every successful save, so a stale "remove it"
+            // confirmation from one attempt never carries into the next.
+            key={`${account.bankName}|${account.branch}|${account.accountName}|${account.accountNumberMasked}`}
+            account={account}
+            pending={save.isPending}
+            error={save.error}
+            saved={save.isSuccess}
+            onSubmit={(body) => {
+              save.reset();
+              save.mutate({ body });
+            }}
+          />
+        ) : (
+          <BankAccountDetails account={account} />
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+/** What a payroll officer sees: the details as they stand, and who can change them. */
+function BankAccountDetails({ account }: { account: CompanyBankAccount }) {
+  const rows: Array<[string, string]> = [
+    ['Bank name', account.bankName ?? 'Not set'],
+    ['Branch', account.branch ?? 'Not set'],
+    ['Account name', account.accountName ?? 'Not set'],
+    ['Account number', account.accountNumberMasked ?? 'Not set'],
+  ];
+  return (
+    <div className="grid gap-4">
+      <dl className="grid gap-3 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid gap-0.5">
+            <dt className="text-muted-foreground text-sm">{label}</dt>
+            <dd className="font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-muted-foreground text-sm">
+        Only an administrator can change these details.
+      </p>
+    </div>
   );
 }
 

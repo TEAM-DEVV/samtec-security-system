@@ -325,6 +325,31 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
     expect(text).not.toContain('9988776655443');
   });
 
+  it('shows the paid day and the reference on every payslip of the run, without touching the stored PDF', async () => {
+    const { runId } = await paidRun();
+    const payslips = await api()
+      .get(`/api/v1/payroll/payslips?runId=${runId}`)
+      .set(...bearer(token.admin))
+      .expect(200);
+    expect(payslips.body.items.length).toBeGreaterThan(0);
+    for (const payslip of payslips.body.items) {
+      expect(payslip.runStatus).toBe('PAID');
+      expect(payslip.paidOn).toBe('2026-09-20');
+      expect(payslip.paymentReference).toBe('GCB-TRF-2026-09-0099');
+    }
+
+    // The file itself is the one made when the run locked: the paid stamp
+    // lives in the JSON, never in a rebuilt PDF.
+    const first = payslips.body.items[0];
+    const stored = await prisma.payslip.findUniqueOrThrow({ where: { id: first.id } });
+    const download = await api()
+      .get(`/api/v1/payroll/payslips/${first.id}/pdf`)
+      .set(...bearer(token.admin))
+      .expect(200);
+    expect(Buffer.from(download.body as Buffer).equals(Buffer.from(stored.pdf))).toBe(true);
+    expect(Buffer.from(download.body as Buffer).toString('latin1')).not.toContain('Paid on');
+  });
+
   it('refuses a supervisor and a guard, the same as every other payroll download', async () => {
     await worker(BANK_WORKER);
     const { runId } = await paidRun();
