@@ -9,6 +9,15 @@ import { $api } from '@/lib/api';
 import { usePageTitle } from '@/lib/page-title';
 
 /**
+ * Shown once on the new employee's own page, read there through
+ * `noticeFrom(useLocation().state)` the same way a changed password explains
+ * itself on the sign-in page. A fresh hire is not paid until both pay terms
+ * and a face are on file, so the landing says so before anyone wonders why.
+ */
+export const WORKER_REGISTERED_NOTICE =
+  'Worker registered. Next: add their pay terms and bank details below so they can be paid, then enrol their face at the kiosk.';
+
+/**
  * Registers a new employee (ADMIN and HR_PAYROLL).
  *
  * The API generates the staff number, so this form never asks for one. A new
@@ -25,7 +34,9 @@ export function NewEmployeePage() {
     onSuccess: (employee) => {
       // The list is out of date now; reload it next time it is shown.
       void queryClient.invalidateQueries({ queryKey: ['get', '/employees'] });
-      void navigate(routes.employee(employee.id));
+      void navigate(routes.employee(employee.id), {
+        state: { notice: WORKER_REGISTERED_NOTICE },
+      });
     },
   });
 

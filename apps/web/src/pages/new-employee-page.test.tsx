@@ -5,13 +5,25 @@ import { describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
-import { NewEmployeePage } from './new-employee-page';
+import { EmployeeDetailPage } from './employee-detail-page';
+import { NewEmployeePage, WORKER_REGISTERED_NOTICE } from './new-employee-page';
 
 function renderPage() {
   return renderWithProviders(
     <Routes>
       <Route path={routes.newEmployee} element={<NewEmployeePage />} />
       <Route path="/employees/:employeeId" element={<p>The new record</p>} />
+    </Routes>,
+    { route: routes.newEmployee },
+  );
+}
+
+/** The page plus the real employee page, which shows the one-time notice afterwards. */
+function renderPageToRealDetail() {
+  return renderWithProviders(
+    <Routes>
+      <Route path={routes.newEmployee} element={<NewEmployeePage />} />
+      <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
     </Routes>,
     { route: routes.newEmployee },
   );
@@ -82,5 +94,16 @@ describe('NewEmployeePage', () => {
 
     expect(await screen.findByLabelText('Post at the site')).toBeInTheDocument();
     expect(screen.getByLabelText('Shift worked')).toBeInTheDocument();
+  });
+
+  it('lands on the new record with a one-time notice to add pay terms and enrol the face', async () => {
+    await signInForTests('hr@samtec.example');
+    const user = userEvent.setup();
+    renderPageToRealDetail();
+
+    await fillTheForm(user, 'GHA-987654329-0');
+    await user.click(screen.getByRole('button', { name: 'Register employee' }));
+
+    expect(await screen.findByText(WORKER_REGISTERED_NOTICE)).toBeInTheDocument();
   });
 });
