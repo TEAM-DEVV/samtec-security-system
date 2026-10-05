@@ -2186,6 +2186,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/invoices/{month}.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A client invoice for one site and one month, as a PDF
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR and a GUARD may never read one (`403`), even for a site they are posted to.
+         *     Lists every worker who had a counted (confirmed) worked shift at this site in this month, with their name, staff number, hours worked, the hourly rate and the amount, then the total hours and the subtotal. Taxes are never added: the page says plainly that they are not included, rather than guessing a client's VAT rule.
+         *     There is no saved rate yet, so `hourlyRatePesewas` is sent with every request; a per-site default can be added later without changing this shape.
+         *     Built fresh from the attendance records every time it is asked for, never stored, so downloading it twice is harmless.
+         */
+        get: operations["downloadSiteInvoicePdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8157,6 +8183,41 @@ export interface operations {
             200: {
                 headers: {
                     /** @description Always `attachment`, with the file name `payroll-summary-<YYYY-MM>.pdf`. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadSiteInvoicePdf: {
+        parameters: {
+            query: {
+                /** @description The rate to bill per hour counted, in pesewas. */
+                hourlyRatePesewas: number;
+            };
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The calendar month to invoice, as `YYYY-MM`. */
+                month: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invoice. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `invoice-<site code>-<YYYY-MM>.pdf`, for example `invoice-ACC-01-2026-09.pdf`. */
                     "Content-Disposition"?: string;
                     "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;

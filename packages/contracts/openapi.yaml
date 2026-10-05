@@ -85,10 +85,11 @@ tags:
   - name: Reports
     description: >-
       The figures a manager reads at a glance, and the files they take away:
-      who is present, how much absence there is, what payroll is costing, and
-      CSV downloads of the numbers behind each. Every figure is counted from
-      the same tables the screens read, so a report can never disagree with the
-      page beside it. Built in Phase 6.
+      who is present, how much absence there is, what payroll is costing, CSV
+      downloads of the numbers behind each, and a client invoice for one site
+      and one month. Every figure is counted from the same tables the screens
+      read, so a report can never disagree with the page beside it. Built in
+      Phase 6.
 
 security:
   - bearerAuth: []
@@ -4564,6 +4565,64 @@ paths:
               description: >-
                 Always `attachment`, with the file name
                 `payroll-summary-<YYYY-MM>.pdf`.
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sites/{siteId}/invoices/{month}.pdf:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      operationId: downloadSiteInvoicePdf
+      tags: [Reports]
+      summary: A client invoice for one site and one month, as a PDF
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR and a GUARD may never read
+        one (`403`), even for a site they are posted to.
+
+        Lists every worker who had a counted (confirmed) worked shift at this
+        site in this month, with their name, staff number, hours worked, the
+        hourly rate and the amount, then the total hours and the subtotal.
+        Taxes are never added: the page says plainly that they are not
+        included, rather than guessing a client's VAT rule.
+
+        There is no saved rate yet, so `hourlyRatePesewas` is sent with every
+        request; a per-site default can be added later without changing this
+        shape.
+
+        Built fresh from the attendance records every time it is asked for,
+        never stored, so downloading it twice is harmless.
+      parameters:
+        - name: month
+          in: path
+          required: true
+          description: The calendar month to invoice, as `YYYY-MM`.
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+        - name: hourlyRatePesewas
+          in: query
+          required: true
+          description: The rate to bill per hour counted, in pesewas.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000000
+      responses:
+        "200":
+          description: The invoice.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: >-
+                Always `attachment`, with the file name
+                `invoice-<site code>-<YYYY-MM>.pdf`, for example
+                `invoice-ACC-01-2026-09.pdf`.
             Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/pdf:
