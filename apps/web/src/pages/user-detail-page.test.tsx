@@ -146,4 +146,28 @@ describe('UserDetailPage', () => {
 
     expect(await screen.findByText('No account found')).toBeInTheDocument();
   });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('admin@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/users/:userId`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderAccountPage(HR_ID);
+
+    expect(await screen.findByText('The account could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
 });

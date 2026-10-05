@@ -1,6 +1,9 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { env } from '@/lib/env';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { AttendancePage } from './attendance-page';
@@ -45,5 +48,29 @@ describe('AttendancePage', () => {
 
     await screen.findAllByRole('link', { name: 'Kwame Kofi Mensah' });
     expect(screen.queryByText('ACC-02 · East Legon Residences')).not.toBeInTheDocument();
+  });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('admin@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/attendance/segments`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<AttendancePage />);
+
+    expect(await screen.findByText('Shifts could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

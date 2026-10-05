@@ -1,6 +1,9 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { env } from '@/lib/env';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { nextMonthToOpen, PayrollPage } from './payroll-page';
@@ -60,6 +63,30 @@ describe('PayrollPage', () => {
     await screen.findByRole('cell', { name: 'September 2026' });
     // Better than an empty cell, which reads as a page that failed to load.
     expect(screen.getAllByText(/None yet|Open it/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('hr@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/payroll/periods`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<PayrollPage />);
+
+    expect(await screen.findByText('The months could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
 

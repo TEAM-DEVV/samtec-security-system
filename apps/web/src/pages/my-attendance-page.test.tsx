@@ -1,5 +1,8 @@
 import { screen } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { env } from '@/lib/env';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { MyAttendancePage } from './my-attendance-page';
@@ -24,5 +27,29 @@ describe('MyAttendancePage', () => {
     expect(
       await screen.findByText('No employee record is linked to your account'),
     ).toBeInTheDocument();
+  });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('guard@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/attendance/segments`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<MyAttendancePage />);
+
+    expect(await screen.findByText('Your shifts could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
