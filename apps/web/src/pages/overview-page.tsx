@@ -1,12 +1,10 @@
 import { cn } from 'cn';
-import { ArrowRight, CircleCheck, CircleX } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router';
 import { routes } from '@/app/routes';
 import { ChainPills } from '@/components/chain-pills';
 import { navItemsFor } from '@/components/layout/nav-items';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { $api } from '@/lib/api';
 import { firstName, formatLongDate, greetingForNow } from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
 import { roleDescriptions, roleLabels } from '@/lib/roles';
@@ -26,12 +24,11 @@ const CARD_DELAYS = [
 
 /**
  * The first page after sign-in: a greeting, the pages this role may open,
- * what is coming in later phases, and whether the API is healthy.
+ * what is coming in later phases.
  */
 export function OverviewPage() {
   usePageTitle('Overview');
   const session = useSession();
-  const health = $api.useQuery('get', '/health', {}, { retry: false });
 
   if (session === null) {
     return null;
@@ -40,9 +37,6 @@ export function OverviewPage() {
   const items = navItemsFor(user.role).filter((item) => item.to !== routes.home);
   const openNow = items.filter((item) => item.available);
   const comingLater = items.filter((item) => !item.available);
-  // Trust `data` only when the latest check succeeded: React Query keeps the
-  // older good answer in `data` after a failed re-check.
-  const healthy = !health.isError && health.data?.status === 'ok';
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -112,37 +106,6 @@ export function OverviewPage() {
         </Card>
 
         <Card className="stagger-5 motion-safe:animate-rise">
-          <CardHeader>
-            <CardTitle className="font-heading text-lg">System</CardTitle>
-            <CardDescription>
-              <Link to={routes.status} className="underline underline-offset-4">
-                Full status page
-              </Link>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {health.isPending ? (
-              <Skeleton className="h-6 w-40" />
-            ) : (
-              <p
-                className={
-                  healthy
-                    ? 'flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400'
-                    : 'flex items-center gap-2 font-medium text-destructive'
-                }
-              >
-                {healthy ? (
-                  <CircleCheck aria-hidden="true" className="size-5" />
-                ) : (
-                  <CircleX aria-hidden="true" className="size-5" />
-                )}
-                {healthy ? 'API and database are up' : 'The API needs attention'}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="stagger-6 motion-safe:animate-rise">
           <CardHeader>
             <CardTitle className="font-heading text-lg">Coming in later phases</CardTitle>
             <CardDescription>Built one phase at a time, each with a working demo.</CardDescription>

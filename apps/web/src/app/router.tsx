@@ -33,7 +33,6 @@ import { ReportsPage } from '@/pages/reports-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SetPasswordPage } from '@/pages/set-password-page';
 import { SitesPage } from '@/pages/sites-page';
-import { SystemStatusPage } from '@/pages/system-status-page';
 import { TerminateEmployeePage } from '@/pages/terminate-employee-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
 import { TwoFactorVerifyPage } from '@/pages/two-factor-verify-page';
@@ -71,7 +70,6 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <OverviewPage /> },
-      { path: 'status', element: <SystemStatusPage /> },
       { path: 'account/password', element: <ChangePasswordPage /> },
       {
         path: 'employees',

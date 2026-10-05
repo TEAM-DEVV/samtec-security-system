@@ -4,7 +4,6 @@
  */
 export const routes = {
   home: '/',
-  status: '/status',
   login: '/login',
   employees: '/employees',
   /** Register a new employee (ADMIN and HR_PAYROLL). */

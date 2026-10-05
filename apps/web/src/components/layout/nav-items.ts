@@ -1,6 +1,5 @@
 import type { UserRole } from '@samtec/contracts';
 import {
-  Activity,
   BarChart3,
   CalendarClock,
   Clock,
@@ -159,14 +158,6 @@ export const navItems: NavItem[] = [
     phase: 1,
     available: true,
     roles: pageRoles.users,
-  },
-  {
-    label: 'System status',
-    description: 'Whether the dashboard can reach the API and the API its database.',
-    to: routes.status,
-    icon: Activity,
-    phase: 0,
-    available: true,
   },
 ];
 
