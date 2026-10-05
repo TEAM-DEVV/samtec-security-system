@@ -17,6 +17,7 @@
  * character WinAnsi cannot carry. This prints the currency code `GHS`
  * instead, which every reader shows correctly.
  */
+import { divideHalfUp } from '../payroll/pay-calculation.js';
 import {
   assemblePdf,
   type BuiltPdf,
@@ -47,9 +48,11 @@ const NAME_WIDTH = STAFF_X - NAME_X - 14;
 /**
  * How much room the totals and the closing note always need at the bottom of
  * the page. A row stops being printed once there is not this much space left
- * above the margin, and the rest are summarised in one line instead.
+ * above the margin, and the rest are summarised instead — a summary that now
+ * carries its own hours and amount, so it can run to a second line for a
+ * very large omitted total; this leaves room for a few.
  */
-const BOTTOM_RESERVED = 110;
+const BOTTOM_RESERVED = 160;
 
 /** One worker's share of the month: minutes worked, at the one rate the whole invoice bills. */
 export interface InvoiceLineForPdf {
@@ -76,19 +79,16 @@ export interface SiteInvoiceForPdf {
 }
 
 /**
- * Minutes billed at a rate, in pesewas, rounded half up.
- *
- * Both inputs are always zero or more here — a confirmed shift cannot have
- * negative minutes, and the rate is validated above zero before this is ever
- * called — so this needs none of the sign-handling `divideHalfUp` in
- * `payroll/pay-calculation.ts` does for a payslip's negative adjustment
- * lines. BigInt keeps the rounding exact: a worker's pesewas are never found
- * by floating-point division.
+ * Minutes billed at a rate, in pesewas, rounded half up — the same
+ * `divideHalfUp` a payslip's overtime is rounded by
+ * (`payroll/pay-calculation.ts`), so the two never round the same kind of
+ * figure two different ways. Its sign-handling is more than this needs (a
+ * confirmed shift cannot have negative minutes, and the rate is validated
+ * above zero before this is ever called), but it is the one place in the
+ * codebase this division is already proven correct.
  */
 export function lineAmountPesewas(workedMinutes: number, hourlyRatePesewas: number): number {
-  const numerator = BigInt(Math.round(workedMinutes)) * BigInt(Math.round(hourlyRatePesewas));
-  const denominator = 60n;
-  return Number((numerator * 2n + denominator) / (denominator * 2n));
+  return Number(divideHalfUp(BigInt(workedMinutes) * BigInt(hourlyRatePesewas), 60n));
 }
 
 /** Minutes as the two-decimal hours an invoice bills: 10350 → "172.50h". */
@@ -206,6 +206,8 @@ export function buildSiteInvoicePdf(invoice: SiteInvoiceForPdf): BuiltPdf {
   // a fixed count would have let enough long names run the table off the
   // bottom of the page.
   let shownCount = 0;
+  let shownMinutes = 0;
+  let shownPesewas = 0;
   for (const line of invoice.lines) {
     const nameParts = wrapToWidth(line.fullName, 9, NAME_WIDTH);
     const neededHeight = nameParts.length * row;
@@ -228,18 +230,25 @@ export function buildSiteInvoicePdf(invoice: SiteInvoiceForPdf): BuiltPdf {
       y -= row;
     }
     shownCount += 1;
+    shownMinutes += line.workedMinutes;
+    shownPesewas += amountPesewas;
   }
 
   const omitted = invoice.lines.length - shownCount;
   if (omitted > 0) {
-    lines.push({
-      x: MARGIN,
-      y,
-      size: 8,
-      font: 'H',
-      text: `and ${omitted} more worker${omitted === 1 ? '' : 's'}, in the attendance report for this site.`,
-    });
-    y -= row;
+    // The rows not printed still have their own hours and amount, so the
+    // visible rows plus this one line still add up to the total below —
+    // the same "check it with a calculator" promise the rest of the page
+    // keeps, even for the one line that is not itself a worker's row.
+    const omittedHours = hoursForInvoice(totalMinutes - shownMinutes);
+    const omittedAmount = moneyWithCurrency(subtotalPesewas - shownPesewas);
+    const text =
+      `and ${omitted} more worker${omitted === 1 ? '' : 's'} (${omittedHours}, ${omittedAmount}), ` +
+      'in the attendance report for this site.';
+    for (const part of wrapToWidth(text, 8)) {
+      lines.push({ x: MARGIN, y, size: 8, font: 'H', text: part });
+      y -= row;
+    }
   }
 
   y -= 6;

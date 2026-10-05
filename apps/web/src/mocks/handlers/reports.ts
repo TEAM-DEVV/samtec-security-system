@@ -199,7 +199,13 @@ export const reportHandlers = [
       const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
       if (refused) return refused;
 
-      if (!isUuid(params.siteId) || !mockSites.some((site) => site.id === params.siteId)) {
+      // Same shape as GET /sites/:siteId: a malformed id is a 400, one that
+      // simply does not exist is a 404.
+      if (!isUuid(params.siteId)) {
+        return validationProblem('siteId', 'Must be a valid ID.');
+      }
+      const site = mockSites.find((candidate) => candidate.id === params.siteId);
+      if (!site) {
         return notFound('No site exists with this ID.');
       }
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(params.month)) {
@@ -212,11 +218,10 @@ export const reportHandlers = [
         return validationProblem('hourlyRatePesewas', 'Must be a whole number of at least 1.');
       }
 
-      const site = mockSites.find((candidate) => candidate.id === params.siteId);
-      return new HttpResponse(`%PDF-1.4\n%mock invoice for ${site?.code} ${params.month}\n%%EOF`, {
+      return new HttpResponse(`%PDF-1.4\n%mock invoice for ${site.code} ${params.month}\n%%EOF`, {
         headers: {
           'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="invoice-${site?.code}-${params.month}.pdf"`,
+          'Content-Disposition': `attachment; filename="invoice-${site.code}-${params.month}.pdf"`,
           ...noStore,
         },
       });

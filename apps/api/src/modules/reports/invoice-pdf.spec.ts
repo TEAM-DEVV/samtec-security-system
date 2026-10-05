@@ -32,6 +32,37 @@ const INVOICE: SiteInvoiceForPdf = {
 const asText = (invoice: SiteInvoiceForPdf) =>
   Buffer.from(buildSiteInvoicePdf(invoice).bytes).toString('latin1');
 
+/** Every piece of text the page draws, with where it was put. */
+const placements = (invoice: SiteInvoiceForPdf) => {
+  const text = asText(invoice);
+  const stream = text.slice(text.indexOf('stream\n') + 7, text.indexOf('\nendstream'));
+  return [
+    ...stream.matchAll(/BT \/(\w+) ([\d.]+) Tf 1 0 0 1 ([\d.-]+) ([\d.-]+) Tm \((.*)\) Tj ET/g),
+  ].map((match) => ({
+    font: match[1] as string,
+    size: Number(match[2]),
+    x: Number(match[3]),
+    y: Number(match[4]),
+    body: match[5] as string,
+  }));
+};
+
+/**
+ * The omitted-rows summary, reconstructed from however many lines it was
+ * wrapped to (size 8 is used nowhere else on the page). Rejoining with a
+ * single space undoes `wrapToWidth`'s own word-wrap exactly, and undoing
+ * `textForPdf`'s own escaping of `(`, `)` and `\` turns it back into the
+ * plain sentence a reader sees, so a test can read it whole no matter where
+ * it happened to break.
+ */
+const omittedSummary = (invoice: SiteInvoiceForPdf) =>
+  placements(invoice)
+    .filter((placement) => placement.size === 8)
+    .sort((a, b) => b.y - a.y)
+    .map((placement) => placement.body)
+    .join(' ')
+    .replaceAll(/\\([\\()])/g, '$1');
+
 describe('billing minutes at a rate', () => {
   it('rounds half up, the same rule payroll rounds overtime pay by', () => {
     expect(lineAmountPesewas(60, 1_500)).toBe(1_500); // exactly one hour
@@ -125,19 +156,42 @@ describe('the invoice document', () => {
     expect(text).toContain('GHS 0.00');
   });
 
-  it('still bills every hour when there are more workers than fit on one page', () => {
+  it('still bills every hour when there are more workers than fit on one page, and the summary line itself adds up', () => {
+    // Long enough names that not every one of the 50 fits on the page.
     const many: InvoiceLineForPdf[] = Array.from({ length: 50 }, (_, index) => ({
       staffNumber: `SMT-${String(index + 1).padStart(5, '0')}`,
-      fullName: `Worker Number ${index + 1}`,
+      fullName: `Nana Worker Number ${index + 1} Mensah-Boateng`,
       workedMinutes: 60,
     }));
-    const text = asText({ ...INVOICE, lines: many });
-    // Every one of the 50 hours is still billed, even though not every row is printed.
-    expect(text).toContain('50.00h');
+    const invoice = { ...INVOICE, lines: many };
+    const text = asText(invoice);
+
+    // The grand total always covers all 50 workers' hours and amount, however
+    // many rows are printed.
+    expect(text).toContain(hoursForInvoice(50 * 60));
     expect(text).toContain(
       moneyWithCurrency(lineAmountPesewas(60, INVOICE.hourlyRatePesewas) * 50),
     );
-    expect(text).toMatch(/and \d+ more worker/);
+
+    const summary = /and (\d+) more workers? \(([\d.]+h), (GHS [\d,.]+)\)/.exec(
+      omittedSummary(invoice),
+    );
+    expect(summary).not.toBeNull();
+    const omittedCount = Number(summary?.[1]);
+    expect(omittedCount).toBeGreaterThan(0);
+    expect(omittedCount).toBeLessThan(50);
+
+    // The summary line's own hours and amount are exactly the rows it left
+    // out — neither more (double-counted) nor less (quietly dropped) than
+    // what the visible rows plus this one line need to reach the total above.
+    expect(summary?.[2]).toBe(hoursForInvoice(omittedCount * 60));
+    expect(summary?.[3]).toBe(
+      moneyWithCurrency(lineAmountPesewas(60, INVOICE.hourlyRatePesewas) * omittedCount),
+    );
+
+    // And that count is exactly the workers not among the printed rows.
+    const shownStaffNumbers = new Set(text.match(/SMT-\d{5}/g));
+    expect(shownStaffNumbers.size).toBe(50 - omittedCount);
   });
 
   it('cannot be made to inject a drawing operator through a name', () => {
@@ -153,21 +207,6 @@ describe('the invoice document', () => {
 });
 
 describe('the layout stays on the page', () => {
-  /** Every piece of text the page draws, with where it was put. */
-  const placements = (invoice: SiteInvoiceForPdf) => {
-    const text = asText(invoice);
-    const stream = text.slice(text.indexOf('stream\n') + 7, text.indexOf('\nendstream'));
-    return [
-      ...stream.matchAll(/BT \/(\w+) ([\d.]+) Tf 1 0 0 1 ([\d.-]+) ([\d.-]+) Tm \((.*)\) Tj ET/g),
-    ].map((match) => ({
-      font: match[1] as string,
-      size: Number(match[2]),
-      x: Number(match[3]),
-      y: Number(match[4]),
-      body: match[5] as string,
-    }));
-  };
-
   const MANY_LONG_NAMES: InvoiceLineForPdf[] = Array.from({ length: 50 }, (_, index) => ({
     staffNumber: `SMT-${String(index + 1).padStart(5, '0')}`,
     fullName: 'Nana Adwoa Serwaa Yeboah-Asantewaa Boateng Mensah',
