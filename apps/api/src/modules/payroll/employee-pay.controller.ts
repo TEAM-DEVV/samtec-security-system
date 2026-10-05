@@ -19,8 +19,8 @@ import {
 
 /**
  * `/api/v1/employees/{employeeId}/pay-terms` and `.../payment-details`.
- * Contract: `listEmployeePayTerms`, `setEmployeePayTerms` and
- * `setEmployeePaymentDetails`.
+ * Contract: `listEmployeePayTerms`, `setEmployeePayTerms`,
+ * `getEmployeePaymentDetails` and `setEmployeePaymentDetails`.
  *
  * These hang off an employee rather than off `/payroll`, because they belong
  * to a person rather than to a month — but they are payroll data, owned by the
@@ -58,6 +58,17 @@ export class EmployeePayController {
     const terms = await this.pay.setPayTerms(caller, employeeId, body);
     response.setHeader('Location', `/api/v1/employees/${employeeId}/pay-terms`);
     return terms;
+  }
+
+  @Get(':employeeId/payment-details')
+  async getPaymentDetails(
+    @Caller() caller: SignedInUser,
+    @Param('employeeId', { schema: idSchema }) employeeId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<EmployeePaymentDetails> {
+    // Personal data: no browser or proxy may keep a copy of this answer.
+    response.setHeader('Cache-Control', 'no-store');
+    return this.pay.getPaymentDetails(caller, employeeId);
   }
 
   @NeedsPassword()

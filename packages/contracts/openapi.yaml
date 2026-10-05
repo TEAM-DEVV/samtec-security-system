@@ -4323,6 +4323,37 @@ paths:
   /employees/{employeeId}/payment-details:
     parameters:
       - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Payroll]
+      operationId: getEmployeePaymentDetails
+      summary: Where an employee's salary is paid
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Reads back what the `PUT` on this same
+        address last stored, for the dashboard's Pay card. **This is personal
+        data**, so the answer carries `Cache-Control: no-store` and is never
+        logged or put in an error message, exactly like the `PUT`. A worker
+        nobody has entered details for yet answers `404` rather than an object
+        full of nulls, because the row only starts to exist once something is
+        saved into it; an employee this caller may not see also answers `404`.
+      responses:
+        "200":
+          description: The stored payment details.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeePaymentDetails"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     put:
       tags: [Payroll]
       operationId: setEmployeePaymentDetails
@@ -4341,9 +4372,9 @@ paths:
         never returned by any list endpoint, so no run, line or payslip carries
         it; a rejected field is named, never quoted. The audit entry records
         that the details changed and who changed them, never the values, and the
-        answer carries `Cache-Control: no-store`. There is no `GET`: these
-        details exist to be paid into, and the only other place they are read is
-        the run's bank export.
+        answer carries `Cache-Control: no-store`. The matching `GET` reads these
+        same details back for the dashboard; a run's bank export is the only
+        other place they are read.
       requestBody:
         required: true
         content:

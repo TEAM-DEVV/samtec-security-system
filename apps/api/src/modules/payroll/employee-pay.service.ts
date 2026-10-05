@@ -16,7 +16,7 @@
  * This module never writes the `employees` table. It asks the workforce
  * module whether a worker exists, which also decides the 404.
  */
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   EmployeePaymentDetails as ApiPaymentDetails,
   EmployeePayTerms as ApiPayTerms,
@@ -157,6 +157,23 @@ export class EmployeePayService {
     });
 
     return toApiPayTerms(created);
+  }
+
+  /**
+   * Where a worker's salary is sent, for the dashboard's Pay card.
+   *
+   * The row only starts to exist once a `PUT` saves something into it, so a
+   * worker nobody has entered details for yet answers 404 rather than an
+   * object full of nulls — that is how the dashboard tells "nothing saved"
+   * from "saved as blank".
+   */
+  async getPaymentDetails(viewer: SignedInUser, employeeId: string): Promise<ApiPaymentDetails> {
+    await this.employees.statusOf(viewer.companyId, employeeId, this.prisma);
+    const details = await this.prisma.employeePaymentDetails.findUnique({ where: { employeeId } });
+    if (details === null) {
+      throw new NotFoundException('No payment details are on file for this employee yet.');
+    }
+    return toApiPaymentDetails(details);
   }
 
   /**

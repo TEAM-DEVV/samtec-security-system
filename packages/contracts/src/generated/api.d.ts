@@ -1967,10 +1967,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Where an employee's salary is paid
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Reads back what the `PUT` on this same address last stored, for the dashboard's Pay card. **This is personal data**, so the answer carries `Cache-Control: no-store` and is never logged or put in an error message, exactly like the `PUT`. A worker nobody has entered details for yet answers `404` rather than an object full of nulls, because the row only starts to exist once something is saved into it; an employee this caller may not see also answers `404`.
+         */
+        get: operations["getEmployeePaymentDetails"];
         /**
          * Set where an employee's salary is paid
-         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. There is no `GET`: these details exist to be paid into, and the only other place they are read is the run's bank export.
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The matching `GET` reads these same details back for the dashboard; a run's bank export is the only other place they are read.
          */
         put: operations["setEmployeePaymentDetails"];
         post?: never;
@@ -8103,6 +8107,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getEmployeePaymentDetails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored payment details. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePaymentDetails"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     setEmployeePaymentDetails: {

@@ -136,6 +136,10 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .set(...bearer(token.guard))
         .expect(403);
       await api()
+        .get(`/api/v1/employees/${company.active.id}/payment-details`)
+        .set(...bearer(token.guard))
+        .expect(403);
+      await api()
         .put(`/api/v1/employees/${company.active.id}/payment-details`)
         .set(...bearer(token.guard))
         .send({ bankName: null, accountName: null, accountNumber: null, momoNumber: null })
@@ -739,6 +743,38 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
       expect(saved.headers['cache-control']).toBe('no-store');
       expect(saved.body.accountNumber).toBe('1234567890');
       expect(saved.body.updatedByUserId).toBe(company.hrUserId);
+    });
+
+    it('reads the destination back for the dashboard, also forbidding any copy', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '5551234567' }))
+        .expect(200);
+
+      const read = await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(read.headers['cache-control']).toBe('no-store');
+      expect(read.body.accountNumber).toBe('5551234567');
+      expect(read.body.bankName).toBe('Akwaaba Bank');
+    });
+
+    it('answers 404 for a worker nobody has entered details for yet, not an object of nulls', async () => {
+      const worker = await freshWorker();
+      await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(404);
+    });
+
+    it('answers 404 reading a worker of another company, same as setting them', async () => {
+      await api()
+        .get(`/api/v1/employees/${other.active.id}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(404);
     });
 
     it('replaces the destination in place, because only the latest one matters', async () => {

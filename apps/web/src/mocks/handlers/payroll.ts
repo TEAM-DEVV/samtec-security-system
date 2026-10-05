@@ -997,6 +997,26 @@ export const payrollHandlers = [
     },
   ),
 
+  http.get<{ employeeId: string }, never, OrProblem<EmployeePaymentDetails>>(
+    apiUrl('/employees/:employeeId/payment-details'),
+    ({ params, request }) => {
+      const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
+      if (refused) return refused;
+      const bad = idProblem(params.employeeId, 'employeeId');
+      if (bad) return bad;
+      if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
+        return notFound('No employee exists with this ID.');
+      }
+      // The row only starts to exist once a PUT saves something into it: 404,
+      // never an object of nulls, so the dashboard can tell the two apart.
+      const details = state.paymentDetails.find((row) => row.employeeId === params.employeeId);
+      if (details === undefined) {
+        return notFound('No payment details are on file for this employee yet.');
+      }
+      return HttpResponse.json<EmployeePaymentDetails>(details, { headers: noStore });
+    },
+  ),
+
   http.put<{ employeeId: string }, Record<string, unknown>, OrProblem<EmployeePaymentDetails>>(
     apiUrl('/employees/:employeeId/payment-details'),
     async ({ params, request }) => {

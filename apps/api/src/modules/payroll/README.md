@@ -78,20 +78,30 @@ The rules the **database** enforces live in the migration
 
 ## A trap for the payment details screen
 
-**There is no `GET` for payment details, and that is deliberate** — the fewer
-places a bank account number can be read, the fewer places it can leak. But it
-has a consequence the screen must handle, because the API cannot.
+**`GET /employees/{id}/payment-details` exists, but it was refused for a long
+time on purpose** — the fewer places a bank account number can be read, the
+fewer places it can leak. It was added only once the dashboard needed to show
+a worker's current bank destination and say "Not on file" for an empty one,
+which cannot be done honestly without reading it back from somewhere. If you
+are looking at this file because that trade-off needs revisiting, that is the
+history: it was not an oversight the first time.
 
-`PUT /employees/{id}/payment-details` requires all four fields and replaces all
-four. A screen cannot pre-fill the form, because nothing will tell it what is
-there now. So a form that sends only the mobile money number, leaving the bank
-fields as empty strings or `null`, **silently wipes the bank account** — and
-nothing will report an error, because clearing a field is a legitimate thing to
-ask for.
+What stayed from the original design: the `GET` answers to exactly the roles
+the `PUT` does (never a SUPERVISOR, never a GUARD), the answer carries
+`Cache-Control: no-store` like the `PUT`, the row is never written to a log or
+an error message, and it is still never returned by any list — it is a
+single record addressed by one employee's ID, nothing more. A worker nobody
+has entered details for yet answers `404`, not an object of nulls, so the
+dashboard — and anyone reading a response — can tell "nothing saved" from
+"saved as blank" without that answer ever holding four real-looking nulls.
 
-The screen therefore has to say plainly that saving replaces every payment
-detail, and ask for all of them together. Do not solve this by adding a `GET`;
-solve it in the form.
+`PUT /employees/{id}/payment-details` still requires all four fields and
+replaces all four: sending only the mobile money number, with the bank fields
+`null`, **wipes the bank account**, and nothing reports an error, because
+clearing a field is a legitimate thing to ask for. The screen pre-fills its
+form from the `GET` precisely so that editing one field does not silently
+discard the other three, and still has to say plainly that saving replaces
+every payment detail at once.
 
 ## Writing tests that touch these tables
 

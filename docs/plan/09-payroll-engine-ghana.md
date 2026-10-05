@@ -467,7 +467,7 @@ and operation with its module prefix (`PayrollRun`, `listPayrollRuns`).
 | `GET /payroll/payslips`, `GET /payroll/payslips/{id}` | The owning guard, ADMIN, HR_PAYROLL |
 | `GET /payroll/payslips/{id}/pdf` | The owning guard, ADMIN, HR_PAYROLL — `application/pdf` |
 | `GET`/`POST /payroll/tax-tables` | ADMIN |
-| `GET`/`PUT /employees/{id}/pay-terms`, `PUT /employees/{id}/payment-details` | ADMIN, HR_PAYROLL |
+| `GET`/`PUT /employees/{id}/pay-terms`, `GET`/`PUT /employees/{id}/payment-details` | ADMIN, HR_PAYROLL |
 
 The contract has been JSON-only until now. These are the first two downloads:
 document their content types in `openapi.yaml` and update the "JSON only" line
