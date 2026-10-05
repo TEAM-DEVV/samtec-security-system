@@ -53,11 +53,15 @@ describe('a worker destination, masked', () => {
   });
 
   it('names mobile money by its last four digits when there is no bank account', () => {
-    expect(destinationFor(WORKERS[1] as PaymentReceiptWorkerInput)).toBe('mobile money ending 4567');
+    expect(destinationFor(WORKERS[1] as PaymentReceiptWorkerInput)).toBe(
+      'mobile money ending 4567',
+    );
   });
 
   it('says plainly when nobody has set up a destination at all', () => {
-    expect(destinationFor(WORKERS[2] as PaymentReceiptWorkerInput)).toBe('no payment details on file');
+    expect(destinationFor(WORKERS[2] as PaymentReceiptWorkerInput)).toBe(
+      'no payment details on file',
+    );
   });
 
   it('prefers the bank account when both are on file', () => {
@@ -113,7 +117,12 @@ describe('the payment receipt document', () => {
   });
 
   it('says plainly when the company has not set up a bank account yet', () => {
-    const text = asText({ ...RECEIPT, payingBankName: null, payingBranch: null, payingAccountNumberMasked: null });
+    const text = asText({
+      ...RECEIPT,
+      payingBankName: null,
+      payingBranch: null,
+      payingAccountNumberMasked: null,
+    });
     expect(text).toContain('No bank account was on file');
   });
 

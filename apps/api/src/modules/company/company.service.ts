@@ -120,7 +120,10 @@ export class CompanyService {
    * exists. The check exists so a corrupted token answers a clear error
    * instead of a crash two lines further down.
    */
-  private async byId(companyId: string, tx: Prisma.TransactionClient = this.prisma): Promise<CompanyRow> {
+  private async byId(
+    companyId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<CompanyRow> {
     const company = await tx.company.findUnique({
       where: { id: companyId },
       select: {

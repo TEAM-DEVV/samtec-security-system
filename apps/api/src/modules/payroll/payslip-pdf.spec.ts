@@ -195,7 +195,11 @@ describe('the payslip document', () => {
   });
 
   it('prints when it was paid and the bank reference, once the run is paid', () => {
-    const text = asText({ ...PAYSLIP, paidOn: '2026-08-28', paymentReference: 'GCB-TRF-2026-08-0031' });
+    const text = asText({
+      ...PAYSLIP,
+      paidOn: '2026-08-28',
+      paymentReference: 'GCB-TRF-2026-08-0031',
+    });
     expect(text).toContain('Paid on 2026-08-28, reference GCB-TRF-2026-08-0031');
   });
 

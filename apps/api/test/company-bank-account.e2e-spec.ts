@@ -3,7 +3,11 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { TokensService } from '../src/modules/identity/tokens.service.js';
-import { type AttendanceCompany, createAttendanceCompany, tokensFor } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  createAttendanceCompany,
+  tokensFor,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -165,8 +169,6 @@ describe.skipIf(!databaseUrl)('the company bank account (e2e)', () => {
       .set(...bearer(token.admin))
       .send({ ...ACCOUNT, accountNumber: 'not-digits' })
       .expect(400);
-    expect(badNumber.body.errors).toEqual([
-      expect.objectContaining({ path: 'accountNumber' }),
-    ]);
+    expect(badNumber.body.errors).toEqual([expect.objectContaining({ path: 'accountNumber' })]);
   });
 });

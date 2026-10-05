@@ -2,7 +2,11 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
-import { type AttendanceCompany, createAttendanceCompany, tokensFor } from './attendance-fixture.js';
+import {
+  type AttendanceCompany,
+  createAttendanceCompany,
+  tokensFor,
+} from './attendance-fixture.js';
 import { createDbTestApp } from './create-db-test-app.js';
 import { openFixtureDb } from './db-fixture.js';
 
@@ -65,7 +69,9 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
 
   /** One employee, paid a fixed salary, with the given payment details (or none at all). */
   let workersMade = 0;
-  const worker = async (details: { accountNumber: string | null; momoNumber: string | null } | null) => {
+  const worker = async (
+    details: { accountNumber: string | null; momoNumber: string | null } | null,
+  ) => {
     workersMade += 1;
     const n = String(workersMade).padStart(3, '0');
     const hiredOn = new Date('2024-01-01T00:00:00Z');
@@ -83,7 +89,12 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
       },
     });
     await prisma.employmentPeriod.create({
-      data: { companyId: company.companyId, employeeId: created.id, startsOn: hiredOn, endsOn: null },
+      data: {
+        companyId: company.companyId,
+        employeeId: created.id,
+        startsOn: hiredOn,
+        endsOn: null,
+      },
     });
     await prisma.employeePayTerms.create({
       data: {
@@ -274,9 +285,11 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
   });
 
   it('is a PDF naming the company, the paying account, every destination masked, and the totals', async () => {
-    const bankWorker = await worker(BANK_WORKER);
-    const momoWorker = await worker(MOMO_WORKER);
-    const noDetailsWorker = await worker(null);
+    // paidRun gives every worker made so far fresh attendance and pays them
+    // all; these three just need to exist, one of each destination type.
+    await worker(BANK_WORKER);
+    await worker(MOMO_WORKER);
+    await worker(null);
     const { runId, periodEndDate } = await paidRun();
 
     const file = await api()
@@ -313,7 +326,7 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
   });
 
   it('refuses a supervisor and a guard, the same as every other payroll download', async () => {
-    const bankWorker = await worker(BANK_WORKER);
+    await worker(BANK_WORKER);
     const { runId } = await paidRun();
     for (const forbidden of [token.supervisor, token.guard]) {
       await api()
@@ -324,7 +337,7 @@ describe.skipIf(!databaseUrl)('the payment receipt (e2e)', () => {
   });
 
   it('records who read it and for which run, and never an account number', async () => {
-    const bankWorker = await worker(BANK_WORKER);
+    await worker(BANK_WORKER);
     const { runId } = await paidRun();
     await api()
       .get(`/api/v1/payroll/runs/${runId}/payment-receipt.pdf`)

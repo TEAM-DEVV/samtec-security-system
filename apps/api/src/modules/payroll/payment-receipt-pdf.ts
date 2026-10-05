@@ -17,13 +17,7 @@
  * out (`../../common/masking.ts`). The paying account is masked the same way.
  */
 import { lastFour } from '../../common/masking.js';
-import {
-  assemblePdf,
-  type BuiltPdf,
-  type Line,
-  money,
-  wrapToWidth,
-} from './payslip-pdf.js';
+import { assemblePdf, type BuiltPdf, type Line, money, wrapToWidth } from './payslip-pdf.js';
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -195,7 +189,10 @@ export function buildPaymentReceiptPdf(receipt: PaymentReceiptForPdf): BuiltPdf 
   y -= 4;
   lines.push(...amountRow(y, 'Total workers paid', String(receipt.workers.length), true));
   y -= 15;
-  const totalNetPayPesewas = receipt.workers.reduce((total, worker) => total + worker.netPayPesewas, 0);
+  const totalNetPayPesewas = receipt.workers.reduce(
+    (total, worker) => total + worker.netPayPesewas,
+    0,
+  );
   lines.push(...amountRow(y, 'Total net pay', money(totalNetPayPesewas), true));
   y -= 24;
 
