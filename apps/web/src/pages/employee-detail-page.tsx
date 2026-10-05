@@ -1,11 +1,12 @@
 import type { Employee } from '@samtec/contracts';
 import { ArrowLeft, Pencil, UserMinus } from 'lucide-react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { routes } from '@/app/routes';
 import { BiometricsPanel } from '@/components/biometrics-panel';
 import { DetailRow } from '@/components/detail-row';
 import { EmployeeStatusBadge } from '@/components/employee-status-badge';
 import { LoadErrorAlert } from '@/components/load-error-alert';
+import { PayPanel } from '@/components/pay-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,9 @@ export function EmployeeDetailPage() {
   usePageTitle(employee.data ? employee.data.staffNumber : 'Employee');
   // A guard may open their own record but not the list, so no back link for them.
   const mayOpenList = session !== null && roleAllowed(pageRoles.employees, session.user.role);
+  // Set by "Add employee" right after it navigates here, and nowhere else, so
+  // it shows exactly once and never again on an ordinary visit to this page.
+  const notice = noticeFrom(useLocation().state);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -46,9 +50,23 @@ export function EmployeeDetailPage() {
         </Link>
       )}
 
+      {notice && (
+        <Alert>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+
       <RecordState employee={employee} />
     </div>
   );
+}
+
+/** The `notice` another page put in the router state, if it is a plain string. */
+function noticeFrom(state: unknown): string | undefined {
+  if (typeof state === 'object' && state !== null && 'notice' in state) {
+    return typeof state.notice === 'string' ? state.notice : undefined;
+  }
+  return undefined;
 }
 
 type EmployeeQuery = ReturnType<typeof useEmployeeQuery>;
@@ -176,6 +194,8 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
       </div>
 
       <BiometricsPanel employeeId={employee.id} employeeStatus={employee.status} />
+
+      <PayPanel employeeId={employee.id} />
 
       <p className="text-muted-foreground text-xs">
         Record created {formatDateTime(employee.createdAt)}, last changed{' '}
