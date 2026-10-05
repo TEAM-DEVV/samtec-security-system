@@ -30,7 +30,12 @@ describe.skipIf(!databaseUrl)('Client invoice (e2e)', () => {
   const api = () => request(app.getHttpServer());
   const bearer = (value: string): [string, string] => ['Authorization', `Bearer ${value}`];
 
-  /** A shift on one date, at one site, for one employee. `MANUAL` saves inventing punch rows. */
+  /**
+   * A shift on one date, at one site, for one employee. `MANUAL` saves
+   * inventing punch rows. A `VOIDED` one carries `voidedAt`, which the
+   * database's own `work_segments_void_matches_status` check demands goes
+   * with that status and no other (see the phase 2 migration).
+   */
   const shift = (
     employeeId: string,
     siteId: string,
@@ -50,6 +55,8 @@ describe.skipIf(!databaseUrl)('Client invoice (e2e)', () => {
         workedMinutes,
         basis: 'MANUAL',
         status,
+        voidedAt: status === 'VOIDED' ? new Date() : null,
+        voidedByUserId: status === 'VOIDED' ? company.adminUserId : null,
       },
     });
   };
@@ -71,10 +78,14 @@ describe.skipIf(!databaseUrl)('Client invoice (e2e)', () => {
     await shift(company.supervisorEmployeeId, company.siteA, '2026-09-10', 600);
 
     // None of these should ever appear on the September invoice for site A.
+    // Each is its own date: a CONFIRMED shift may not overlap another of the
+    // same worker's (the database's own exclusion constraint), so reusing a
+    // date already billed above would fail here, not prove anything about
+    // the invoice.
     await shift(company.active.id, company.siteA, '2026-09-07', 480, 'DISPUTED');
     await shift(company.active.id, company.siteA, '2026-09-08', 480, 'VOIDED');
     await shift(company.active.id, company.siteA, '2026-08-31', 480); // the month before
-    await shift(company.active.id, company.siteB, '2026-09-05', 480); // a different site
+    await shift(company.active.id, company.siteB, '2026-09-09', 480); // a different site
   });
 
   afterAll(async () => {
