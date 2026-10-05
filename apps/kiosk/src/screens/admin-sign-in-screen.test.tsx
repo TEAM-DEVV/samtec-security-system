@@ -183,6 +183,20 @@ describe('AdminSignInScreen', () => {
     expect(document.body.textContent).not.toMatch(/no account|not found|unknown user/i);
   });
 
+  it('shows a notice it was opened with, such as a session that ran out', async () => {
+    render(
+      <AdminSignInScreen
+        onSignedIn={vi.fn()}
+        onCancel={vi.fn()}
+        initialNotice="Your session ended after fifteen minutes. Sign in again."
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Your session ended after fifteen minutes. Sign in again.',
+    );
+  });
+
   it('goes back without signing in', async () => {
     const onCancel = vi.fn();
     const user = userEvent.setup();

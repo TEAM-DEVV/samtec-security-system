@@ -31,6 +31,8 @@ let sent: string[] = [];
 let heartbeatDeviceIds: string[] = [];
 /** What every heartbeat answers with for `passkeysEnabled`, until a test says otherwise. */
 let heartbeatPasskeysEnabled = true;
+/** How long a freshly signed-in admin session lasts, for the one test that needs it short. */
+let adminSessionExpiresInSeconds = 900;
 
 async function aPairedKiosk(): Promise<PairedDevice> {
   return {
@@ -94,6 +96,7 @@ beforeEach(() => {
   sent = [];
   heartbeatDeviceIds = [];
   heartbeatPasskeysEnabled = true;
+  adminSessionExpiresInSeconds = 900;
   loadDevice.mockReset();
   forgetDevice.mockReset();
   // `forgetDevice` now reports the device it leaves this phone acting as —
@@ -124,7 +127,12 @@ beforeEach(() => {
     // Signing in and out is not what the admin-menu tests are about either —
     // `admin-sign-in-screen.test.tsx` already covers the sign-in form itself.
     if (url.includes('/auth/login')) {
-      return Promise.resolve(new Response(JSON.stringify(ADMIN_SESSION), { status: 200 }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ...ADMIN_SESSION, expiresInSeconds: adminSessionExpiresInSeconds }),
+          { status: 200 },
+        ),
+      );
     }
     if (url.includes('/auth/logout')) {
       return Promise.resolve(new Response(null, { status: 204 }));
@@ -241,6 +249,27 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Enroll a worker’s face' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save a fingerprint' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Kiosk settings' })).toBeInTheDocument();
+  });
+
+  it('returns to sign-in with a message when the admin session times out mid-task', async () => {
+    // A token that is already spent the moment it is issued, and a check run
+    // often enough that the test does not sit through a real fifteen minutes.
+    adminSessionExpiresInSeconds = 0;
+    loadDevice.mockResolvedValue(await aPairedKiosk());
+    const user = userEvent.setup();
+    render(<App adminSessionCheckMilliseconds={20} />);
+
+    await signInAsAdmin(user);
+    expect(await screen.findByRole('heading', { name: 'Admin menu' })).toBeInTheDocument();
+
+    // Whatever the administrator was doing does not silently vanish onto the
+    // everyday Ready screen: they land back on sign-in, told why.
+    expect(
+      await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 2000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Your session ended after fifteen minutes. Sign in again.',
+    );
   });
 
   it('says fingerprints are off, with no dead button, when the heartbeat says so', async () => {

@@ -171,6 +171,44 @@ describe('FallbackScreen · staff number and fingerprint', () => {
     // One options call, one confirm: the retry reused the same attempt.
     expect(sent.filter((request) => request.url.includes('fingerprint-options'))).toHaveLength(1);
   });
+
+  it('cancels out of waiting for the sensor, and ignores a late answer', async () => {
+    answers = [
+      {
+        status: 200,
+        body: {
+          attemptId: '01927c3e-2222-7aaa-8bbb-0c0c0c0c0c05',
+          worker: A_WORKER,
+          options: { challenge: 'from-the-server' },
+        },
+      },
+    ];
+    let resolveSensor: (value: AssertionJson) => void = () => {};
+    passkeys.getAssertion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSensor = resolve;
+        }) as ReturnType<typeof passkeys.getAssertion>,
+    );
+    const onDone = vi.fn();
+    const user = userEvent.setup();
+    await renderFallback(onDone);
+
+    await user.click(screen.getByRole('button', { name: 'My staff number and my fingerprint' }));
+    await user.type(screen.getByLabelText('Your staff number'), 'SMT-00042');
+    await user.click(screen.getByRole('button', { name: 'Continue to the fingerprint' }));
+    await screen.findByText(/Touch the fingerprint sensor/);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('heading', { name: 'Another way in' })).toBeInTheDocument();
+
+    // The sensor finally answers, long after the person walked away from it.
+    resolveSensor(AN_ASSERTION);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(sent.some((request) => request.url.includes('/kiosk/confirm'))).toBe(false);
+  });
 });
 
 describe('FallbackScreen · a supervisor co-signs', () => {

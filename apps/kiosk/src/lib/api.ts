@@ -113,12 +113,29 @@ export const KIOSK_REFUSED =
   'The system refused this kiosk. On the dashboard, under Devices, check that this device is switched on and that its kind is Face kiosk. Then set this phone up again with its Device ID and secret.';
 
 /**
+ * What an administrator sees when a 401 was their own sign-in running out,
+ * not the device.
+ */
+export const ADMIN_SESSION_REFUSED = 'Your session ended. Sign in again to continue.';
+
+/**
+ * The exact words `access-token.guard.ts` sends for a missing or expired
+ * admin token. A route that needs both an administrator and this device's
+ * signature (`kiosk-operator.guard.ts`) can answer 401 for either reason, and
+ * both read as a plain "Unauthorized" with no code of their own — this
+ * sentence, copied from the server, is the only thing that tells them apart.
+ */
+const ADMIN_TOKEN_EXPIRED = 'Sign in to continue.';
+
+/**
  * The words a refusal shows: a field's own message first (the digits of a
  * Ghana Card, for one), then the server's detail, then a plain fallback.
  */
 function messageFor(status: number, answer: unknown): string {
   if (status === 401) {
-    return KIOSK_REFUSED;
+    return isProblem(answer) && answer.detail === ADMIN_TOKEN_EXPIRED
+      ? ADMIN_SESSION_REFUSED
+      : KIOSK_REFUSED;
   }
   if (isProblem(answer)) {
     const field = (answer as { errors?: { message?: unknown }[] }).errors?.[0]?.message;

@@ -27,9 +27,14 @@ import { PairingScreen } from '@/screens/pairing-screen';
  * a test can hand in a pretend camera and the real Human engine can drop in
  * later without this file changing (`lib/face.ts` explains why that seam exists).
  */
+/** How often a signed-in admin session is checked against its own expiry. */
+const ADMIN_SESSION_CHECK_MILLISECONDS = 10_000;
+
 interface AppProps {
   /** A pretend camera, for tests and for development on a machine with none. */
   engine?: FaceEngine;
+  /** Overridable so a test does not wait a real ten seconds for the session check. */
+  adminSessionCheckMilliseconds?: number;
 }
 
 /**
@@ -54,7 +59,10 @@ function defaultEngine(): FaceEngine {
   return new MockFaceEngine();
 }
 
-export function App({ engine }: AppProps = {}) {
+export function App({
+  engine,
+  adminSessionCheckMilliseconds = ADMIN_SESSION_CHECK_MILLISECONDS,
+}: AppProps = {}) {
   const [device, setDevice] = useState<PairedDevice | null>(null);
   /**
    * Which screen an administrator has opened, if any.
@@ -79,6 +87,13 @@ export function App({ engine }: AppProps = {}) {
    */
   const [passkeysEnabled, setPasskeysEnabled] = useState(false);
   const [admin, setAdmin] = useState<AdminSession | null>(null);
+  /**
+   * What to tell the administrator when the sign-in screen opens on its own,
+   * rather than because somebody pressed "Admin" — so far, only the session
+   * timing out mid-task. Cleared the moment a fresh sign-in starts, so it
+   * never reappears for an ordinary one.
+   */
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
   const [looking, setLooking] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   // One engine for the life of the app: starting a camera is slow, and a new
@@ -140,7 +155,10 @@ export function App({ engine }: AppProps = {}) {
 
   // An administrator who walks away must not leave a session on a wall. The
   // server's token dies in fifteen minutes regardless; this makes the screen
-  // agree with it rather than failing a request later and looking broken.
+  // agree with it rather than failing a request later and looking broken —
+  // and sends them back to sign in, with a reason, rather than dropping
+  // whatever they were doing straight onto the everyday clock-in screen with
+  // no word about why.
   useEffect(() => {
     if (admin === null) {
       return;
@@ -148,11 +166,12 @@ export function App({ engine }: AppProps = {}) {
     const timer = setInterval(() => {
       if (hasExpired(admin)) {
         setAdmin(null);
-        setAdminScreen(null);
+        setSignInNotice('Your session ended after fifteen minutes. Sign in again.');
+        setAdminScreen('signing-in');
       }
-    }, 10_000);
+    }, adminSessionCheckMilliseconds);
     return () => clearInterval(timer);
-  }, [admin]);
+  }, [admin, adminSessionCheckMilliseconds]);
 
   if (looking) {
     return (
@@ -192,11 +211,16 @@ export function App({ engine }: AppProps = {}) {
   if (adminScreen === 'signing-in') {
     return (
       <AdminSignInScreen
+        initialNotice={signInNotice ?? undefined}
         onSignedIn={(session) => {
+          setSignInNotice(null);
           setAdmin(session);
           setAdminScreen('menu');
         }}
-        onCancel={() => setAdminScreen(null)}
+        onCancel={() => {
+          setSignInNotice(null);
+          setAdminScreen(null);
+        }}
       />
     );
   }
@@ -246,7 +270,10 @@ export function App({ engine }: AppProps = {}) {
     <ClockScreen
       device={device}
       engine={camera}
-      onAdmin={() => setAdminScreen('signing-in')}
+      onAdmin={() => {
+        setSignInNotice(null);
+        setAdminScreen('signing-in');
+      }}
       onSetUpAgain={() => {
         // Offered only when the server has refused this phone's key (a 401).
         // A well-formed but wrong secret pairs happily and then fails every

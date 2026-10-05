@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as deviceLib from '@/lib/device';
 import { pairDevice } from '@/lib/device';
 import { createFakeIndexedDB } from '@/test/fake-indexed-db';
 import { KioskSettingsScreen } from './kiosk-settings-screen';
@@ -21,9 +22,21 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('KioskSettingsScreen', () => {
+  it('clears the loading message, rather than sitting beside the error forever', async () => {
+    vi.spyOn(deviceLib, 'listDevices').mockRejectedValueOnce(new Error('the store would not open'));
+
+    render(<KioskSettingsScreen onBack={vi.fn()} onDeviceChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText('Could not read the devices stored on this phone.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Reading the stored devices…')).not.toBeInTheDocument();
+  });
+
   it('lists the stored devices, with the one most recently paired active', async () => {
     await pairDevice(GATE_A, 'sk_test_only_not_a_real_secret_aaaa', 'Gate A');
     await pairDevice(GATE_B, 'sk_test_only_not_a_real_secret_bbbb', 'Gate B');
