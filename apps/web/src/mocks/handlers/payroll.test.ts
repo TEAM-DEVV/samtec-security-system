@@ -589,6 +589,47 @@ describe('mock payroll API: periods, pay terms and payment details', () => {
     expect(JSON.stringify(after.data)).not.toContain('1928374650');
   });
 
+  it('keeps every field but the one a partial update names', async () => {
+    await signInForTests('hr@samtec.example');
+    // Kwame already has a bank account on file (src/mocks/data/payroll.ts);
+    // only the account number is mentioned here.
+    const saved = await fetchClient.PUT('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
+      body: { accountNumber: '1928374650' },
+    });
+    expect(saved.response.status).toBe(200);
+    expect(saved.data?.accountNumberEndsWith).toBe('4650');
+    expect(saved.data?.bankName).toBe('Akwaaba Bank');
+    expect(saved.data?.accountName).toBe(mockEmployees[0]?.fullName);
+  });
+
+  it('clears exactly the field sent as null, leaving the rest as they were', async () => {
+    await signInForTests('hr@samtec.example');
+    const cleared = await fetchClient.PUT('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: GUARD_EMPLOYEE_ID } },
+      body: { bankName: null },
+    });
+    expect(cleared.response.status).toBe(200);
+    expect(cleared.data?.bankName).toBeNull();
+    expect(cleared.data?.accountName).toBe(mockEmployees[0]?.fullName);
+    expect(cleared.data?.accountNumberEndsWith).toBe('0001');
+  });
+
+  it('creates the row from a partial first call, leaving what was not sent absent', async () => {
+    await signInForTests('hr@samtec.example');
+    // Beyond the first ten employees, nothing is seeded for this one yet.
+    const freshEmployeeId = mockEmployees[11]?.id ?? '';
+    const created = await fetchClient.PUT('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: freshEmployeeId } },
+      body: { momoNumber: '+233241234567' },
+    });
+    expect(created.response.status).toBe(200);
+    expect(created.data?.momoNumberEndsWith).toBe('4567');
+    expect(created.data?.bankName).toBeNull();
+    expect(created.data?.accountName).toBeNull();
+    expect(created.data?.accountNumberEndsWith).toBeNull();
+  });
+
   it('names a rejected field without ever quoting what was typed', async () => {
     await signInForTests('hr@samtec.example');
     const refused = await fetchClient.PUT('/employees/{employeeId}/payment-details', {

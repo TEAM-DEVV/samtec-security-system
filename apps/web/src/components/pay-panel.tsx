@@ -442,6 +442,16 @@ const MOMO_SHAPE = /^\+233\d{9}$/;
 /** The same characters the API refuses to start a bank-file value with. */
 const FORBIDDEN_LEADING_CHARACTER = /^[\s"=+@-]/;
 
+/**
+ * Sends only what the person touched, now that the `PUT` is a partial
+ * update: a field left out of the body keeps whatever is on file for it.
+ * Bank name and account name start pre-filled, so "touched" means "no longer
+ * equal to what it started as". The account number and the mobile money
+ * number can never be pre-filled — the API only ever hands back their last
+ * four digits — so they start empty and "touched" simply means "not empty",
+ * with a separate checkbox to clear one on purpose: leaving its box empty
+ * means leave it alone, not remove it.
+ */
 function PaymentDetailsForm({
   current,
   pending,
@@ -449,12 +459,14 @@ function PaymentDetailsForm({
   onCancel,
   onSubmit,
 }: PaymentDetailsFormProps) {
-  const [bankName, setBankName] = useState(current?.bankName ?? '');
-  const [accountName, setAccountName] = useState(current?.accountName ?? '');
-  // Never pre-filled: the API only ever hands back the last four digits, never
-  // enough to reconstruct the full number these boxes would need to show.
+  const initialBankName = current?.bankName ?? '';
+  const initialAccountName = current?.accountName ?? '';
+  const [bankName, setBankName] = useState(initialBankName);
+  const [accountName, setAccountName] = useState(initialAccountName);
   const [accountNumber, setAccountNumber] = useState('');
   const [momoNumber, setMomoNumber] = useState('');
+  const [removeAccountNumber, setRemoveAccountNumber] = useState(false);
+  const [removeMomoNumber, setRemoveMomoNumber] = useState(false);
   const [mistake, setMistake] = useState<string | null>(null);
 
   /** Null when `value` (already trimmed) is fine to send, including empty. */
@@ -469,6 +481,15 @@ function PaymentDetailsForm({
       return `${label} may not start with a space, a quote, or any of = + - @, because it is written into the bank file.`;
     }
     return null;
+  }
+
+  function toggleRemove(setRemove: (value: boolean) => void, setValue: (value: string) => void) {
+    return (event: { target: { checked: boolean } }) => {
+      setRemove(event.target.checked);
+      if (event.target.checked) {
+        setValue('');
+      }
+    };
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -488,23 +509,47 @@ function PaymentDetailsForm({
       setMistake(textMistake);
       return;
     }
-    if (trimmedAccountNumber !== '' && !ACCOUNT_NUMBER_SHAPE.test(trimmedAccountNumber)) {
+    if (
+      !removeAccountNumber &&
+      trimmedAccountNumber !== '' &&
+      !ACCOUNT_NUMBER_SHAPE.test(trimmedAccountNumber)
+    ) {
       setMistake('Account number: 5 to 20 digits, or leave it empty.');
       return;
     }
-    if (trimmedMomoNumber !== '' && !MOMO_SHAPE.test(trimmedMomoNumber)) {
+    if (!removeMomoNumber && trimmedMomoNumber !== '' && !MOMO_SHAPE.test(trimmedMomoNumber)) {
       setMistake(
         'Mobile money number must be +233 followed by 9 digits, like +233241234567, or left empty.',
       );
       return;
     }
     setMistake(null);
-    onSubmit({
-      bankName: trimmedBankName === '' ? null : trimmedBankName,
-      accountName: trimmedAccountName === '' ? null : trimmedAccountName,
-      accountNumber: trimmedAccountNumber === '' ? null : trimmedAccountNumber,
-      momoNumber: trimmedMomoNumber === '' ? null : trimmedMomoNumber,
-    });
+
+    const body: SetEmployeePaymentDetailsRequest = {};
+    if (trimmedBankName !== initialBankName) {
+      body.bankName = trimmedBankName === '' ? null : trimmedBankName;
+    }
+    if (trimmedAccountName !== initialAccountName) {
+      body.accountName = trimmedAccountName === '' ? null : trimmedAccountName;
+    }
+    if (removeAccountNumber) {
+      body.accountNumber = null;
+    } else if (trimmedAccountNumber !== '') {
+      body.accountNumber = trimmedAccountNumber;
+    }
+    if (removeMomoNumber) {
+      body.momoNumber = null;
+    } else if (trimmedMomoNumber !== '') {
+      body.momoNumber = trimmedMomoNumber;
+    }
+
+    if (Object.keys(body).length === 0) {
+      // Nothing was touched: there is nothing to send, so there is nothing to
+      // save — the same as cancelling.
+      onCancel();
+      return;
+    }
+    onSubmit(body);
   }
 
   const problem = error ? describeApiError(error) : undefined;
@@ -538,9 +583,24 @@ function PaymentDetailsForm({
             autoComplete="off"
             className="font-mono"
             value={accountNumber}
+            disabled={removeAccountNumber}
             onChange={(event) => setAccountNumber(event.target.value)}
             aria-describedby="payment-details-number-hint"
           />
+          <label className="flex items-center gap-2 text-muted-foreground text-xs">
+            <input
+              type="checkbox"
+              checked={removeAccountNumber}
+              onChange={toggleRemove(setRemoveAccountNumber, setAccountNumber)}
+            />
+            Remove the account number on file
+          </label>
+          {removeAccountNumber && (
+            <p className="text-muted-foreground text-xs">
+              Saving clears it. The worker is left out of the bank file by account until a new one
+              is added.
+            </p>
+          )}
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="payment-details-momo">Mobile money number</Label>
@@ -550,20 +610,36 @@ function PaymentDetailsForm({
             autoComplete="off"
             placeholder="+233241234567"
             value={momoNumber}
+            disabled={removeMomoNumber}
             onChange={(event) => setMomoNumber(event.target.value)}
             aria-describedby="payment-details-number-hint"
           />
+          <label className="flex items-center gap-2 text-muted-foreground text-xs">
+            <input
+              type="checkbox"
+              checked={removeMomoNumber}
+              onChange={toggleRemove(setRemoveMomoNumber, setMomoNumber)}
+            />
+            Remove the mobile money number on file
+          </label>
+          {removeMomoNumber && (
+            <p className="text-muted-foreground text-xs">
+              Saving clears it. The worker is left out of the bank file by mobile money until a new
+              one is added.
+            </p>
+          )}
         </div>
       </div>
 
       <p id="payment-details-number-hint" className="text-muted-foreground text-xs">
         The account number and the mobile money number are shown only as their last four digits, so
-        those two boxes always start empty. Type the full number to change it, or leave it blank to
-        clear it — the same as leaving the bank name or account name blank.
+        those two boxes always start empty. Type the full number to change it; leave it empty to
+        keep the one on file. To remove one instead, use its checkbox above.
       </p>
 
       <p className="text-muted-foreground text-xs">
-        This is what the monthly bank file pays into. Saving asks for the administrator's password.
+        This is what the monthly bank file pays into. Only the boxes you change are saved. Saving
+        asks for the administrator's password.
       </p>
 
       {mistake && (

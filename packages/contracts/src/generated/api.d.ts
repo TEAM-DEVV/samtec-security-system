@@ -1974,7 +1974,7 @@ export interface paths {
         get: operations["getEmployeePaymentDetails"];
         /**
          * Set where an employee's salary is paid
-         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The full numbers go in here, but **this answer masks them the same way the matching `GET` does**: `accountNumberEndsWith` and `momoNumberEndsWith`, never the numbers themselves. The full numbers are read back only by the run's bank export.
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, edited in place — never a new row, unlike pay terms — which is why the answer is `200`. **This is a partial update, not a replacement.** For each field: leave it out of the body to keep what is on file for it, send `null` to clear it, or send a string to set it, so fixing one typo never touches the other three. The first call for a worker with nothing on file yet creates the row, and a field left out of that first call is simply absent, exactly as if it had been sent as `null`. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The full numbers go in here, but **this answer masks them the same way the matching `GET` does**: `accountNumberEndsWith` and `momoNumberEndsWith`, never the numbers themselves. The full numbers are read back only by the run's bank export.
          */
         put: operations["setEmployeePaymentDetails"];
         post?: never;
@@ -4591,16 +4591,16 @@ export interface components {
              */
             updatedByUserId: string;
         };
-        /** @description Replaces an employee's payment details. All four fields are required: send `null` for anything the worker does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
+        /** @description Changes one or more of an employee's payment details. **This is a partial update, not a replacement.** For each field: leave it out of the body to keep what is on file for it, send `null` to clear it, or send a string to set it. A first call for an employee with nothing on file yet creates the row, and a field left out of that first call is simply absent, exactly as if it had been sent as `null`. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
         SetEmployeePaymentDetailsRequest: {
-            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
-            bankName: string | null;
-            /** @description The name on the account, exactly as the bank holds it, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
-            accountName: string | null;
-            /** @description The account number, digits only, or `null`. */
-            accountNumber: string | null;
-            /** @description The mobile money number in `+233` form, or `null`. */
-            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+            /** @description The bank the salary is paid into. Leave this out to keep what is on file, or send `null` to clear it. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
+            bankName?: string | null;
+            /** @description The name on the account, exactly as the bank holds it. Leave this out to keep what is on file, or send `null` to clear it. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            accountName?: string | null;
+            /** @description The account number, digits only. Leave this out to keep what is on file, or send `null` to clear it. */
+            accountNumber?: string | null;
+            /** @description The mobile money number in `+233` form. Leave this out to keep what is on file, or send `null` to clear it. */
+            momoNumber?: components["schemas"]["GhanaPhoneNumber"] | null;
         };
         /**
          * @description The rule that fired (docs/plan/08-ghost-detection-engine.md).

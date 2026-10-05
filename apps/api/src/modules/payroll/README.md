@@ -93,12 +93,11 @@ whole, because neither pays anyone by itself, but the contract's
 `momoNumberEndsWith` — the last four digits, or `null`. `toApiPaymentDetails`
 in `payroll-mapping.ts` is where the masking happens: it takes the full
 numbers out of the Prisma row and never puts them in the shape it returns. The
-`PUT` still takes the full numbers in (`SetEmployeePaymentDetailsRequest` is
-unchanged), and the database still stores them in full, because the bank
-export needs them — `BankDestination` in `bank-export.ts` reads them straight
-from the database and never through this masked mapping — but the `PUT`'s own
-answer is masked exactly like the `GET`'s, so setting a destination is not a
-second way to read one back in full.
+`PUT` still takes the full numbers in, and the database still stores them in
+full, because the bank export needs them — `BankDestination` in
+`bank-export.ts` reads them straight from the database and never through this
+masked mapping — but the `PUT`'s own answer is masked exactly like the `GET`'s,
+so setting a destination is not a second way to read one back in full.
 
 What stayed from the original design otherwise: the `GET` answers to exactly
 the roles the `PUT` does (never a SUPERVISOR, never a GUARD), the answer
@@ -109,18 +108,33 @@ has entered details for yet answers `404`, not an object of nulls, so the
 dashboard — and anyone reading a response — can tell "nothing saved" from
 "saved as blank" without that answer ever holding four real-looking nulls.
 
-`PUT /employees/{id}/payment-details` still requires all four fields and
-replaces all four: sending only the mobile money number, with the bank fields
-`null`, **wipes the bank account**, and nothing reports an error, because
-clearing a field is a legitimate thing to ask for. The screen can pre-fill
-`bankName` and `accountName` from the `GET`, because those come back whole,
-but it cannot pre-fill the account number or the mobile money number — the
-`GET` never gives it enough to. Those two boxes start empty instead, with a
-hint explaining why, and the same rule applies to them as already applied to
-the other two: an empty box is a cleared field once the form is saved, not an
-unchanged one. There is no way around this that keeps the numbers masked; the
-screen's job is to say so plainly rather than let someone find out by losing
-a bank account on file.
+**`PUT /employees/{id}/payment-details` is a partial update, not a
+replacement — this changed after the masking above shipped.** It first
+required all four fields and replaced all four, which meant a screen that
+could not pre-fill the account number or the mobile money number (the `GET`
+never gives it enough to) had no honest way to let someone fix only the
+account name: leaving the number boxes empty and saving wiped them, silently.
+So `SetEmployeePaymentDetailsRequest` made every field optional as well as
+nullable: **leave a field out to keep what is on file for it, send `null` to
+clear it, send a string to set it.** `EmployeePayService.setPaymentDetails`
+reads the stored row first and fills in any field the body left out from it
+(or from nothing, for a first call that creates the row — a left-out field
+there is simply absent, the same as `null`), then upserts the merged result.
+The audit entry's `bankAccountChanged`/`momoChanged` flags are compared
+against that merged result too, never against the raw body, so a field the
+caller left out is never misreported as having changed just because the body
+did not mention it.
+
+The dashboard still cannot pre-fill the account number or the mobile money
+number, so those two boxes still start empty — but an empty box now means
+"leave this alone", matching what the body sends when the person never
+touches it. Clearing one on purpose needs a separate "Remove" checkbox next
+to its box, which sends `null` for exactly that field regardless of anything
+typed into the (now disabled) box beside it. Bank name and account name still
+pre-fill from the `GET` and still work the old way: typing over the box
+changes it, clearing the box and saving clears it, because those two can
+always be read back in full, so there is nothing dishonest about treating an
+empty box as "make it empty".
 
 ## Writing tests that touch these tables
 

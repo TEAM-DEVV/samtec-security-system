@@ -823,11 +823,96 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
           }),
         )
         .expect(200);
-      // Every field is replaced, not merged: sending null really does clear it.
+      // Every field here is sent explicitly, so every field here is applied:
+      // sending null really does clear it.
       expect(changed.body.bankName).toBeNull();
       expect(changed.body.accountName).toBeNull();
       expect(changed.body.accountNumberEndsWith).toBeNull();
       expect(changed.body.momoNumberEndsWith).toBe('4567');
+    });
+
+    it('keeps a field that is left out of the body, because this is a partial update', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655' }))
+        .expect(200);
+
+      // Only the account name is mentioned; the bank name and the account
+      // number must stay exactly as they were.
+      const fixed = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ accountName: 'Corrected Name' })
+        .expect(200);
+      expect(fixed.body.accountName).toBe('Corrected Name');
+      expect(fixed.body.bankName).toBe('Akwaaba Bank');
+      expect(fixed.body.accountNumberEndsWith).toBe('4655');
+    });
+
+    it('clears a field sent as null without touching the fields left out', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655' }))
+        .expect(200);
+
+      const cleared = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ accountNumber: null })
+        .expect(200);
+      expect(cleared.body.accountNumberEndsWith).toBeNull();
+      expect(cleared.body.bankName).toBe('Akwaaba Bank');
+      expect(cleared.body.accountName).toBe('Test Worker');
+    });
+
+    it('creates the row from a partial first call, leaving everything else absent', async () => {
+      const worker = await freshWorker();
+      const created = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ momoNumber: '+233241234567' })
+        .expect(200);
+      expect(created.body.momoNumberEndsWith).toBe('4567');
+      expect(created.body.bankName).toBeNull();
+      expect(created.body.accountName).toBeNull();
+      expect(created.body.accountNumberEndsWith).toBeNull();
+    });
+
+    it('does not call the bank fields changed when a partial update only touches momo', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655', momoNumber: null }))
+        .expect(200);
+
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ momoNumber: '+233241234567' })
+        .expect(200);
+
+      const row = await prisma.employeePaymentDetails.findUniqueOrThrow({
+        where: { employeeId: worker },
+      });
+      const entries = await prisma.auditLog.findMany({
+        where: {
+          entityType: 'employee_payment_details',
+          entityId: row.id,
+          action: 'payroll.payment_details_changed',
+        },
+      });
+      expect(entries).toHaveLength(1);
+      const written = JSON.stringify(entries[0]?.detail);
+      expect(written).toMatch(/"momoChanged":true/);
+      // The bank fields were left out of this call, not changed, so the merge
+      // must compare against what ended up stored, never against the raw
+      // body (which would see `undefined` and wrongly call them changed).
+      expect(written).toMatch(/"bankAccountChanged":false/);
     });
 
     it('refuses a bank name a spreadsheet would run as a formula', async () => {

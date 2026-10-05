@@ -1061,18 +1061,24 @@ export const payrollHandlers = [
       if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
         return notFound('No employee exists with this ID.');
       }
-      const details: StoredPaymentDetails = {
-        employeeId: params.employeeId,
-        bankName: (body.bankName as string | null) ?? null,
-        accountName: (body.accountName as string | null) ?? null,
-        accountNumber: (body.accountNumber as string | null) ?? null,
-        momoNumber: (body.momoNumber as string | null) ?? null,
-        updatedAt: now(),
-        updatedByUserId: user.id,
-      };
       const existing = state.paymentDetails.findIndex(
         (row) => row.employeeId === params.employeeId,
       );
+      const before = existing === -1 ? undefined : state.paymentDetails[existing];
+      // A partial update: a field left out of the body (`undefined`) keeps
+      // whatever was stored; with no row yet, there is nothing to keep, so it
+      // lands the same as `null`.
+      const field = (name: 'bankName' | 'accountName' | 'accountNumber' | 'momoNumber') =>
+        body[name] === undefined ? (before?.[name] ?? null) : (body[name] as string | null);
+      const details: StoredPaymentDetails = {
+        employeeId: params.employeeId,
+        bankName: field('bankName'),
+        accountName: field('accountName'),
+        accountNumber: field('accountNumber'),
+        momoNumber: field('momoNumber'),
+        updatedAt: now(),
+        updatedByUserId: user.id,
+      };
       if (existing === -1) state.paymentDetails.push(details);
       else state.paymentDetails[existing] = details;
       // The full numbers are stored (the mock's bank export needs them), but
@@ -1190,8 +1196,9 @@ function bandsProblem(value: unknown) {
   return undefined;
 }
 
+/** `undefined` (the field was left out) is always fine: a partial update keeps it. */
 function nullableTextProblem(value: unknown, path: string, shape: RegExp) {
-  if (value === null) return undefined;
+  if (value === null || value === undefined) return undefined;
   return typeof value === 'string' && shape.test(value)
     ? undefined
     : validationProblem(path, 'This value is not in the right format.');

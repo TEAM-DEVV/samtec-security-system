@@ -428,5 +428,51 @@ describe('EmployeeDetailPage', () => {
       // Never the full number back, only its last four digits.
       expect(await screen.findByText('Bank account ending 4567')).toBeInTheDocument();
     });
+
+    it('keeps the account number on file when its box is left empty', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      // Only the account name is touched; the account number box stays empty.
+      const accountName = screen.getByLabelText('Account name');
+      await user.clear(accountName);
+      await user.type(accountName, 'Corrected Name');
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      expect(await screen.findByText('Corrected Name')).toBeInTheDocument();
+      // Never touched, so it must still be exactly what it was.
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
+    });
+
+    it('removes a number on file only through its own checkbox, never by leaving the box empty', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Remove the account number on file' }));
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      // Mobile money was already "Not on file"; the account number now joins
+      // it, but the bank name, never touched, survives.
+      expect(await screen.findAllByText('Not on file')).toHaveLength(2);
+      expect(screen.getByText('Akwaaba Bank')).toBeInTheDocument();
+    });
+
+    it('closes the form without saving when nothing was touched', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      expect(
+        screen.queryByRole('button', { name: 'Save payment details' }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
+    });
   });
 });
