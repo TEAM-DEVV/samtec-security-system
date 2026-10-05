@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, Download, FileText, Send, Users, Wallet, X } from 'lucide-react';
+import { Check, Download, FileText, Receipt, Send, Users, Wallet, X } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 import { LoadErrorAlert } from '@/components/load-error-alert';
@@ -44,6 +44,7 @@ export function PayrollRunPage() {
   const [reason, setReason] = useState('');
   const [paidOn, setPaidOn] = useState('');
   const [downloadError, setDownloadError] = useState<string>();
+  const [receiptDownloadError, setReceiptDownloadError] = useState<string>();
 
   const run = $api.useQuery('get', '/payroll/runs/{runId}', {
     params: { path: { runId } },
@@ -327,7 +328,8 @@ export function PayrollRunPage() {
                     />
                     <p className="text-muted-foreground text-sm">
                       This records a payment that has already happened, so it works after the month
-                      is closed. It asks for your password, like approving does.
+                      is closed. It asks for your password, like approving does. The company's own
+                      payment receipt becomes available to download once this is recorded.
                     </p>
                   </div>
                   <Button
@@ -364,7 +366,7 @@ export function PayrollRunPage() {
             ) : null}
 
             {run.data.status === 'LOCKED' || run.data.status === 'PAID' ? (
-              <div className="border-t pt-4">
+              <div className="space-y-3 border-t pt-4">
                 {downloadError ? (
                   <LoadErrorAlert
                     title="The bank file could not be downloaded"
@@ -372,27 +374,61 @@ export function PayrollRunPage() {
                     onRetry={() => setDownloadError(undefined)}
                   />
                 ) : null}
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDownloadError(undefined);
-                    downloadFromApi(
-                      `/payroll/runs/${encodeURIComponent(runId)}/bank-export`,
-                      `payroll-run-${runId}.csv`,
-                    ).catch((error: unknown) => {
-                      setDownloadError(
-                        error instanceof DownloadFailed
-                          ? error.message
-                          : 'The download failed. Please try again.',
-                      );
-                    });
-                  }}
-                >
-                  <Download aria-hidden="true" className="size-4" />
-                  Download the bank file
-                </Button>
-                <p className="text-muted-foreground mt-2 text-sm">
-                  It carries account numbers, so downloading it is recorded against your name.
+                {receiptDownloadError ? (
+                  <LoadErrorAlert
+                    title="The payment receipt could not be downloaded"
+                    error={new Error(receiptDownloadError)}
+                    onRetry={() => setReceiptDownloadError(undefined)}
+                  />
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDownloadError(undefined);
+                      downloadFromApi(
+                        `/payroll/runs/${encodeURIComponent(runId)}/bank-export`,
+                        `payroll-run-${runId}.csv`,
+                      ).catch((error: unknown) => {
+                        setDownloadError(
+                          error instanceof DownloadFailed
+                            ? error.message
+                            : 'The download failed. Please try again.',
+                        );
+                      });
+                    }}
+                  >
+                    <Download aria-hidden="true" className="size-4" />
+                    Download the bank file
+                  </Button>
+                  {run.data.status === 'PAID' ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setReceiptDownloadError(undefined);
+                        downloadFromApi(
+                          `/payroll/runs/${encodeURIComponent(runId)}/payment-receipt.pdf`,
+                          `payroll-payment-receipt-${runId}.pdf`,
+                        ).catch((error: unknown) => {
+                          setReceiptDownloadError(
+                            error instanceof DownloadFailed
+                              ? error.message
+                              : 'The download failed. Please try again.',
+                          );
+                        });
+                      }}
+                    >
+                      <Receipt aria-hidden="true" className="size-4" />
+                      Payment receipt (PDF)
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-muted-foreground text-sm">
+                  The bank file carries account numbers, so downloading it is recorded against your
+                  name.
+                  {run.data.status === 'PAID'
+                    ? " The payment receipt is the company's own record that these salaries were paid."
+                    : ''}
                 </p>
               </div>
             ) : null}

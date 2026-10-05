@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
@@ -46,6 +47,32 @@ describe('PayrollRunPage', () => {
       await screen.findByRole('button', { name: /Download the bank file/ }),
     ).toBeInTheDocument();
     expect(screen.getByText(/recorded against your name/)).toBeInTheDocument();
+  });
+
+  it('offers the payment receipt once a run is paid, and says what it is', async () => {
+    await signInForTests('hr@samtec.example');
+    renderRunPage(ALREADY_PAID);
+
+    expect(
+      await screen.findByRole('button', { name: /Payment receipt \(PDF\)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/company's own record that these salaries were paid/),
+    ).toBeInTheDocument();
+  });
+
+  it('does not offer the payment receipt for a run that is only locked, not yet paid', async () => {
+    await signInForTests('admin@samtec.example');
+    const user = userEvent.setup();
+    renderRunPage(WAITING_FOR_APPROVAL);
+
+    // Approve it: this run moves from PENDING_APPROVAL to LOCKED, not PAID.
+    await user.click(await screen.findByRole('button', { name: /Approve and make the payslips/ }));
+
+    expect(
+      await screen.findByRole('button', { name: /Download the bank file/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Payment receipt/ })).not.toBeInTheDocument();
   });
 
   it('tells a payroll officer that deciding is not theirs to do', async () => {
