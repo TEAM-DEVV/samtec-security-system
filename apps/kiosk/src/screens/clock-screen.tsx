@@ -313,7 +313,7 @@ export function ClockScreen({
       if (run.current !== mine) {
         return;
       }
-      setStage(refusalFrom(error));
+      setStage(refusalFrom(error, failures, direction));
     }
   }
 
@@ -361,7 +361,7 @@ export function ClockScreen({
       if (run.current !== mine) {
         return;
       }
-      setStage(refusalFrom(error));
+      setStage(refusalFrom(error, failures));
     }
   }
 
@@ -723,12 +723,21 @@ function Body({
  * device has been switched off, and only an administrator setting it up again
  * gets past that. Written once when it lived in `confirm` alone, which meant a
  * 401 on `identify` — the first call a guard makes — left the phone stuck.
+ *
+ * `failures` decides the fallback the same way `refuse` and `countFailure` do:
+ * a network or server error is not itself a failed face, but it must not hide
+ * a fallback three real failures already unlocked.
  */
-function refusalFrom(error: unknown): Extract<Stage, { name: 'refused' }> {
+function refusalFrom(
+  error: unknown,
+  failures: number,
+  direction?: KioskDirection,
+): Extract<Stage, { name: 'refused' }> {
   return {
     name: 'refused',
     message: error instanceof KioskRequestFailed ? error.message : 'Please try again.',
-    offerFallback: false,
+    offerFallback: failures >= FAILURES_BEFORE_FALLBACK,
+    direction,
     offerSetUpAgain: error instanceof KioskRequestFailed && error.status === 401,
   };
 }

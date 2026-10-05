@@ -226,6 +226,29 @@ describe('ClockScreen', () => {
     expect(await screen.findByRole('button', { name: 'Another way in' })).toBeInTheDocument();
   });
 
+  it('keeps offering the fallback when a network error follows three failures', async () => {
+    answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED];
+    const user = userEvent.setup();
+    await renderScreen();
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (attempt > 1) {
+        await user.click(screen.getByRole('button', { name: 'Start again' }));
+      }
+      await user.click(screen.getByRole('button', { name: 'Start shift' }));
+      await screen.findByText('Not recognised. Please try again.');
+    }
+    await user.click(screen.getByRole('button', { name: 'Start again' }));
+
+    // The fourth attempt fails on the connection, not on the face — that must
+    // not hide the fallback three real failures already unlocked.
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('network down')));
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+
+    expect(await screen.findByText('Please try again.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Another way in' })).toBeInTheDocument();
+  });
+
   it('opens the fallback screen with the direction that failed', async () => {
     answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED];
     const user = userEvent.setup();
