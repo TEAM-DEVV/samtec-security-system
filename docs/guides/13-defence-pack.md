@@ -121,7 +121,7 @@ password-confirmed step any administrator can take.
 | Role | Sees and does |
 |---|---|
 | `ADMIN` | Everything, including users, devices, biometrics and approving pay. |
-| `HR_PAYROLL` | People and preparing pay — but may never approve a run they prepared. |
+| `HR_PAYROLL` | People, pay terms and bank details, and preparing pay. An administrator approves. |
 | `SUPERVISOR` | Attendance and rosters, **only for the sites they are posted to**. |
 | `GUARD` | Only their own record, attendance and payslips. |
 
