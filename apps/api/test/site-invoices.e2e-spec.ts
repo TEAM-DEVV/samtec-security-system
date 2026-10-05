@@ -61,8 +61,12 @@ describe.skipIf(!databaseUrl)('Client invoice (e2e)', () => {
     });
   };
 
+  // Encoded exactly as a real caller would (`encodeURIComponent`, as the
+  // dashboard does): a month with a literal "/" in it, such as "2026/09",
+  // must still reach this one route and fail Zod's check there, rather than
+  // splitting into extra path segments that no route matches at all.
   const invoiceUrl = (siteId: string, month: string, hourlyRatePesewas: number | string = 1_000) =>
-    `/api/v1/sites/${siteId}/invoices/${month}.pdf?hourlyRatePesewas=${hourlyRatePesewas}`;
+    `/api/v1/sites/${encodeURIComponent(siteId)}/invoices/${encodeURIComponent(month)}.pdf?hourlyRatePesewas=${hourlyRatePesewas}`;
 
   beforeAll(async () => {
     prisma = openFixtureDb(databaseUrl as string);
