@@ -1,7 +1,8 @@
-import { CalendarRange, Download, TrendingUp, UserCheck } from 'lucide-react';
+import { CalendarRange, Download, Receipt, TrendingUp, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { LoadErrorAlert } from '@/components/load-error-alert';
 import { PageHeader } from '@/components/page-header';
+import { SiteSelect } from '@/components/site-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -15,11 +16,20 @@ import {
 } from '@/components/ui/table';
 import { $api } from '@/lib/api';
 import { DownloadFailed, downloadFromApi } from '@/lib/download';
-import { formatCedis, formatDate, todayInGhana } from '@/lib/format';
+import {
+  cedisToPesewas,
+  formatCedis,
+  formatDate,
+  previousMonthInGhana,
+  todayInGhana,
+} from '@/lib/format';
 import { usePageTitle } from '@/lib/page-title';
 import { monthName } from '@/lib/payroll';
 import { pageRoles, roleAllowed } from '@/lib/roles';
 import { useSession } from '@/lib/session';
+
+/** The contract's largest page; a company has far fewer sites than that. */
+const SITE_PAGE_SIZE = 100;
 
 /** A month back from today, which is the range a manager asks for most. */
 function aMonthAgo(): string {
@@ -42,11 +52,24 @@ export function ReportsPage() {
   usePageTitle('Reports');
   const session = useSession();
   const mayReadPayroll = session !== null && roleAllowed(pageRoles.payroll, session.user.role);
+  const mayReadInvoices = session !== null && roleAllowed(pageRoles.invoicing, session.user.role);
   const [from, setFrom] = useState(aMonthAgo);
   const [to, setTo] = useState(todayInGhana);
   const [downloadError, setDownloadError] = useState<string>();
 
+  const [invoiceSiteId, setInvoiceSiteId] = useState('');
+  const [invoiceMonth, setInvoiceMonth] = useState(previousMonthInGhana);
+  const [invoiceRate, setInvoiceRate] = useState('');
+
   const overview = $api.useQuery('get', '/reports/overview');
+  // Shares its cache with SiteSelect's own query, so choosing a site here
+  // costs no extra request.
+  const sites = $api.useQuery(
+    'get',
+    '/sites',
+    { params: { query: { limit: SITE_PAGE_SIZE } } },
+    { enabled: mayReadInvoices },
+  );
 
   const save = async (path: string, fileName: string) => {
     setDownloadError(undefined);
@@ -57,6 +80,18 @@ export function ReportsPage() {
         error instanceof DownloadFailed ? error.message : 'The download failed. Please try again.',
       );
     }
+  };
+
+  const invoiceRatePesewas = cedisToPesewas(invoiceRate);
+  const canDownloadInvoice =
+    invoiceSiteId !== '' && invoiceMonth !== '' && Number.isInteger(invoiceRatePesewas);
+  const downloadInvoice = () => {
+    const site = sites.data?.items.find((one) => one.id === invoiceSiteId);
+    const fileName = `invoice-${site?.code ?? invoiceSiteId}-${invoiceMonth}.pdf`;
+    void save(
+      `/sites/${encodeURIComponent(invoiceSiteId)}/invoices/${encodeURIComponent(invoiceMonth)}.pdf?hourlyRatePesewas=${invoiceRatePesewas}`,
+      fileName,
+    );
   };
 
   const absence = overview.data?.absence;
@@ -191,6 +226,64 @@ export function ReportsPage() {
               <Download aria-hidden="true" className="size-4" />
               Download as a spreadsheet
             </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {mayReadInvoices ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Receipt aria-hidden="true" className="size-4" />
+              Client invoices
+            </CardTitle>
+            <CardDescription>
+              A PDF invoice for one site and one month, billed at a rate you choose.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <SiteSelect
+                id="invoice-site"
+                label="Site"
+                value={invoiceSiteId}
+                onChange={setInvoiceSiteId}
+                emptyLabel="Choose a site"
+              />
+              <div className="grid gap-1.5">
+                <Label htmlFor="invoice-month">Month</Label>
+                <input
+                  id="invoice-month"
+                  type="month"
+                  value={invoiceMonth}
+                  onChange={(event) => setInvoiceMonth(event.target.value)}
+                  className="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="invoice-rate">Hourly rate (GH₵)</Label>
+                <input
+                  id="invoice-rate"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="e.g. 15.00"
+                  value={invoiceRate}
+                  onChange={(event) => setInvoiceRate(event.target.value)}
+                  className="h-9 w-32 rounded-md border border-input bg-background px-3 text-sm"
+                />
+              </div>
+              <Button disabled={!canDownloadInvoice} onClick={downloadInvoice}>
+                <Download aria-hidden="true" className="size-4" />
+                Download invoice (PDF)
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Bills only the counted (confirmed) hours worked at this site in the chosen month — a
+              disputed or voided shift is left out. There is no saved rate yet, so enter it each
+              time; a default rate per site may come later.
+            </p>
           </CardContent>
         </Card>
       ) : null}

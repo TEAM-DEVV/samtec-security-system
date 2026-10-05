@@ -22,6 +22,16 @@ export function formatCedis(amountPesewas: number): string {
   return `${sign}GH₵ ${wholeCedis.format(cedis)}.${String(pesewas).padStart(2, '0')}`;
 }
 
+/**
+ * The reverse of `formatCedis`, for a cedis amount typed into a form field:
+ * "15.5" → 1550 pesewas. `NaN` for anything that is not a positive number, so
+ * a caller can tell a bad entry apart from a real one with `Number.isInteger`.
+ */
+export function cedisToPesewas(value: string): number {
+  const cedis = Number(value);
+  return Number.isFinite(cedis) && cedis > 0 ? Math.round(cedis * 100) : Number.NaN;
+}
+
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const calendarDate = new Intl.DateTimeFormat('en-GB', {
@@ -158,6 +168,17 @@ const ghanaIsoDate = new Intl.DateTimeFormat('en-CA', {
 /** Today's calendar date in Ghana, as the API writes dates: "2026-09-23". Defaults to now. */
 export function todayInGhana(now: Date = new Date()): string {
   return ghanaIsoDate.format(now);
+}
+
+/**
+ * The calendar month before this one, in Ghana, as "YYYY-MM" — the default
+ * month for a client invoice, which is almost always billed for the month
+ * that has just finished. Defaults to now.
+ */
+export function previousMonthInGhana(now: Date = new Date()): string {
+  const [year, month] = todayInGhana(now).split('-').map(Number);
+  const at = new Date(Date.UTC(year as number, (month as number) - 2, 1));
+  return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /** A calendar date moved by some days: addDays("2026-09-23", -7) → "2026-09-16". */

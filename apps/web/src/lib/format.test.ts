@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cedisToPesewas,
   firstName,
   formatCedis,
   formatClock,
@@ -8,6 +9,7 @@ import {
   formatLongDate,
   greetingForNow,
   initials,
+  previousMonthInGhana,
 } from './format';
 
 describe('formatClock', () => {
@@ -43,6 +45,25 @@ describe('formatCedis', () => {
   });
 });
 
+describe('cedisToPesewas', () => {
+  it('turns a typed cedis amount into whole pesewas', () => {
+    expect(cedisToPesewas('15')).toBe(1_500);
+    expect(cedisToPesewas('15.5')).toBe(1_550);
+    expect(cedisToPesewas('1234.56')).toBe(123_456);
+  });
+
+  it('rounds away any floating-point noise', () => {
+    expect(cedisToPesewas('19.99')).toBe(1_999);
+  });
+
+  it('is NaN for anything that is not a positive amount', () => {
+    expect(cedisToPesewas('')).toBeNaN();
+    expect(cedisToPesewas('0')).toBeNaN();
+    expect(cedisToPesewas('-5')).toBeNaN();
+    expect(cedisToPesewas('not a number')).toBeNaN();
+  });
+});
+
 describe('formatDate', () => {
   it('shows the same calendar date the API sent', () => {
     expect(formatDate('2026-09-15')).toMatch(/^15 Sept? 2026$/);
@@ -56,6 +77,24 @@ describe('formatDate', () => {
 describe('formatDateTime', () => {
   it('shows timestamps in Ghana time', () => {
     expect(formatDateTime('2026-09-15T08:30:00Z')).toMatch(/^15 Sept? 2026, 08:30$/);
+  });
+});
+
+describe('previousMonthInGhana', () => {
+  it('is the month before the one a moment falls in', () => {
+    expect(previousMonthInGhana(new Date('2026-09-15T08:30:00Z'))).toBe('2026-08');
+  });
+
+  it('carries back across a year boundary', () => {
+    expect(previousMonthInGhana(new Date('2026-01-10T08:30:00Z'))).toBe('2025-12');
+  });
+
+  it('judges the date in Ghana, not in the test machine’s own zone', () => {
+    // The test machine runs 10 hours behind UTC (Honolulu). Shortly after
+    // midnight UTC on the 1st, it is still the last day of the month before in
+    // Honolulu, but already the 1st in Ghana — the previous month must be
+    // worked out from Ghana's date, not the machine's.
+    expect(previousMonthInGhana(new Date('2026-09-01T02:00:00Z'))).toBe('2026-08');
   });
 });
 

@@ -716,4 +716,34 @@ export class AttendanceFactsService {
     }
     return byEmployee;
   }
+
+  /**
+   * Every worker with a confirmed shift at one site inside one calendar
+   * month, and how many minutes they worked there — for a client invoice.
+   *
+   * Only `CONFIRMED` counts, the same rule payroll pays by and
+   * `payableSegmentsByEmployee` above already reads by: a disputed shift is
+   * still being argued about and a voided one did not happen. The identifier
+   * is all this hands back; a name belongs to the workforce module.
+   */
+  async workedMinutesBySiteForMonth(
+    companyId: string,
+    siteId: string,
+    month: { startsOn: Date; endsOn: Date },
+  ): Promise<{ employeeId: string; workedMinutes: number }[]> {
+    const rows = await this.prisma.workSegment.groupBy({
+      by: ['employeeId'],
+      where: {
+        companyId,
+        siteId,
+        status: 'CONFIRMED',
+        workDate: { gte: month.startsOn, lte: month.endsOn },
+      },
+      _sum: { workedMinutes: true },
+    });
+    return rows.map((row) => ({
+      employeeId: row.employeeId,
+      workedMinutes: row._sum.workedMinutes ?? 0,
+    }));
+  }
 }

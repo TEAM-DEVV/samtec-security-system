@@ -23,3 +23,23 @@ export const attendanceReportQuerySchema = z.strictObject({
   siteId: z.uuid().optional(),
 });
 export type AttendanceReportQuery = z.infer<typeof attendanceReportQuerySchema>;
+
+/** A site's ID, as every other module's controller validates one. */
+export const idSchema = z.uuid();
+
+/** Contract: the `month` path parameter of `downloadSiteInvoicePdf`. */
+export const invoiceMonthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must be a month like 2026-09.');
+export type InvoiceMonth = z.infer<typeof invoiceMonthSchema>;
+
+/**
+ * Contract: the query of `downloadSiteInvoicePdf`. There is no saved rate
+ * yet, so it is sent with every request. The cap matches the one every
+ * payroll money field already uses (`payroll.schemas.ts`), far above any
+ * real hourly rate but comfortably inside the database's `INTEGER` column.
+ */
+export const siteInvoiceQuerySchema = z.strictObject({
+  hourlyRatePesewas: z.coerce.number().int().min(1).max(100_000_000),
+});
+export type SiteInvoiceQuery = z.infer<typeof siteInvoiceQuerySchema>;

@@ -1,7 +1,8 @@
 import type { ProblemDetails, ReportsOverview, UserRole } from '@samtec/contracts';
-import { HttpResponse, http } from 'msw';
+import { type DefaultBodyType, HttpResponse, http } from 'msw';
 import { mockEmployees } from '../data/employees';
-import { apiUrl, forbidden, unauthorized, validationProblem } from '../helpers';
+import { mockSites } from '../data/sites';
+import { apiUrl, forbidden, isUuid, notFound, unauthorized, validationProblem } from '../helpers';
 import { userForRequest } from './auth';
 import { payrollMockState } from './payroll';
 
@@ -190,4 +191,40 @@ export const reportHandlers = [
       },
     });
   }),
+
+  http.get<{ siteId: string; month: string }, DefaultBodyType, OrProblem<string>>(
+    apiUrl('/sites/:siteId/invoices/:month.pdf'),
+    ({ request, params }) => {
+      // Payroll-shaped, so the same roles as the payroll cost report.
+      const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
+      if (refused) return refused;
+
+      // Same shape as GET /sites/:siteId: a malformed id is a 400, one that
+      // simply does not exist is a 404.
+      if (!isUuid(params.siteId)) {
+        return validationProblem('siteId', 'Must be a valid ID.');
+      }
+      const site = mockSites.find((candidate) => candidate.id === params.siteId);
+      if (!site) {
+        return notFound('No site exists with this ID.');
+      }
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(params.month)) {
+        return validationProblem('month', 'Must be a month like 2026-09.');
+      }
+
+      const rate = new URL(request.url).searchParams.get('hourlyRatePesewas');
+      const hourlyRatePesewas = rate === null ? Number.NaN : Number(rate);
+      if (!Number.isInteger(hourlyRatePesewas) || hourlyRatePesewas < 1) {
+        return validationProblem('hourlyRatePesewas', 'Must be a whole number of at least 1.');
+      }
+
+      return new HttpResponse(`%PDF-1.4\n%mock invoice for ${site.code} ${params.month}\n%%EOF`, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="invoice-${site.code}-${params.month}.pdf"`,
+          ...noStore,
+        },
+      });
+    },
+  ),
 ];
