@@ -13,8 +13,8 @@ export const MOCK_TWO_FACTOR_CODE = '123456';
  * Fictional sign-in accounts, one for each way signing in can go:
  *
  * - admin@samtec.example has two-factor authentication, so it gets a code challenge.
- * - admin2@samtec.example is a second ADMIN account, so the Users page and
- *   its tests have more than one administrator to list and to change.
+ *   It is the only administrator: since 1 October 2026 the company has one,
+ *   who acts alone and confirms sensitive actions with their password.
  * - hr@samtec.example must set up two-factor authentication before signing in.
  * - supervisor@samtec.example signs straight in.
  * - guard@samtec.example signs straight in, and may see only their own records.
@@ -24,14 +24,6 @@ export const mockUsers: CurrentUser[] = [
     id: '01927c3e-2222-7ccc-9ddd-000000000001',
     email: 'admin@samtec.example',
     fullName: 'Efua Mensah',
-    role: 'ADMIN',
-    twoFactorEnabled: true,
-    employeeId: null,
-  },
-  {
-    id: '01927c3e-2222-7ccc-9ddd-000000000005',
-    email: 'admin2@samtec.example',
-    fullName: 'Nii Armah',
     role: 'ADMIN',
     twoFactorEnabled: true,
     employeeId: null,
