@@ -188,7 +188,9 @@ export class SitesService {
       throw new ConflictException('Move every worker off this site before making it inactive.');
     }
     if (activeDevice) {
-      throw new ConflictException('Switch off every device at this site before making it inactive.');
+      throw new ConflictException(
+        'Switch off every device at this site before making it inactive.',
+      );
     }
   }
 

@@ -335,7 +335,9 @@ describe.skipIf(!databaseUrl)('adding and changing sites (e2e)', () => {
     });
 
     const refused = await updateSite(site.body.id, { status: 'INACTIVE' }).expect(409);
-    expect(JSON.stringify(refused.body)).toContain('Move every worker off this site and switch off');
+    expect(JSON.stringify(refused.body)).toContain(
+      'Move every worker off this site and switch off',
+    );
   });
 
   it('goes INACTIVE once nobody is posted there and no device is switched on', async () => {
