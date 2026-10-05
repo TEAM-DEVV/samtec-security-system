@@ -34,6 +34,10 @@ interface KioskSettingsScreenProps {
  */
 export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsScreenProps) {
   const [devices, setDevices] = useState<StoredDeviceSummary[] | null>(null);
+  // Set only on a failed read, so "Reading the stored devices…" does not sit
+  // next to the error notice forever: `devices` alone cannot tell a load that
+  // is still running apart from one that has already given up.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [adding, setAdding] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,9 +46,13 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
   const [confirmingForget, setConfirmingForget] = useState(false);
 
   const refresh = useCallback(() => {
+    setLoadFailed(false);
     listDevices()
       .then(setDevices)
-      .catch(() => setProblem('Could not read the devices stored on this phone.'));
+      .catch(() => {
+        setProblem('Could not read the devices stored on this phone.');
+        setLoadFailed(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -117,7 +125,7 @@ export function KioskSettingsScreen({ onBack, onDeviceChanged }: KioskSettingsSc
         <p className="small muted" style={{ margin: 0 }}>
           Devices stored on this phone
         </p>
-        {devices === null && <p className="muted">Reading the stored devices…</p>}
+        {devices === null && !loadFailed && <p className="muted">Reading the stored devices…</p>}
         {devices !== null && devices.length === 0 && (
           <p className="muted">No device is stored on this phone.</p>
         )}
