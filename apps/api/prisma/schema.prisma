@@ -99,6 +99,16 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  /// The company's own bank account: where the monthly bank file is paid
+  /// from, and what the payment receipt names. All four are nullable
+  /// together (owned by the `company` module, set only through
+  /// `PUT /company/bank-account`), and the account number is never read back
+  /// in full — masked to its last four digits everywhere it is shown.
+  bankName      String? @map("bank_name")
+  branch        String? @map("branch")
+  accountName   String? @map("account_name")
+  accountNumber String? @map("account_number")
+
   employees            Employee[]
   sites                Site[]
   assignments          SiteAssignment[]
