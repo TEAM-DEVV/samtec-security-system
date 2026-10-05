@@ -32,6 +32,10 @@ export const pageRoles = {
   employeeChanges: ['ADMIN', 'HR_PAYROLL'],
   /** Adding or changing a site (`POST`/`PATCH /sites…`). */
   siteChanges: ['ADMIN', 'HR_PAYROLL'],
+  /** `GET /sites/{siteId}/posts` and `GET /shift-patterns`: reading the roster. */
+  rosters: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** Adding or changing a post or a shift pattern (`POST`/`PATCH`, both routes). */
+  rosterChanges: ['ADMIN', 'HR_PAYROLL'],
   /** `GET /users` and every other Users operation: sign-in accounts are an administrator's job. */
   users: ['ADMIN'],
   /** `GET /company/bank-account`: HR_PAYROLL may read it. Changing it (`PUT`) is ADMIN only, enforced by the API. */
@@ -68,7 +72,11 @@ export const pageRoles = {
   payroll: ['ADMIN', 'HR_PAYROLL'],
   /** Opening a month, calculating a run and submitting it. The API also refuses anybody but the maker to submit. */
   payrollChanges: ['ADMIN', 'HR_PAYROLL'],
-  /** `POST …/approve`, `…/reject` and `…/mark-paid`. The API also refuses anybody who worked on the run. */
+  /**
+   * `POST …/approve`, `…/reject` and `…/mark-paid`. Since 1 October 2026 the
+   * company has one administrator acting alone, so that administrator may
+   * decide about a run even if they calculated or submitted it.
+   */
   payrollApproval: ['ADMIN'],
   /**
    * `GET /payroll/payslips` — **the one page a GUARD may open.** They see their

@@ -9,18 +9,22 @@ import type {
   UpdateShiftPatternRequest,
 } from '@samtec/contracts';
 import { HttpResponse, http, type PathParams } from 'msw';
+import { pageRoles, roleAllowed } from '@/lib/roles';
 import { mockPosts, mockShiftPatterns } from '../data/rosters';
 import { mockSites } from '../data/sites';
 import {
   apiUrl,
   conflict,
+  forbidden,
   isUuid,
   notFound,
   type OrProblem,
   pageOf,
   readLimit,
+  unauthorized,
   validationProblem,
 } from '../helpers';
+import { userForRequest } from './auth';
 
 /**
  * The mock API keeps its own copies so the write handlers can change them.
@@ -44,6 +48,13 @@ export const rosterHandlers = [
   http.get<{ siteId: string }, never, OrProblem<PostList>>(
     apiUrl('/sites/:siteId/posts'),
     ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosters, user.role)) {
+        return forbidden();
+      }
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
@@ -68,6 +79,13 @@ export const rosterHandlers = [
   http.post<{ siteId: string }, CreatePostRequest, OrProblem<Post>>(
     apiUrl('/sites/:siteId/posts'),
     async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosterChanges, user.role)) {
+        return forbidden();
+      }
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
@@ -107,6 +125,13 @@ export const rosterHandlers = [
   http.patch<{ postId: string }, UpdatePostRequest, OrProblem<Post>>(
     apiUrl('/posts/:postId'),
     async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosterChanges, user.role)) {
+        return forbidden();
+      }
       if (!isUuid(params.postId)) {
         return validationProblem('postId', 'Must be a valid ID.');
       }
@@ -138,6 +163,13 @@ export const rosterHandlers = [
   http.get<PathParams, never, OrProblem<ShiftPatternList>>(
     apiUrl('/shift-patterns'),
     ({ request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosters, user.role)) {
+        return forbidden();
+      }
       const query = new URL(request.url).searchParams;
       const limit = readLimit(query);
       if (limit === undefined) {
@@ -154,6 +186,13 @@ export const rosterHandlers = [
   http.post<PathParams, CreateShiftPatternRequest, OrProblem<ShiftPattern>>(
     apiUrl('/shift-patterns'),
     async ({ request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosterChanges, user.role)) {
+        return forbidden();
+      }
       const body = await request.json();
       const name = checkName(body.name);
       if (name === undefined) {
@@ -192,6 +231,13 @@ export const rosterHandlers = [
   http.patch<{ shiftPatternId: string }, UpdateShiftPatternRequest, OrProblem<ShiftPattern>>(
     apiUrl('/shift-patterns/:shiftPatternId'),
     async ({ params, request }) => {
+      const user = userForRequest(request);
+      if (!user) {
+        return unauthorized('Sign in to continue.');
+      }
+      if (!roleAllowed(pageRoles.rosterChanges, user.role)) {
+        return forbidden();
+      }
       if (!isUuid(params.shiftPatternId)) {
         return validationProblem('shiftPatternId', 'Must be a valid ID.');
       }
