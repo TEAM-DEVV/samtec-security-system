@@ -153,8 +153,8 @@ Use the seeded month. Payroll → the month → the run.
 
 ## Part 4 · Rigour and limits (2 minutes, back to slides)
 
-> **SAY:** "How do I know it works? Almost twelve hundred automated checks run
-> on every change — 920 on the API, 394 on the dashboard, 156 on the kiosk, 35 on the gateway —
+> **SAY:** "How do I know it works? Almost seventeen hundred automated checks run
+> on every change — 1,004 on the API, 483 on the dashboard, 167 on the kiosk, 35 on the gateway —
 > including money calculated to the pesewa against payslips we worked by hand,
 > and database rules proved against a real PostgreSQL. Every
 > phase went through four reviews — architecture, code quality, full-stack and
