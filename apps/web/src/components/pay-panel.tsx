@@ -390,14 +390,20 @@ function PaymentDetailsSection({ employeeId }: { employeeId: string }) {
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
           <DetailRow term="Bank name">{current?.bankName ?? <NotOnFile />}</DetailRow>
           <DetailRow term="Account name">{current?.accountName ?? <NotOnFile />}</DetailRow>
-          <DetailRow term="Account number">
-            {current?.accountNumber ? (
-              <span className="font-mono">{current.accountNumber}</span>
+          <DetailRow term="Bank account">
+            {current?.accountNumberEndsWith ? (
+              <span className="font-mono">Bank account ending {current.accountNumberEndsWith}</span>
             ) : (
               <NotOnFile />
             )}
           </DetailRow>
-          <DetailRow term="Mobile money number">{current?.momoNumber ?? <NotOnFile />}</DetailRow>
+          <DetailRow term="Mobile money">
+            {current?.momoNumberEndsWith ? (
+              <span className="font-mono">Mobile money ending {current.momoNumberEndsWith}</span>
+            ) : (
+              <NotOnFile />
+            )}
+          </DetailRow>
         </dl>
       )}
 
@@ -445,8 +451,10 @@ function PaymentDetailsForm({
 }: PaymentDetailsFormProps) {
   const [bankName, setBankName] = useState(current?.bankName ?? '');
   const [accountName, setAccountName] = useState(current?.accountName ?? '');
-  const [accountNumber, setAccountNumber] = useState(current?.accountNumber ?? '');
-  const [momoNumber, setMomoNumber] = useState(current?.momoNumber ?? '');
+  // Never pre-filled: the API only ever hands back the last four digits, never
+  // enough to reconstruct the full number these boxes would need to show.
+  const [accountNumber, setAccountNumber] = useState('');
+  const [momoNumber, setMomoNumber] = useState('');
   const [mistake, setMistake] = useState<string | null>(null);
 
   /** Null when `value` (already trimmed) is fine to send, including empty. */
@@ -531,6 +539,7 @@ function PaymentDetailsForm({
             className="font-mono"
             value={accountNumber}
             onChange={(event) => setAccountNumber(event.target.value)}
+            aria-describedby="payment-details-number-hint"
           />
         </div>
         <div className="grid gap-1.5">
@@ -542,13 +551,19 @@ function PaymentDetailsForm({
             placeholder="+233241234567"
             value={momoNumber}
             onChange={(event) => setMomoNumber(event.target.value)}
+            aria-describedby="payment-details-number-hint"
           />
         </div>
       </div>
 
+      <p id="payment-details-number-hint" className="text-muted-foreground text-xs">
+        The account number and the mobile money number are shown only as their last four digits, so
+        those two boxes always start empty. Type the full number to change it, or leave it blank to
+        clear it — the same as leaving the bank name or account name blank.
+      </p>
+
       <p className="text-muted-foreground text-xs">
-        This is what the monthly bank file pays into. Every box is optional, but saving clears any
-        box left empty. Saving asks for the administrator's password.
+        This is what the monthly bank file pays into. Saving asks for the administrator's password.
       </p>
 
       {mistake && (

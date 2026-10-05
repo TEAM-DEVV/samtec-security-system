@@ -551,9 +551,42 @@ describe('mock payroll API: periods, pay terms and payment details', () => {
       },
     });
     expect(saved.response.status).toBe(200);
-    expect(saved.data?.momoNumber).toBe('+233241234567');
+    expect(saved.data?.momoNumberEndsWith).toBe('4567');
     expect(saved.data?.bankName).toBeNull();
     expect(saved.response.headers.get('Cache-Control')).toBe('no-store');
+    // The full number went in; it never comes back, from either endpoint.
+    expect(JSON.stringify(saved.data)).not.toContain('+233241234567');
+  });
+
+  it('reads payment details back masked, and 404s before anything is on file', async () => {
+    await signInForTests('hr@samtec.example');
+    // Beyond the first ten employees, the mock has never stored a payment
+    // details row at all (src/mocks/data/payroll.ts).
+    const noDetailsYet = mockEmployees[10]?.id ?? '';
+
+    const before = await fetchClient.GET('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: noDetailsYet } },
+    });
+    expect(before.response.status).toBe(404);
+
+    await fetchClient.PUT('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: noDetailsYet } },
+      body: {
+        bankName: 'Akwaaba Bank',
+        accountName: 'Kwame Mensah',
+        accountNumber: '1928374650',
+        momoNumber: null,
+      },
+    });
+
+    const after = await fetchClient.GET('/employees/{employeeId}/payment-details', {
+      params: { path: { employeeId: noDetailsYet } },
+    });
+    expect(after.response.status).toBe(200);
+    expect(after.response.headers.get('Cache-Control')).toBe('no-store');
+    expect(after.data?.bankName).toBe('Akwaaba Bank');
+    expect(after.data?.accountNumberEndsWith).toBe('4650');
+    expect(JSON.stringify(after.data)).not.toContain('1928374650');
   });
 
   it('names a rejected field without ever quoting what was typed', async () => {

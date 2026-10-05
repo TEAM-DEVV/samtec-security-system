@@ -30,6 +30,7 @@ import {
   mockPeriods,
   mockRuns,
   mockTaxTable,
+  type StoredPaymentDetails,
   summaryOf,
   totalsOf,
 } from '../data/payroll';
@@ -109,6 +110,26 @@ function newId(prefix: string): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Masks a stored row down to what `EmployeePaymentDetails` actually promises:
+ * the bank name and the account name in full, the account number and the
+ * mobile money number as their last four digits only. Mirrors
+ * `toApiPaymentDetails` in the real API's `payroll-mapping.ts` — the mock's
+ * bank export still reads the full numbers straight off `state.paymentDetails`,
+ * never through this function.
+ */
+function toMaskedPaymentDetails(row: StoredPaymentDetails): EmployeePaymentDetails {
+  return {
+    employeeId: row.employeeId,
+    bankName: row.bankName,
+    accountName: row.accountName,
+    accountNumberEndsWith: row.accountNumber === null ? null : row.accountNumber.slice(-4),
+    momoNumberEndsWith: row.momoNumber === null ? null : row.momoNumber.slice(-4),
+    updatedAt: row.updatedAt,
+    updatedByUserId: row.updatedByUserId,
+  };
 }
 
 /** Signed in with one of these roles, or the matching 401/403. */
@@ -1013,7 +1034,9 @@ export const payrollHandlers = [
       if (details === undefined) {
         return notFound('No payment details are on file for this employee yet.');
       }
-      return HttpResponse.json<EmployeePaymentDetails>(details, { headers: noStore });
+      return HttpResponse.json<EmployeePaymentDetails>(toMaskedPaymentDetails(details), {
+        headers: noStore,
+      });
     },
   ),
 
@@ -1038,7 +1061,7 @@ export const payrollHandlers = [
       if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
         return notFound('No employee exists with this ID.');
       }
-      const details: EmployeePaymentDetails = {
+      const details: StoredPaymentDetails = {
         employeeId: params.employeeId,
         bankName: (body.bankName as string | null) ?? null,
         accountName: (body.accountName as string | null) ?? null,
@@ -1052,7 +1075,12 @@ export const payrollHandlers = [
       );
       if (existing === -1) state.paymentDetails.push(details);
       else state.paymentDetails[existing] = details;
-      return HttpResponse.json<EmployeePaymentDetails>(details, { headers: noStore });
+      // The full numbers are stored (the mock's bank export needs them), but
+      // never echoed back: the PUT answers with the same masked shape the GET
+      // does.
+      return HttpResponse.json<EmployeePaymentDetails>(toMaskedPaymentDetails(details), {
+        headers: noStore,
+      });
     },
   ),
 ];

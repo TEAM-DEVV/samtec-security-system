@@ -1969,12 +1969,12 @@ export interface paths {
         };
         /**
          * Where an employee's salary is paid
-         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Reads back what the `PUT` on this same address last stored, for the dashboard's Pay card. **This is personal data**, so the answer carries `Cache-Control: no-store` and is never logged or put in an error message, exactly like the `PUT`. A worker nobody has entered details for yet answers `404` rather than an object full of nulls, because the row only starts to exist once something is saved into it; an employee this caller may not see also answers `404`.
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Reads back what the `PUT` on this same address last stored, for the dashboard's Pay card — **except the account number and the mobile money number, which come back only as their last four digits** (`accountNumberEndsWith`, `momoNumberEndsWith`); see `EmployeePaymentDetails` for why. **This is personal data**, so the answer carries `Cache-Control: no-store` and is never logged or put in an error message, exactly like the `PUT`. A worker nobody has entered details for yet answers `404` rather than an object full of nulls, because the row only starts to exist once something is saved into it; an employee this caller may not see also answers `404`.
          */
         get: operations["getEmployeePaymentDetails"];
         /**
          * Set where an employee's salary is paid
-         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The matching `GET` reads these same details back for the dashboard; a run's bank export is the only other place they are read.
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The full numbers go in here, but **this answer masks them the same way the matching `GET` does**: `accountNumberEndsWith` and `momoNumberEndsWith`, never the numbers themselves. The full numbers are read back only by the run's bank export.
          */
         put: operations["setEmployeePaymentDetails"];
         post?: never;
@@ -4562,7 +4562,11 @@ export interface components {
             /** @description A monthly deduction taken after tax, in pesewas. Send `0` for none. */
             otherDeductionPesewas: number;
         };
-        /** @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is. */
+        /**
+         * @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is.
+         *
+         *     **The account number and the mobile money number never appear here in full.** `bankName` and `accountName` travel whole, because neither one pays anyone by itself, but `accountNumberEndsWith` and `momoNumberEndsWith` carry only the last four digits — enough for a person to recognise "yes, that account" without this being one more place the full number can be read from. The `PUT` that sets them still takes the full numbers; the full numbers are then read back only by the run's bank export, never by this shape.
+         */
         EmployeePaymentDetails: {
             /**
              * Format: uuid
@@ -4573,10 +4577,10 @@ export interface components {
             bankName: string | null;
             /** @description The name on the account, exactly as the bank holds it, or `null`. */
             accountName: string | null;
-            /** @description The account number the bank export pays into, or `null`. */
-            accountNumber: string | null;
-            /** @description The mobile money number, or `null`. Written `+233` and nine digits, like every other phone number in the contract. */
-            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+            /** @description The last four digits of the account number the bank export pays into, or `null` if none is on file. Never the full number. */
+            accountNumberEndsWith: string | null;
+            /** @description The last four digits of the mobile money number, or `null` if none is on file. Never the full number. */
+            momoNumberEndsWith: string | null;
             /**
              * Format: date-time
              * @description When these details were last changed.

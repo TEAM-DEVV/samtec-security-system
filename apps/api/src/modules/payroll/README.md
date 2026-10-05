@@ -86,11 +86,25 @@ which cannot be done honestly without reading it back from somewhere. If you
 are looking at this file because that trade-off needs revisiting, that is the
 history: it was not an oversight the first time.
 
-What stayed from the original design: the `GET` answers to exactly the roles
-the `PUT` does (never a SUPERVISOR, never a GUARD), the answer carries
-`Cache-Control: no-store` like the `PUT`, the row is never written to a log or
-an error message, and it is still never returned by any list — it is a
-single record addressed by one employee's ID, nothing more. A worker nobody
+**Neither the `GET` nor the `PUT` ever answers with a full account number or
+mobile money number, on purpose.** `bankName` and `accountName` come back
+whole, because neither pays anyone by itself, but the contract's
+`EmployeePaymentDetails` carries only `accountNumberEndsWith` and
+`momoNumberEndsWith` — the last four digits, or `null`. `toApiPaymentDetails`
+in `payroll-mapping.ts` is where the masking happens: it takes the full
+numbers out of the Prisma row and never puts them in the shape it returns. The
+`PUT` still takes the full numbers in (`SetEmployeePaymentDetailsRequest` is
+unchanged), and the database still stores them in full, because the bank
+export needs them — `BankDestination` in `bank-export.ts` reads them straight
+from the database and never through this masked mapping — but the `PUT`'s own
+answer is masked exactly like the `GET`'s, so setting a destination is not a
+second way to read one back in full.
+
+What stayed from the original design otherwise: the `GET` answers to exactly
+the roles the `PUT` does (never a SUPERVISOR, never a GUARD), the answer
+carries `Cache-Control: no-store` like the `PUT`, the row is never written to
+a log or an error message, and it is still never returned by any list — it is
+a single record addressed by one employee's ID, nothing more. A worker nobody
 has entered details for yet answers `404`, not an object of nulls, so the
 dashboard — and anyone reading a response — can tell "nothing saved" from
 "saved as blank" without that answer ever holding four real-looking nulls.
@@ -98,10 +112,15 @@ dashboard — and anyone reading a response — can tell "nothing saved" from
 `PUT /employees/{id}/payment-details` still requires all four fields and
 replaces all four: sending only the mobile money number, with the bank fields
 `null`, **wipes the bank account**, and nothing reports an error, because
-clearing a field is a legitimate thing to ask for. The screen pre-fills its
-form from the `GET` precisely so that editing one field does not silently
-discard the other three, and still has to say plainly that saving replaces
-every payment detail at once.
+clearing a field is a legitimate thing to ask for. The screen can pre-fill
+`bankName` and `accountName` from the `GET`, because those come back whole,
+but it cannot pre-fill the account number or the mobile money number — the
+`GET` never gives it enough to. Those two boxes start empty instead, with a
+hint explaining why, and the same rule applies to them as already applied to
+the other two: an empty box is a cleared field once the form is saved, not an
+unchanged one. There is no way around this that keeps the numbers masked; the
+screen's job is to say so plainly rather than let someone find out by losing
+a bank account on file.
 
 ## Writing tests that touch these tables
 

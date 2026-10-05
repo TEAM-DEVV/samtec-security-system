@@ -333,9 +333,13 @@ describe('EmployeeDetailPage', () => {
       expect(await screen.findByText('Pay')).toBeInTheDocument();
       expect(screen.getByText('Pay terms')).toBeInTheDocument();
       expect(screen.getByText('Payment details')).toBeInTheDocument();
-      // Kwame already has pay terms and a bank account on file (src/mocks/data/payroll.ts).
+      // Kwame already has pay terms and a bank account on file (src/mocks/data/payroll.ts),
+      // account number "10...0001" — shown only as its last four digits.
       expect(await screen.findByText('Akwaaba Bank')).toBeInTheDocument();
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
       expect(screen.queryByText(/No pay terms yet/)).not.toBeInTheDocument();
+      // The full account number never appears anywhere on the page.
+      expect(document.body.textContent).not.toMatch(/1000000000001/);
     });
 
     it('shows a supervisor no Pay card at all', async () => {
@@ -421,7 +425,8 @@ describe('EmployeeDetailPage', () => {
       await waitFor(() => {
         expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       });
-      expect(await screen.findByText('55501234567')).toBeInTheDocument();
+      // Never the full number back, only its last four digits.
+      expect(await screen.findByText('Bank account ending 4567')).toBeInTheDocument();
     });
   });
 });

@@ -741,16 +741,18 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
 
       // Personal data, so no browser or proxy may cache the answer.
       expect(saved.headers['cache-control']).toBe('no-store');
-      expect(saved.body.accountNumber).toBe('1234567890');
+      expect(saved.body.accountNumberEndsWith).toBe('7890');
       expect(saved.body.updatedByUserId).toBe(company.hrUserId);
+      // The PUT takes the full number but never hands it back, even here.
+      expect(JSON.stringify(saved.body)).not.toContain('1234567890');
     });
 
-    it('reads the destination back for the dashboard, also forbidding any copy', async () => {
+    it('reads the destination back for the dashboard, masked the same way the PUT answers', async () => {
       const worker = await freshWorker();
       await api()
         .put(`/api/v1/employees/${worker}/payment-details`)
         .set(...bearer(token.hr))
-        .send(details({ accountNumber: '5551234567' }))
+        .send(details({ accountNumber: '5551234567', momoNumber: null }))
         .expect(200);
 
       const read = await api()
@@ -758,8 +760,32 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .set(...bearer(token.hr))
         .expect(200);
       expect(read.headers['cache-control']).toBe('no-store');
-      expect(read.body.accountNumber).toBe('5551234567');
+      expect(read.body.accountNumberEndsWith).toBe('4567');
       expect(read.body.bankName).toBe('Akwaaba Bank');
+      // Never the full number, not even to the roles allowed to set it.
+      expect(JSON.stringify(read.body)).not.toContain('5551234567');
+    });
+
+    it('never answers with a full account number or mobile money number, from either endpoint', async () => {
+      const worker = await freshWorker();
+      const saved = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '19283746501', momoNumber: '+233209998877' }))
+        .expect(200);
+      expect(saved.body.accountNumberEndsWith).toBe('6501');
+      expect(saved.body.momoNumberEndsWith).toBe('8877');
+      expect(JSON.stringify(saved.body)).not.toContain('19283746501');
+      expect(JSON.stringify(saved.body)).not.toContain('+233209998877');
+
+      const read = await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(read.body.accountNumberEndsWith).toBe('6501');
+      expect(read.body.momoNumberEndsWith).toBe('8877');
+      expect(JSON.stringify(read.body)).not.toContain('19283746501');
+      expect(JSON.stringify(read.body)).not.toContain('+233209998877');
     });
 
     it('answers 404 for a worker nobody has entered details for yet, not an object of nulls', async () => {
@@ -800,8 +826,8 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
       // Every field is replaced, not merged: sending null really does clear it.
       expect(changed.body.bankName).toBeNull();
       expect(changed.body.accountName).toBeNull();
-      expect(changed.body.accountNumber).toBeNull();
-      expect(changed.body.momoNumber).toBe('+233241234567');
+      expect(changed.body.accountNumberEndsWith).toBeNull();
+      expect(changed.body.momoNumberEndsWith).toBe('4567');
     });
 
     it('refuses a bank name a spreadsheet would run as a formula', async () => {

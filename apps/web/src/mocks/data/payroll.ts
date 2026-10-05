@@ -1,5 +1,4 @@
 import type {
-  EmployeePaymentDetails,
   EmployeePayTerms,
   PayrollLine,
   PayrollPeriod,
@@ -10,6 +9,23 @@ import type {
   TaxTable,
 } from '@samtec/contracts';
 import { mockEmployees } from './employees';
+
+/**
+ * Payment details as the mock actually stores them: the full account number
+ * and mobile money number, because the mock's bank export needs them, the way
+ * the real database row does. The contract's `EmployeePaymentDetails` holds
+ * only the last four digits of each — the handlers mask this shape down to
+ * that one before it ever reaches a response body.
+ */
+export interface StoredPaymentDetails {
+  employeeId: string;
+  bankName: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  momoNumber: string | null;
+  updatedAt: string;
+  updatedByUserId: string;
+}
 
 // Fictional pay only (see SECURITY.md). Every bank account and mobile money
 // number below is made up, and no real person's pay is represented here.
@@ -198,7 +214,7 @@ export const mockPayTerms: EmployeePayTerms[] = mockEmployees
   }));
 
 /** Fictional accounts. Two workers have none, so the bank file shows who to chase. */
-export const mockPaymentDetails: EmployeePaymentDetails[] = mockEmployees
+export const mockPaymentDetails: StoredPaymentDetails[] = mockEmployees
   .slice(0, 10)
   .map((employee, index) => ({
     employeeId: employee.id,
