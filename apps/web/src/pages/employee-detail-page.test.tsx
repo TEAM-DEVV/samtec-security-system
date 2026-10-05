@@ -398,9 +398,7 @@ describe('EmployeeDetailPage', () => {
       await user.type(basicPay, '12.999');
       await user.click(screen.getByRole('button', { name: 'Save pay terms' }));
 
-      expect(
-        await screen.findByText(/at most two decimal places/),
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/at most two decimal places/)).toBeInTheDocument();
       // Still on the form: nothing was sent.
       expect(screen.getByRole('button', { name: 'Save pay terms' })).toBeInTheDocument();
     });
