@@ -455,6 +455,15 @@ function toListItem(employee: Employee): EmployeeListItem {
     status: employee.status,
     biometricEnrolledAt: employee.biometricEnrolledAt,
     currentSite: employee.currentSite,
+    currentPost: employee.currentPost,
+    currentShiftPattern: employee.currentShiftPattern,
     hireDate: employee.hireDate,
   };
+}
+
+/** Whether anybody is currently posted to this site. The Sites mock handler
+ * asks this before letting a site go INACTIVE, the same rule the real API
+ * enforces. */
+export function hasWorkerPostedTo(siteId: string): boolean {
+  return employees.some((employee) => employee.currentSite?.id === siteId);
 }

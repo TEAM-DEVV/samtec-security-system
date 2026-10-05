@@ -31,6 +31,8 @@ export const pageRoles = {
   sites: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** Creating, changing or terminating an employee (`POST`/`PATCH /employees…`). */
   employeeChanges: ['ADMIN', 'HR_PAYROLL'],
+  /** Adding or changing a site (`POST`/`PATCH /sites…`). */
+  siteChanges: ['ADMIN', 'HR_PAYROLL'],
   /** `GET /users` and every other Users operation: sign-in accounts are an administrator's job. */
   users: ['ADMIN'],
   /** `GET /attendance/segments` for the company or a site. A guard sees only themselves, on "My attendance". */

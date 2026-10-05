@@ -129,7 +129,12 @@ export class EmployeesService {
     const { pageRows, nextCursor } = toPage(rows, query.limit, (row) => row.staffNumber);
     return {
       items: pageRows.map((row) =>
-        toEmployeeListItem({ employee: row, currentSite: row.assignments[0]?.site ?? null }),
+        toEmployeeListItem({
+          employee: row,
+          currentSite: row.assignments[0]?.site ?? null,
+          currentPost: row.assignments[0]?.post ?? null,
+          currentShiftPattern: row.assignments[0]?.shiftPattern ?? null,
+        }),
       ),
       nextCursor,
     };

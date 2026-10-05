@@ -1,5 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { routes } from '@/app/routes';
 import { describeDrift, driftIsSuspect } from '@/lib/attendance';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
@@ -15,6 +16,19 @@ describe('DevicesPage', () => {
     expect(screen.getByText('7 min fast · suspect')).toBeInTheDocument();
     expect(screen.getByText('Face kiosk')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Register device' })).toBeInTheDocument();
+  });
+
+  it("links each device's site to the site's own page", async () => {
+    await signInForTests('admin@samtec.example');
+
+    renderWithProviders(<DevicesPage />);
+
+    await screen.findByRole('link', { name: 'Mock terminal TEM-01' });
+    // Anchored so it never matches the device's own name, which also
+    // contains "TEM-01". The site name comes from a second, independent
+    // query, so it may resolve after the device list already has.
+    const siteLink = await screen.findByRole('link', { name: /^TEM-01 ·/ });
+    expect(siteLink).toHaveAttribute('href', routes.site('01927c3e-1111-7aaa-8bbb-0c0c0c0c0c03'));
   });
 });
 

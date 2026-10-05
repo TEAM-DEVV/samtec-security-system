@@ -555,7 +555,11 @@ export interface paths {
          */
         get: operations["listSites"];
         put?: never;
-        post?: never;
+        /**
+         * Add a client site
+         * @description **Roles:** ADMIN, HR_PAYROLL. The code is short (like `ACC-01`) and unique in the company; it is printed on devices and documents, so it can never be changed once the site exists. A new site starts `ACTIVE` unless `status` says otherwise.
+         */
+        post: operations["createSite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -582,7 +586,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a site's details
+         * @description **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change. The code can never be changed here: it is printed on devices and documents. Switching `status` to `INACTIVE` is refused (`409`) while any worker is still posted here or any device here is switched on.
+         */
+        patch: operations["updateSite"];
         trace?: never;
     };
     "/sites/{siteId}/posts": {
@@ -2565,6 +2573,10 @@ export interface components {
             biometricEnrolledAt: components["schemas"]["BiometricEnrolledAt"];
             /** @description The site the employee is posted to today, or `null` if unassigned. */
             currentSite: components["schemas"]["SiteSummary"] | null;
+            /** @description The post at that site, or `null` when none is set. */
+            currentPost: components["schemas"]["PostSummary"] | null;
+            /** @description The shift pattern they work, or `null` when none is set. */
+            currentShiftPattern: components["schemas"]["ShiftPatternSummary"] | null;
             /** Format: date */
             hireDate: string;
         };
@@ -2719,6 +2731,31 @@ export interface components {
             items: components["schemas"]["Site"][];
             /** @description Pass this as `cursor` to get the next page. It is `null` on the last page. */
             nextCursor: string | null;
+        };
+        CreateSiteRequest: {
+            code: components["schemas"]["SiteCode"];
+            /** @example Ridge Towers Office Complex */
+            name: string;
+            /**
+             * @description The client company that pays for guarding this site.
+             * @example Ridge Towers Management Ltd
+             */
+            clientName: string;
+            region: components["schemas"]["GhanaRegion"];
+            /** @example Accra */
+            city: string;
+            /** @description Defaults to `ACTIVE`. */
+            status?: components["schemas"]["SiteStatus"];
+        };
+        /** @description Only the fields you send are changed. The code can never be changed here: it is printed on devices and documents. */
+        UpdateSiteRequest: {
+            name?: string;
+            /** @description The client company that pays for guarding this site. */
+            clientName?: string;
+            region?: components["schemas"]["GhanaRegion"];
+            city?: string;
+            /** @description Switching to `INACTIVE` is refused (`409`) while any worker is still posted here or any device here is switched on. */
+            status?: components["schemas"]["SiteStatus"];
         };
         /**
          * @description A time of day in 24-hour form, like `06:00` or `18:30`.
@@ -4792,6 +4829,8 @@ export type SiteStatus = components['schemas']['SiteStatus'];
 export type GhanaRegion = components['schemas']['GhanaRegion'];
 export type Site = components['schemas']['Site'];
 export type SiteList = components['schemas']['SiteList'];
+export type CreateSiteRequest = components['schemas']['CreateSiteRequest'];
+export type UpdateSiteRequest = components['schemas']['UpdateSiteRequest'];
 export type ShiftTime = components['schemas']['ShiftTime'];
 export type PostStatus = components['schemas']['PostStatus'];
 export type PostSummary = components['schemas']['PostSummary'];
@@ -5752,6 +5791,36 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    createSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description The site was created. */
+            201: {
+                headers: {
+                    /** @description URL of the new site. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     getSite: {
         parameters: {
             query?: never;
@@ -5776,6 +5845,38 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    updateSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site's ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listPosts: {
@@ -5972,6 +6073,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description How many items to return in one page. */
                 limit?: components["parameters"]["Limit"];
+                /** @description Only return devices at this site. */
+                siteId?: string;
             };
             header?: never;
             path?: never;

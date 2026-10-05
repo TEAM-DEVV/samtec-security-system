@@ -305,7 +305,7 @@ same way whether a company has one administrator or ten.
 `shift_patterns`.
 
 **Endpoints:** `GET/POST /employees`, `GET/PATCH /employees/{id}`,
-`POST /employees/{id}/terminate`, `GET /sites`, `GET /sites/{id}`,
+`POST /employees/{id}/terminate`, `GET/POST /sites`, `GET/PATCH /sites/{id}`,
 `GET/POST /sites/{id}/posts`, `PATCH /posts/{id}`, and `GET/POST/PATCH
 /shift-patterns`.
 
@@ -590,6 +590,8 @@ an error state**; that is a repository rule, not a nicety.
 | One employee | `employee-detail-page.tsx` | as above (a guard sees their own) | The record, employment history, postings — and the **Biometrics panel** (`components/biometrics-panel.tsx`): consent, the enrolled face, fingerprint keys, revoke, withdraw, exemptions. |
 | New / edit / terminate employee | `new-employee-page.tsx`, `edit-employee-page.tsx`, `terminate-employee-page.tsx` | ADMIN, HR | The forms behind the employee record, sharing `components/employee-form.tsx`. Terminating also switches off the person's sign-in. |
 | Sites | `sites-page.tsx` | ADMIN, HR, SUPERVISOR | Client locations, who is on post, which sites are active. |
+| One site | `site-detail-page.tsx` | as above (a supervisor sees their own) | The record, its posts, its devices (ADMIN only) and the workers posted there. |
+| New / edit site | `new-site-page.tsx`, `edit-site-page.tsx` | ADMIN, HR | The form behind the site record, sharing `components/site-form.tsx`. The code is fixed once a site exists, and going INACTIVE is refused while anybody is still posted there or a device is switched on. |
 | Attendance | `attendance-page.tsx` | ADMIN, HR, SUPERVISOR | Clock-ins paired into worked shifts, by day and site. |
 | My attendance | `my-attendance-page.tsx` | GUARD | Your own shifts, and nobody else's. |
 | Live board | `live-board-page.tsx` | ADMIN, HR, SUPERVISOR | Every clock-in as it arrives, refreshed every five seconds. **This is the screen to demo.** |

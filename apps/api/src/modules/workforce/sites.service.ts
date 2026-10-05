@@ -1,20 +1,33 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Site as ApiSite, SiteList } from '@samtec/contracts';
 import type { SignedInUser } from '../../common/auth.decorators.js';
 import { decodeCursor, toPage } from '../../common/pagination.js';
+import { isUniqueViolation } from '../../common/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, Site } from '../../generated/prisma/client.js';
+import { AuditService } from '../identity/audit.service.js';
 import { currentAssignmentFilter } from './employees.service.js';
-import type { ListSitesQuery } from './workforce.schemas.js';
+import { SiteDeactivationChecks } from './site-deactivation-checks.js';
+import type { CreateSiteBody, ListSitesQuery, UpdateSiteBody } from './workforce.schemas.js';
 
 /**
- * Reading client sites. ADMIN and HR_PAYROLL see every site; a SUPERVISOR
- * sees only the sites they are posted to; a GUARD sees none (a site they ask
- * about "does not exist" — 404, not 403, per the contract).
+ * Reading and changing client sites. ADMIN and HR_PAYROLL see every site and
+ * may add or change one; a SUPERVISOR sees only the sites they are posted to;
+ * a GUARD sees none (a site they ask about "does not exist" — 404, not 403,
+ * per the contract).
  */
 @Injectable()
 export class SitesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly deactivationChecks: SiteDeactivationChecks,
+  ) {}
 
   async list(viewer: SignedInUser, query: ListSitesQuery): Promise<SiteList> {
     const afterCode = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
@@ -76,6 +89,113 @@ export class SitesService {
     }
     const guardCounts = await this.activeGuardCounts([row.id]);
     return toApiSite(row, guardCounts.get(row.id) ?? 0);
+  }
+
+  /**
+   * Adds a client site. Contract: `createSite`. The code is short, printed on
+   * devices and documents, and unique in the company for life — never
+   * changed, not even here.
+   */
+  async create(viewer: SignedInUser, body: CreateSiteBody): Promise<ApiSite> {
+    try {
+      const site = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.site.create({
+          data: {
+            companyId: viewer.companyId,
+            code: body.code,
+            name: body.name,
+            clientName: body.clientName,
+            region: body.region,
+            city: body.city,
+            status: body.status,
+          },
+        });
+        await this.audit.record(
+          {
+            companyId: viewer.companyId,
+            actorUserId: viewer.userId,
+            action: 'site.created',
+            entityType: 'site',
+            entityId: created.id,
+          },
+          tx,
+        );
+        return created;
+      });
+      return toApiSite(site, 0);
+    } catch (error) {
+      if (isUniqueViolation(error, 'code')) {
+        throw new ConflictException('A site with this code already exists.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Changes a site's details. Contract: `updateSite`. Only the sent fields
+   * change; the code can never be changed here. Switching `status` to
+   * `INACTIVE` is refused while anybody is still posted here or any device
+   * here is switched on, so the site cannot quietly go dark under them. Those
+   * checks and the change run in one transaction, so a worker posted here in
+   * the same instant cannot slip between them.
+   */
+  async update(viewer: SignedInUser, siteId: string, body: UpdateSiteBody): Promise<ApiSite> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.site.findFirst({
+        where: { id: siteId, companyId: viewer.companyId },
+      });
+      if (!current) {
+        throw new NotFoundException('No site exists with this ID.');
+      }
+      if (body.status === 'INACTIVE' && current.status !== 'INACTIVE') {
+        await this.assertSafeToDeactivate(viewer.companyId, siteId, tx);
+      }
+
+      await tx.site.update({ where: { id: siteId }, data: body });
+      await this.audit.record(
+        {
+          companyId: viewer.companyId,
+          actorUserId: viewer.userId,
+          // Only WHICH fields changed — never their values.
+          action: 'site.updated',
+          entityType: 'site',
+          entityId: siteId,
+          detail: { changedFields: Object.keys(body).join(',') },
+        },
+        tx,
+      );
+    });
+    return this.get(viewer, siteId);
+  }
+
+  /**
+   * A site may go `INACTIVE` only once nobody is posted there and no other
+   * module objects (the attendance module does while a device here is
+   * switched on; see `SiteDeactivationChecks`), so nothing is left quietly
+   * stranded. The refusal names everything still in the way, in one sentence:
+   * "Move every worker off this site and switch off every device at this
+   * site before making it inactive."
+   */
+  private async assertSafeToDeactivate(
+    companyId: string,
+    siteId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const reasons: string[] = [];
+    const postedWorker = await tx.siteAssignment.findFirst({
+      where: { siteId, ...currentAssignmentFilter() },
+      select: { id: true },
+    });
+    if (postedWorker) {
+      reasons.push('move every worker off this site');
+    }
+    reasons.push(...(await this.deactivationChecks.reasonsToRefuse(companyId, siteId, tx)));
+    if (reasons.length > 0) {
+      const sentence = reasons.join(' and ');
+      throw new ConflictException(
+        `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} before making it inactive.`,
+      );
+    }
   }
 
   /** How many ACTIVE employees are posted to each site today, in one query. */

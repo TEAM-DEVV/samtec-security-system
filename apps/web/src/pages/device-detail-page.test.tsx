@@ -23,6 +23,17 @@ function renderDevicePage(deviceId: string) {
 }
 
 describe('DeviceDetailPage', () => {
+  it("links the device's site to the site's own page", async () => {
+    await signInForTests('admin@samtec.example');
+    renderDevicePage(TERMINAL_ID);
+    await screen.findByRole('heading', { name: 'Mock terminal ACC-01' });
+
+    // The site's name comes from a second, independent query, so it may not
+    // have resolved yet even once the heading (from the device query) has.
+    const siteLink = await screen.findByRole('link', { name: /ACC-01/ });
+    expect(siteLink).toHaveAttribute('href', routes.site('01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01'));
+  });
+
   it('renames a device and reports it', async () => {
     await signInForTests('admin@samtec.example');
     const user = userEvent.setup();

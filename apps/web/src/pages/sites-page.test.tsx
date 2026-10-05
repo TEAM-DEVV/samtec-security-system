@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { routes } from '@/app/routes';
 import { env } from '@/lib/env';
 import { mockSites } from '@/mocks/data/sites';
 import { server } from '@/mocks/node';
@@ -22,6 +23,35 @@ describe('SitesPage', () => {
     expect(screen.getByRole('cell', { name: 'Kumasi, Ashanti' })).toBeInTheDocument();
     // The status badge in the table (the drop-down also has an "Inactive" option).
     expect(screen.getByRole('cell', { name: 'Inactive' })).toBeInTheDocument();
+  });
+
+  it("links each site's name to its own page", async () => {
+    await signInForTests('admin@samtec.example');
+
+    renderWithProviders(<SitesPage />);
+
+    const link = await screen.findByRole('link', { name: 'Ridge Towers Office Complex' });
+    expect(link).toHaveAttribute('href', routes.site('01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01'));
+  });
+
+  it('offers Add site to ADMIN and HR_PAYROLL, but not a supervisor', async () => {
+    await signInForTests('admin@samtec.example');
+    const { unmount } = renderWithProviders(<SitesPage />);
+    expect(await screen.findByRole('link', { name: 'Add site' })).toHaveAttribute(
+      'href',
+      routes.newSite,
+    );
+    unmount();
+
+    await signInForTests('hr@samtec.example');
+    const hr = renderWithProviders(<SitesPage />);
+    expect(await screen.findByRole('link', { name: 'Add site' })).toBeInTheDocument();
+    hr.unmount();
+
+    await signInForTests('supervisor@samtec.example');
+    renderWithProviders(<SitesPage />);
+    await screen.findByText('Ridge Towers Office Complex');
+    expect(screen.queryByRole('link', { name: 'Add site' })).not.toBeInTheDocument();
   });
 
   it('moves to the next page and back', async () => {

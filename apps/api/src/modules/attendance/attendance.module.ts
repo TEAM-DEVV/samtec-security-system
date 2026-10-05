@@ -33,7 +33,10 @@ import { PasskeysService } from './passkeys.service.js';
  * The attendance module: devices, punches, work segments and the exception
  * queue (docs/plan/12-attendance-design.md). It owns those tables, and asks
  * the workforce module about employees and sites instead of reading them.
- * Imports point one way only: attendance → workforce → identity.
+ * Imports point one way only: attendance → workforce → identity. Where the
+ * workforce module needs an answer from here (may a site go inactive while a
+ * device there is switched on?), `DevicesService` registers a check with it
+ * instead of the workforce module reading the devices table.
  */
 @Module({
   imports: [IdentityModule, WorkforceModule],

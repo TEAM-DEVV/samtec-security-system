@@ -13,6 +13,7 @@ import { DeviceDetailPage } from '@/pages/device-detail-page';
 import { DevicesPage } from '@/pages/devices-page';
 import { DuplicateFacesPage } from '@/pages/duplicate-faces-page';
 import { EditEmployeePage } from '@/pages/edit-employee-page';
+import { EditSitePage } from '@/pages/edit-site-page';
 import { EmployeeDetailPage } from '@/pages/employee-detail-page';
 import { EmployeesPage } from '@/pages/employees-page';
 import { ExceptionDetailPage } from '@/pages/exception-detail-page';
@@ -24,6 +25,7 @@ import { MyAttendancePage } from '@/pages/my-attendance-page';
 import { MyPayslipsPage } from '@/pages/my-payslips-page';
 import { NewDevicePage } from '@/pages/new-device-page';
 import { NewEmployeePage } from '@/pages/new-employee-page';
+import { NewSitePage } from '@/pages/new-site-page';
 import { NewUserPage } from '@/pages/new-user-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
@@ -32,6 +34,7 @@ import { PayrollRunPage } from '@/pages/payroll-run-page';
 import { ReportsPage } from '@/pages/reports-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
 import { SetPasswordPage } from '@/pages/set-password-page';
+import { SiteDetailPage } from '@/pages/site-detail-page';
 import { SitesPage } from '@/pages/sites-page';
 import { TerminateEmployeePage } from '@/pages/terminate-employee-page';
 import { TwoFactorSetupPage } from '@/pages/two-factor-setup-page';
@@ -84,6 +87,31 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.sites}>
             <SitesPage />
+          </RequireRole>
+        ),
+      },
+      {
+        // Before `sites/:siteId`, so "new" is never read as an ID.
+        path: 'sites/new',
+        element: (
+          <RequireRole roles={pageRoles.siteChanges}>
+            <NewSitePage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'sites/:siteId',
+        element: (
+          <RequireRole roles={pageRoles.sites}>
+            <SiteDetailPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'sites/:siteId/edit',
+        element: (
+          <RequireRole roles={pageRoles.siteChanges}>
+            <EditSitePage />
           </RequireRole>
         ),
       },

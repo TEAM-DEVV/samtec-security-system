@@ -35,6 +35,15 @@ export function resetMockDevices(): void {
   devices = mockDevices.map((device) => ({ ...device }));
 }
 
+/**
+ * Whether any device at this site is switched on. The Sites mock handler
+ * asks this before letting a site go INACTIVE, the same rule the real API
+ * enforces.
+ */
+export function hasActiveDeviceAtSite(siteId: string): boolean {
+  return devices.some((device) => device.siteId === siteId && device.status === 'ACTIVE');
+}
+
 const KINDS = ['MOCK', 'ZKTECO', 'FACE_KIOSK'] as const;
 const STATUSES = ['ACTIVE', 'INACTIVE'] as const;
 const noStore = { 'Cache-Control': 'no-store' };
@@ -79,7 +88,13 @@ export const deviceHandlers = [
     if (limit === undefined) {
       return validationProblem('limit', 'Must be a whole number from 1 to 100.');
     }
-    const sorted = [...devices].sort((a, b) => a.name.localeCompare(b.name));
+    const siteId = query.get('siteId');
+    if (siteId !== null && !isUuid(siteId)) {
+      return validationProblem('siteId', 'Must be a valid ID.');
+    }
+    const sorted = devices
+      .filter((device) => siteId === null || device.siteId === siteId)
+      .sort((a, b) => a.name.localeCompare(b.name));
     const page = pageOf(sorted, limit, query.get('cursor'));
     return page
       ? HttpResponse.json<DeviceList>(page)

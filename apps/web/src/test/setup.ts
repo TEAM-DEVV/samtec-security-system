@@ -10,6 +10,7 @@ import { resetMockDevices } from '@/mocks/handlers/devices';
 import { resetMockEmployees } from '@/mocks/handlers/employees';
 import { resetMockPayroll } from '@/mocks/handlers/payroll';
 import { resetMockRosters } from '@/mocks/handlers/rosters';
+import { resetMockSites } from '@/mocks/handlers/sites';
 import { resetMockUsers } from '@/mocks/handlers/users';
 import { server } from '@/mocks/node';
 
@@ -24,6 +25,7 @@ afterEach(() => {
   resetMockSession();
   resetMockEmployees();
   resetMockRosters();
+  resetMockSites();
   resetMockUsers();
   resetMockAttendance();
   resetMockDevices();

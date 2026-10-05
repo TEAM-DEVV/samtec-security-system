@@ -148,7 +148,14 @@ function DeviceRow({ device, siteNames }: { device: Device; siteNames: Map<strin
           {device.name}
         </Link>
       </TableCell>
-      <TableCell className="whitespace-normal">{siteNames.get(device.siteId) ?? 'Site'}</TableCell>
+      <TableCell className="whitespace-normal">
+        <Link
+          to={routes.site(device.siteId)}
+          className="text-primary underline underline-offset-4 hover:no-underline"
+        >
+          {siteNames.get(device.siteId) ?? 'Site'}
+        </Link>
+      </TableCell>
       <TableCell>{deviceKindLabels[device.kind]}</TableCell>
       <TableCell>
         <DeviceStatusBadge status={device.status} />

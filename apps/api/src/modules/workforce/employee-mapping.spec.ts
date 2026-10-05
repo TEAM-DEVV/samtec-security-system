@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Employee, Site } from '../../generated/prisma/client.js';
+import type { Employee, Post, ShiftPattern, Site } from '../../generated/prisma/client.js';
 import { fullNameOf, toEmployeeDetail, toEmployeeListItem } from './employee-mapping.js';
 
 const employee: Employee = {
@@ -36,6 +36,27 @@ const site: Site = {
   updatedAt: new Date('2026-09-01T10:30:00Z'),
 };
 
+const post: Post = {
+  id: '01927c3e-2222-7bbb-8ccc-000000000001',
+  companyId: employee.companyId,
+  siteId: site.id,
+  name: 'Main Gate',
+  requiredGuards: 2,
+  status: 'ACTIVE',
+  createdAt: new Date('2026-09-01T08:00:00Z'),
+  updatedAt: new Date('2026-09-01T08:00:00Z'),
+};
+
+const shiftPattern: ShiftPattern = {
+  id: '01927c3e-3333-7ccc-8ddd-000000000001',
+  companyId: employee.companyId,
+  name: 'Day Shift',
+  startMinutes: 360,
+  endMinutes: 1080,
+  createdAt: new Date('2026-09-01T08:00:00Z'),
+  updatedAt: new Date('2026-09-01T08:00:00Z'),
+};
+
 describe('fullNameOf', () => {
   it('joins first, other and last names', () => {
     expect(fullNameOf(employee)).toBe('Kwame Kofi Mensah');
@@ -55,10 +76,29 @@ describe('toEmployeeListItem', () => {
       status: 'ACTIVE',
       biometricEnrolledAt: '2024-03-12T10:00:00.000Z',
       currentSite: { id: site.id, code: 'ACC-01', name: 'Ridge Towers Office Complex' },
+      currentPost: null,
+      currentShiftPattern: null,
       hireDate: '2024-03-11',
     });
     expect(item).not.toHaveProperty('ghanaCardNumber');
     expect(item).not.toHaveProperty('phone');
+  });
+
+  it('includes the post and shift pattern when the employee is posted to one', () => {
+    const item = toEmployeeListItem({
+      employee,
+      currentSite: site,
+      currentPost: post,
+      currentShiftPattern: shiftPattern,
+    });
+
+    expect(item.currentPost).toEqual({ id: post.id, name: 'Main Gate' });
+    expect(item.currentShiftPattern).toEqual({
+      id: shiftPattern.id,
+      name: 'Day Shift',
+      startTime: '06:00',
+      endTime: '18:00',
+    });
   });
 });
 

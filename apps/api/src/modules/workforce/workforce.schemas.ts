@@ -128,32 +128,68 @@ export type TerminateEmployeeBody = z.infer<typeof terminateEmployeeSchema>;
 export const changeStartDateSchema = z.strictObject({ hireDate: calendarDate });
 export type ChangeStartDateBody = z.infer<typeof changeStartDateSchema>;
 
+export const siteStatusValues = ['ACTIVE', 'INACTIVE'] as const;
+
+export const ghanaRegionValues = [
+  'AHAFO',
+  'ASHANTI',
+  'BONO',
+  'BONO_EAST',
+  'CENTRAL',
+  'EASTERN',
+  'GREATER_ACCRA',
+  'NORTH_EAST',
+  'NORTHERN',
+  'OTI',
+  'SAVANNAH',
+  'UPPER_EAST',
+  'UPPER_WEST',
+  'VOLTA',
+  'WESTERN',
+  'WESTERN_NORTH',
+] as const;
+
 export const listSitesQuerySchema = z.strictObject({
   limit,
   cursor: cursor.optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-  region: z
-    .enum([
-      'AHAFO',
-      'ASHANTI',
-      'BONO',
-      'BONO_EAST',
-      'CENTRAL',
-      'EASTERN',
-      'GREATER_ACCRA',
-      'NORTH_EAST',
-      'NORTHERN',
-      'OTI',
-      'SAVANNAH',
-      'UPPER_EAST',
-      'UPPER_WEST',
-      'VOLTA',
-      'WESTERN',
-      'WESTERN_NORTH',
-    ])
-    .optional(),
+  status: z.enum(siteStatusValues).optional(),
+  region: z.enum(ghanaRegionValues).optional(),
 });
 export type ListSitesQuery = z.infer<typeof listSitesQuerySchema>;
+
+/** Contract: `SiteCode`. Three capital letters for the town, a dash, then two digits. */
+const siteCode = z
+  .string()
+  .regex(/^[A-Z]{3}-\d{2}$/, 'Must look like ACC-01: three capital letters, a dash, two digits.');
+const siteName = z.string().min(2).max(120);
+const clientName = z.string().min(2).max(120);
+const city = z.string().min(2).max(60);
+
+/** Contract: `CreateSiteRequest`. The code is unique in the company for life. */
+export const createSiteSchema = z.strictObject({
+  code: siteCode,
+  name: siteName,
+  clientName,
+  region: z.enum(ghanaRegionValues),
+  city,
+  status: z.enum(siteStatusValues).default('ACTIVE'),
+});
+export type CreateSiteBody = z.infer<typeof createSiteSchema>;
+
+/**
+ * Contract: `UpdateSiteRequest`. The code is deliberately absent: it is
+ * printed on devices and documents, so it can never be changed here.
+ */
+export const updateSiteSchema = z
+  .strictObject({
+    name: siteName.optional(),
+    clientName: clientName.optional(),
+    region: z.enum(ghanaRegionValues).optional(),
+    city: city.optional(),
+    status: z.enum(siteStatusValues).optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, 'Send at least one field to change.');
+export type UpdateSiteBody = z.infer<typeof updateSiteSchema>;
 
 /** A time of day like 18:30, in 24-hour form. */
 const shiftTime = z

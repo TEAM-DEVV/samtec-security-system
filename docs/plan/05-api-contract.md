@@ -45,6 +45,7 @@ Every route below is in `packages/contracts/openapi.yaml`; only the ones marked
 | Employees | `GET /employees`, `GET /employees/{id}` | **Built** |
 | Employees (writes) | `POST /employees`, `PATCH /employees/{id}`, `POST /employees/{id}/terminate` | **Built** |
 | Sites | `GET /sites`, `GET /sites/{id}` | **Built** |
+| Sites (writes) | `POST /sites`, `PATCH /sites/{id}` | **Built** |
 | Rosters | `GET/POST /sites/{id}/posts`, `PATCH /posts/{id}`, `GET/POST /shift-patterns`, `PATCH /shift-patterns/{id}`; employee create/update take `postId` and `shiftPatternId` | **Built** |
 | Devices (ADMIN) | `GET/POST /devices`, `GET/PATCH /devices/{id}`, `POST /devices/{id}/rotate-secret`, `POST /devices/{id}/finger-enrollment-windows` | **Built** |
 | Ingest (device-signed) | `POST /ingest/punches`, `POST /ingest/heartbeat`, `POST /ingest/roster`, `POST /ingest/enrollments` | **Built** |

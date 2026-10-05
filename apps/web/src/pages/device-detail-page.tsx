@@ -110,7 +110,13 @@ function DeviceRecord({ device }: { device: Device }) {
         <div className="space-y-1">
           <h1 className="font-semibold text-3xl tracking-tight">{device.name}</h1>
           <p className="text-muted-foreground text-sm">
-            {deviceKindLabels[device.kind]} · {siteNames.get(device.siteId) ?? 'Site'}
+            {deviceKindLabels[device.kind]} ·{' '}
+            <Link
+              to={routes.site(device.siteId)}
+              className="text-primary underline underline-offset-4 hover:no-underline"
+            >
+              {siteNames.get(device.siteId) ?? 'Site'}
+            </Link>
           </p>
         </div>
         <DeviceStatusBadge status={device.status} />

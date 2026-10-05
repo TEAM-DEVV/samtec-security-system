@@ -940,6 +940,14 @@ paths:
                           id: 01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01
                           code: ACC-01
                           name: Ridge Towers Office Complex
+                        currentPost:
+                          id: 01927c3e-2222-7bbb-8ccc-0d0d0d0d0d01
+                          name: Main Gate
+                        currentShiftPattern:
+                          id: 01927c3e-3333-7ccc-8ddd-0e0e0e0e0e01
+                          name: Day Shift
+                          startTime: "06:00"
+                          endTime: "18:00"
                         hireDate: "2024-03-11"
                       - id: 01927c3e-5a4b-7c8d-9e0f-1a2b3c4d5e71
                         staffNumber: SMT-00043
@@ -948,6 +956,8 @@ paths:
                         status: PENDING_ENROLLMENT
                         biometricEnrolledAt: null
                         currentSite: null
+                        currentPost: null
+                        currentShiftPattern: null
                         hireDate: "2026-09-01"
                     nextCursor: U01ULTAwMDQz
         "400":
@@ -1244,6 +1254,51 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Sites]
+      operationId: createSite
+      summary: Add a client site
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. The code is short (like `ACC-01`) and
+        unique in the company; it is printed on devices and documents, so it
+        can never be changed once the site exists. A new site starts `ACTIVE`
+        unless `status` says otherwise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSiteRequest"
+            examples:
+              newSite:
+                summary: A new office site in Accra
+                value:
+                  code: ACC-03
+                  name: Airport City Office Park
+                  clientName: Airport City Properties Ltd
+                  region: GREATER_ACCRA
+                  city: Accra
+      responses:
+        "201":
+          description: The site was created.
+          headers:
+            Location:
+              description: URL of the new site.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /sites/{siteId}:
     parameters:
@@ -1266,6 +1321,43 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Sites]
+      operationId: updateSite
+      summary: Update a site's details
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. Send only the fields you want to change.
+        The code can never be changed here: it is printed on devices and
+        documents. Switching `status` to `INACTIVE` is refused (`409`) while
+        any worker is still posted here or any device here is switched on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSiteRequest"
+            examples:
+              closeSite:
+                summary: The contract ended
+                value:
+                  status: INACTIVE
+      responses:
+        "200":
+          description: The updated site.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /sites/{siteId}/posts:
     parameters:
@@ -1486,6 +1578,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - name: siteId
+          in: query
+          description: Only return devices at this site.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: One page of devices.
@@ -5561,7 +5659,17 @@ components:
     EmployeeListItem:
       type: object
       description: The short form of an employee used in lists. Sensitive identity fields are left out on purpose.
-      required: [id, staffNumber, fullName, position, status, biometricEnrolledAt, currentSite, hireDate]
+      required:
+        - id
+        - staffNumber
+        - fullName
+        - position
+        - status
+        - biometricEnrolledAt
+        - currentSite
+        - currentPost
+        - currentShiftPattern
+        - hireDate
       properties:
         id:
           type: string
@@ -5582,6 +5690,16 @@ components:
           description: The site the employee is posted to today, or `null` if unassigned.
           oneOf:
             - $ref: "#/components/schemas/SiteSummary"
+            - type: "null"
+        currentPost:
+          description: The post at that site, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/PostSummary"
+            - type: "null"
+        currentShiftPattern:
+          description: The shift pattern they work, or `null` when none is set.
+          oneOf:
+            - $ref: "#/components/schemas/ShiftPatternSummary"
             - type: "null"
         hireDate:
           type: string
@@ -5872,6 +5990,64 @@ components:
         nextCursor:
           type: [string, "null"]
           description: Pass this as `cursor` to get the next page. It is `null` on the last page.
+
+    CreateSiteRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, clientName, region, city]
+      properties:
+        code:
+          $ref: "#/components/schemas/SiteCode"
+        name:
+          type: string
+          minLength: 2
+          maxLength: 120
+          examples: [Ridge Towers Office Complex]
+        clientName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: The client company that pays for guarding this site.
+          examples: [Ridge Towers Management Ltd]
+        region:
+          $ref: "#/components/schemas/GhanaRegion"
+        city:
+          type: string
+          minLength: 2
+          maxLength: 60
+          examples: [Accra]
+        status:
+          $ref: "#/components/schemas/SiteStatus"
+          description: Defaults to `ACTIVE`.
+
+    UpdateSiteRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: >-
+        Only the fields you send are changed. The code can never be changed
+        here: it is printed on devices and documents.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 120
+        clientName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: The client company that pays for guarding this site.
+        region:
+          $ref: "#/components/schemas/GhanaRegion"
+        city:
+          type: string
+          minLength: 2
+          maxLength: 60
+        status:
+          $ref: "#/components/schemas/SiteStatus"
+          description: >-
+            Switching to `INACTIVE` is refused (`409`) while any worker is
+            still posted here or any device here is switched on.
 
     ShiftTime:
       type: string

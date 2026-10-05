@@ -1,7 +1,9 @@
 import type { GhanaRegion, SiteList, SiteStatus } from '@samtec/contracts';
 import { cn } from 'cn';
-import { MapPin } from 'lucide-react';
+import { MapPin, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
+import { routes } from '@/app/routes';
 import { LoadErrorAlert } from '@/components/load-error-alert';
 import { PageHeader } from '@/components/page-header';
 import { PaginationNav } from '@/components/pagination-nav';
@@ -13,6 +15,7 @@ import {
   siteStatusLabels,
 } from '@/components/site-status-badge';
 import { TableEmptyRow, TableLoadingRows } from '@/components/table-states';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
   Table,
@@ -26,6 +29,8 @@ import { $api } from '@/lib/api';
 import { useCursorPages } from '@/lib/cursor-pages';
 import { GHANA_REGIONS, isGhanaRegion, regionLabels } from '@/lib/ghana-regions';
 import { usePageTitle } from '@/lib/page-title';
+import { pageRoles, roleAllowed } from '@/lib/roles';
+import { useSession } from '@/lib/session';
 
 const PAGE_SIZE = 10;
 const COLUMN_COUNT = 6;
@@ -37,6 +42,9 @@ const COLUMN_COUNT = 6;
  */
 export function SitesPage() {
   usePageTitle('Sites');
+  const session = useSession();
+  // A supervisor reads this list but may not add a site.
+  const mayAdd = session !== null && roleAllowed(pageRoles.siteChanges, session.user.role);
   const [status, setStatus] = useState<SiteStatus>();
   const [region, setRegion] = useState<GhanaRegion>();
   const pages = useCursorPages();
@@ -69,6 +77,16 @@ export function SitesPage() {
         eyebrow="Workforce"
         title="Sites"
         description="Client locations where guards are posted."
+        actions={
+          mayAdd ? (
+            <Button asChild>
+              <Link to={routes.newSite}>
+                <Plus aria-hidden="true" />
+                Add site
+              </Link>
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-wrap items-start gap-4 rounded-2xl border bg-card/60 p-4">
@@ -160,7 +178,14 @@ function SiteRows({ loading, page, filtered }: SiteRowsProps) {
   return page.items.map((site) => (
     <TableRow key={site.id}>
       <TableCell className="pl-4 font-mono text-xs">{site.code}</TableCell>
-      <TableCell className="font-medium">{site.name}</TableCell>
+      <TableCell className="font-medium">
+        <Link
+          to={routes.site(site.id)}
+          className="text-primary underline underline-offset-4 hover:no-underline"
+        >
+          {site.name}
+        </Link>
+      </TableCell>
       <TableCell>{site.clientName}</TableCell>
       <TableCell>
         {site.city}

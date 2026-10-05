@@ -56,7 +56,12 @@ export function fullNameOf(
 }
 
 /** The short list form. Sensitive identity fields are left out on purpose. */
-export function toEmployeeListItem({ employee, currentSite }: EmployeeWithSite): EmployeeListItem {
+export function toEmployeeListItem({
+  employee,
+  currentSite,
+  currentPost,
+  currentShiftPattern,
+}: EmployeeWithSite): EmployeeListItem {
   return {
     id: employee.id,
     staffNumber: employee.staffNumber,
@@ -65,6 +70,8 @@ export function toEmployeeListItem({ employee, currentSite }: EmployeeWithSite):
     status: employee.status,
     biometricEnrolledAt: employee.biometricEnrolledAt?.toISOString() ?? null,
     currentSite: toSiteSummary(currentSite),
+    currentPost: toPostSummary(currentPost),
+    currentShiftPattern: toShiftPatternSummary(currentShiftPattern),
     hireDate: toIsoDate(employee.hireDate),
   };
 }
