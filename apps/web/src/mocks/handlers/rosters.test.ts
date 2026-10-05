@@ -76,13 +76,6 @@ describe('mock rosters API', () => {
     const patterns = await fetchClient.GET('/shift-patterns');
     expect(patterns.response.status).toBe(200);
 
-    // Another site's posts "do not exist" for them, so nothing is learned
-    // about a site they are not posted to, even that it has posts.
-    const elsewhere = await fetchClient.GET('/sites/{siteId}/posts', {
-      params: { path: { siteId: TEM_01 } },
-    });
-    expect(elsewhere.response.status).toBe(404);
-
     const refusedPost = await fetchClient.POST('/sites/{siteId}/posts', {
       params: { path: { siteId: ACC_01 } },
       body: { name: 'Car Park', requiredGuards: 1 },
@@ -94,6 +87,43 @@ describe('mock rosters API', () => {
       body: { endTime: '19:00' },
     });
     expect(refusedPattern.response.status).toBe(403);
+  });
+
+  it('hides another site from a supervisor: its posts "do not exist"', async () => {
+    await signInForTests('supervisor@samtec.example');
+
+    // Yaw Boateng is posted to ACC-01. Reading TEM-01's posts is a 404, not a
+    // 403, so nothing is learned about that site, not even that it has posts:
+    // the same answer the real `SitesService.get` gives.
+    const hidden = await fetchClient.GET('/sites/{siteId}/posts', {
+      params: { path: { siteId: TEM_01 } },
+    });
+    expect(hidden.response.status).toBe(404);
+
+    // Adding a post there is refused by role first (403): the real API's
+    // RolesGuard answers before the service ever looks at the site.
+    const refused = await fetchClient.POST('/sites/{siteId}/posts', {
+      params: { path: { siteId: TEM_01 } },
+      body: { name: 'Loading Bay', requiredGuards: 2 },
+    });
+    expect(refused.response.status).toBe(403);
+  });
+
+  it('lets HR read and add posts at any site, like an administrator', async () => {
+    await signInForTests('hr@samtec.example');
+
+    // HR is posted nowhere, and for them that means every site, not none.
+    const posts = await fetchClient.GET('/sites/{siteId}/posts', {
+      params: { path: { siteId: TEM_01 } },
+    });
+    expect(posts.response.status).toBe(200);
+
+    const created = await fetchClient.POST('/sites/{siteId}/posts', {
+      params: { path: { siteId: TEM_01 } },
+      body: { name: 'Loading Bay', requiredGuards: 2 },
+    });
+    expect(created.response.status).toBe(201);
+    expect(created.data?.siteId).toBe(TEM_01);
   });
 
   it('refuses a guard the roster entirely, and refuses anybody signed out', async () => {

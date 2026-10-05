@@ -1,6 +1,7 @@
 import type {
   CreatePostRequest,
   CreateShiftPatternRequest,
+  CurrentUser,
   Post,
   PostList,
   ShiftPattern,
@@ -45,6 +46,16 @@ function checkName(name: unknown): string | undefined {
   return typeof name === 'string' && name.length >= 2 && name.length <= 60 ? name : undefined;
 }
 
+/**
+ * The mock's `SitesService.get`, which the real `listPosts` and `createPost`
+ * call before anything else: a site the viewer may not see "does not exist"
+ * for them (404, never 403), so a supervisor learns nothing about another
+ * site, not even that it has posts. Administrators and HR see every site.
+ */
+function siteExistsFor(user: CurrentUser, siteId: string): boolean {
+  return mockSites.some((site) => site.id === siteId) && canSeeSite(user, siteId);
+}
+
 export const rosterHandlers = [
   http.get<{ siteId: string }, never, OrProblem<PostList>>(
     apiUrl('/sites/:siteId/posts'),
@@ -59,12 +70,7 @@ export const rosterHandlers = [
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
-      // A supervisor sees only their own site's posts; any other site "does
-      // not exist" for them, the same answer the real service gives.
-      if (
-        !mockSites.some((site) => site.id === params.siteId) ||
-        !canSeeSite(user, params.siteId)
-      ) {
+      if (!siteExistsFor(user, params.siteId)) {
         return notFound('No site exists with this ID.');
       }
       const query = new URL(request.url).searchParams;
@@ -95,7 +101,7 @@ export const rosterHandlers = [
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
-      if (!mockSites.some((site) => site.id === params.siteId)) {
+      if (!siteExistsFor(user, params.siteId)) {
         return notFound('No site exists with this ID.');
       }
       const body = await request.json();
@@ -141,6 +147,8 @@ export const rosterHandlers = [
       if (!isUuid(params.postId)) {
         return validationProblem('postId', 'Must be a valid ID.');
       }
+      // Like the real `updatePost`, the post only has to exist: no site check,
+      // because only ADMIN and HR_PAYROLL get this far, and they see every site.
       const post = posts.find((candidate) => candidate.id === params.postId);
       if (!post) {
         return notFound('No post exists with this ID.');
