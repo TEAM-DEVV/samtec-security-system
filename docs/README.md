@@ -2,8 +2,6 @@
 
 Everything about the project lives in this folder: the plan, the architecture and step-by-step guides.
 
-**The one-page picture:** open [build-map.html](build-map.html) in a browser — the whole system's layers, the nine phases and the review lenses on a single interactive page. The plan documents below are the authoritative text behind it.
-
 ## Start here
 
 If you are new to the project, read these in order.
@@ -11,13 +9,23 @@ If you are new to the project, read these in order.
 1. [How the system works](guides/01-how-the-system-works.md): the whole system in plain English. Read this first.
 2. [Set up your computer](guides/02-setup-on-windows.md): install the tools and run the project.
 3. Your role guide:
-   - Dashboard (Samuel): [Frontend guide](guides/03-frontend-guide.md)
-   - API (Francis): [Backend guide](guides/04-backend-guide.md)
+   - Dashboard: [Frontend guide](guides/03-frontend-guide.md)
+   - API: [Backend guide](guides/04-backend-guide.md)
 4. [Changing the API contract](guides/05-api-contract-workflow.md): how the frontend and backend stay in agreement.
 5. [Git and pull requests](guides/06-git-and-pull-requests.md): how we save and share work.
-7. [The TEST environment](guides/09-test-environment.md): the shared online copy every merge deploys to.
-8. [The attendance demo](guides/10-attendance-demo.md): replay 30 days of clock-ins through the real API (the Phase 2 exit demo).
+6. [The TEST environment](guides/09-test-environment.md): the shared online copy every merge deploys to.
+7. [The attendance demo](guides/10-attendance-demo.md): replay 30 days of clock-ins through the real API.
+8. [Backup and restore](guides/11-backup-and-restore.md): how the database is backed up and brought back.
 9. [Glossary](guides/08-glossary.md): every technical word used in this project.
+
+## For the defence
+
+- [The security chapter](guides/12-security-chapter.md): what protects the system, and what was found and fixed.
+- [The defence pack](guides/13-defence-pack.md): the whole system in one document, with the questions you will be asked.
+- [The face-threshold report](guides/14-face-threshold-report.md): how the face numbers were measured and chosen.
+- [The defence script](guides/15-defence-script.md): what to say, slide by slide, and the live demo.
+- [Test the kiosk on your phone](guides/16-phone-testing.md): the one-page phone test.
+- `SAMTEC-defence-slides.pptx`: the deck, on the University of Ghana template.
 
 ## The plan
 
@@ -35,6 +43,10 @@ If you are new to the project, read these in order.
 | [09 Payroll engine (Ghana)](plan/09-payroll-engine-ghana.md) | How is pay calculated correctly? |
 | [10 Biometric integration](plan/10-biometric-integration.md) | Which fingerprint and face options do we support? |
 | [11 Client presentation plan](plan/11-client-presentation-plan.md) | How do we demo and sell it? |
+| [12 Attendance design](plan/12-attendance-design.md) | How do clock-ins become worked shifts and exceptions? |
+| [13 Biometrics design](plan/13-biometrics-design.md) | How do the face, the fingerprint and consent work, and why? |
+| [14 Work split](plan/14-work-split.md) | Who built which part? |
+| [16 Building a backend module](plan/16-building-a-backend-module.md) | How is a new API module written, step by step? |
 
 ## Reading these files in Obsidian
 

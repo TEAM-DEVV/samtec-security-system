@@ -36,8 +36,9 @@ We aim to acknowledge reports within three days.
    at enrollment, because biometrics are sensitive personal data under Ghana's
    Data Protection Act, 2012 (Act 843).
 4. **Least privilege everywhere.** Every endpoint checks the user's role and
-   whether they may access that specific record. Approving payroll always needs
-   a second person (maker–checker).
+   whether they may access that specific record. Sensitive actions such as
+   approving payroll ask the administrator to confirm their own password, and
+   every one is written to the audit log.
 5. **Careful with dependencies.** pnpm refuses packages published less than a
    day ago, refuses versions whose publishing trust dropped (for example,
    signed provenance suddenly missing), and blocks install scripts that are not
