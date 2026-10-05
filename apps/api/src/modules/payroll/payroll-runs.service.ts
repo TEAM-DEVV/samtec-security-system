@@ -191,9 +191,10 @@ export class PayrollRunsService {
   /**
    * Calculates a fresh draft for a month.
    *
-   * The caller becomes the maker, which is recorded on the run and which the
-   * database uses to refuse their own approval later — so this is the moment
-   * the maker–checker rule is set, not the moment it is enforced.
+   * The caller is recorded on the run as who calculated it. Since issue #99
+   * removed the maker-checker rule, that same person may also submit,
+   * approve or reject it — only a fresh password confirms the sensitive
+   * steps.
    */
   async create(viewer: SignedInUser, body: CreateRunBody): Promise<ApiPayrollRun> {
     const period = await this.periods.byId(viewer, body.periodId);

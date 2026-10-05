@@ -22,18 +22,21 @@ import { TaxTablesService } from './tax-tables.service.js';
  *
  * **Phase 4 is complete.** The setup endpoints (the months, the statutory rate
  * versions, each worker's pay history and where their salary is sent);
- * calculating a run and reading it back; submit, approve, reject and mark paid
- * with the maker-checker rule and rule R3's gate; the payslip PDF and the run
- * summary PDF, both written by hand; the bank file; and the three screens.
+ * calculating a run and reading it back; submit, approve, reject and mark
+ * paid — whoever prepared a run may approve it, password-confirmed, and rule
+ * R3's gate refuses one that pays beyond presence — the payslip PDF and the
+ * run summary PDF, both written by hand; the bank file; and the three
+ * screens.
  *
  * `PayrollFactsService` is the read seam Phase 5 needs: ghost detection asks
  * what was paid, through the module that owns the answer. It is exported and
  * nothing here changes it.
  *
- * Payroll imports nothing from detection, and never will: when the **submit**
- * endpoint lands, rule R3 will refuse a run that pays beyond presence through
- * the shared function in `src/common/paid-beyond-presence.ts`, not by calling
- * detection. Nothing here calls it yet — calculating a run does not submit it.
+ * Payroll imports nothing from detection, and never will: the **submit**
+ * endpoint refuses a run that pays beyond presence through the shared
+ * function in `src/common/paid-beyond-presence.ts`
+ * (`refuseHoursNobodyWorked` in `payroll-approval.service.ts`), not by
+ * calling detection.
  *
  * It also imports `CompanyModule`, for the one thing the payment receipt
  * needs that payroll does not own: the company's own name and its bank

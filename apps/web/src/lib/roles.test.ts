@@ -58,7 +58,7 @@ describe('pageRoles', () => {
   });
 
   it('lets a payroll officer prepare a run but never approve one', () => {
-    // The whole reason Phase 4 exists: the maker is never the checker.
+    // Only an ADMIN may approve a run, whoever prepared it.
     expect(roleAllowed(pageRoles.payrollChanges, 'HR_PAYROLL')).toBe(true);
     expect(roleAllowed(pageRoles.payrollApproval, 'HR_PAYROLL')).toBe(false);
     expect(pageRoles.payrollApproval).toEqual(['ADMIN']);

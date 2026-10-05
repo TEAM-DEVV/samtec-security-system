@@ -119,9 +119,9 @@ pnpm db:seed
 pnpm dev
 ```
 
-Open http://localhost:5173. The top bar says **Live API**; open **System status** in the sidebar (or http://localhost:5173/status) and it shows **API: Reachable** and **Database: Connected**. That is the Phase 0 exit demo.
+Open http://localhost:5173. The top bar says **Live API**; open **Overview** in the sidebar (or http://localhost:5173/) and it shows the dashboard talking to the real API. That is the Phase 0 exit demo.
 
-You can also open the API directly: http://localhost:3000/api/v1/health.
+You can also check the API directly: http://localhost:3000/api/v1/health should say `"database": "up"`.
 
 ## 9. Run every check before a pull request
 

@@ -10,7 +10,7 @@ Each folder here is one **domain module**: a self-contained part of the business
 | `attendance/` | Biometric devices, punches, work segments, attendance exceptions | Phases 2 and 3 |
 | `payroll/` | Payroll periods and runs, PAYE and SSNIT, payslips | Phase 4 |
 | `detection/` | Ghost-worker detection rules and alerts | Phase 5 |
-| `reporting/` | Read-only reports and exports | Phase 6 |
+| `reports/` | Read-only reports and exports | Phase 6 |
 
 The folders only hold a README until their phase starts. Health checks, configuration and the database client live outside `modules/` because every module uses them.
 

@@ -19,8 +19,8 @@
  *
  *   pnpm --filter @samtec/api load:punches
  *
- * Against any other API, register a MOCK device, have a second administrator
- * switch it on (docs/plan/06, "Two administrators"), then:
+ * Against any other API, register a MOCK device and switch it on
+ * (docs/plan/06, "One administrator, with a password"), then:
  *
  *   API_URL=https://… DEVICE_ID=… DEVICE_SECRET=… pnpm --filter @samtec/api load:punches
  *

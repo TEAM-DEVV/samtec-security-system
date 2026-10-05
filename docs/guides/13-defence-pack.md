@@ -635,7 +635,6 @@ words in the report match the words on the screen.
 
 | Screen | File | What it does |
 |---|---|---|
-| System status | `system-status-page.tsx` | Whether the dashboard can reach the API, and the API its database. |
 | Not found | `not-found-page.tsx` | An address that does not exist. |
 | Not allowed | `forbidden-page.tsx` | A page this role may not open — the same wording as the API's 403. |
 | Something broke | `route-error-page.tsx` | Shown when a page crashes, instead of a blank screen. |
@@ -697,7 +696,7 @@ signs its requests, a device key is born switched off, and a second
 administrator switches it on.
 
 **"Do you store people's fingerprints or photos?"**
-No. A face becomes 1024 numbers, encrypted before they reach the database with a
+No. A face becomes 512 numbers, encrypted before they reach the database with a
 key bound to the company, the employee and the credential. A fingerprint never
 leaves the device at all — we hold only the public half of a WebAuthn key. No
 image is ever stored.
@@ -842,7 +841,7 @@ and none of them showed up in an ordinary test.
 | Biometric rules, with reasons | [docs/plan/13-biometrics-design.md](../plan/13-biometrics-design.md) |
 | Why the face numbers are what they are | [The face-matcher threshold report](14-face-threshold-report.md) |
 | Ghost-detection rules and numbers | [docs/plan/08-ghost-detection-engine.md](../plan/08-ghost-detection-engine.md) |
-| Payroll decisions (all twenty-six) | [docs/plan/09-payroll-engine-ghana.md](../plan/09-payroll-engine-ghana.md) |
+| Payroll decisions (all twenty-seven) | [docs/plan/09-payroll-engine-ghana.md](../plan/09-payroll-engine-ghana.md) |
 | Security, the threat model, review gates | [docs/plan/06-security-and-review-gates.md](../plan/06-security-and-review-gates.md) |
 | The security chapter of the report | [The security chapter, drafted](12-security-chapter.md) |
 | What is done and what is next | [docs/plan/07-roadmap.md](../plan/07-roadmap.md) |

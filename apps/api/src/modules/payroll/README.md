@@ -1,11 +1,11 @@
 # payroll module (Phase 4)
 
 **Purpose:** correct Ghanaian pay, calculated from verified attendance,
-approved by a second person, and then frozen for ever.
+approved by an administrator's password, and then frozen for ever.
 
 Design: [docs/plan/09-payroll-engine-ghana.md](../../../../../docs/plan/09-payroll-engine-ghana.md).
 Read it before changing anything here — every question this module could raise
-is settled there, in twenty-four numbered decisions.
+is settled there, in twenty-seven numbered decisions.
 
 ## Tables it owns
 
@@ -30,8 +30,10 @@ about confirmed shifts.
   code, and a version a run has used can never be edited afterwards.
 - **A run copies every input into its lines**, so a locked run can be
   re-checked years later without reading anything else.
-- **The maker is never the checker.** Whoever calculated or submitted a run
-  may never approve or reject it.
+- **Whoever prepared a run may approve it.** Issue #99 removed the
+  maker-checker rule; approving, rejecting, marking paid and the bank export
+  instead ask that administrator to confirm their own password, and every one
+  is audited.
 - **The lines freeze when a run is submitted**, not when it is approved, so
   the numbers a checker reads are the numbers that get frozen. A correction
   after that means rejecting the run and calculating a new one.

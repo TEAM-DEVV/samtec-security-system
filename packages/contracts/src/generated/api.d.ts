@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Check that the API and its database are working
-         * @description Public endpoint. The dashboard's System Status page calls it, and hosting platforms use it to decide whether the service is alive. Anyone on the internet can call it, so it deliberately reveals nothing else, such as the API version or environment. The database check is reused for 5 seconds, so frequent calls stay cheap.
+         * @description Public endpoint. The dashboard's Overview page calls it, and hosting platforms use it to decide whether the service is alive. Anyone on the internet can call it, so it deliberately reveals nothing else, such as the API version or environment. The database check is reused for 5 seconds, so frequent calls stay cheap.
          */
         get: operations["getHealth"];
         put?: never;
@@ -764,7 +764,7 @@ export interface paths {
          * Rename a device, switch it off, or change its Phase 3 settings
          * @description **Roles:** ADMIN. Send only the fields you want to change. A device is never deleted; `INACTIVE` refuses everything it sends from then on. Phase 3 adds `serialNumber` (a ZKTeco terminal's serial, which its gateway uses) and `passkeysEnabled` (switches on the device's own fingerprint sensor; only a `FACE_KIOSK` can have it).
          *
-         *     **Switching a device on is refused (`409`) to whoever issued its key** — registered the device, or last rotated its secret — unless they are the company's only administrator (docs/plan/06, "Two administrators"). Switching one **off** is open to any administrator, at once, and forgets who switched it on, so going back on has to be answered for again.
+         *     **Any administrator can switch a device on**, including whoever issued its key — registered the device, or last rotated its secret (docs/plan/06, "One administrator, with a password"). Switching one **off** is open to any administrator too, at once, and forgets who switched it on, so going back on has to be answered for again.
          */
         patch: operations["updateDevice"];
         trace?: never;
@@ -785,7 +785,7 @@ export interface paths {
          * Give a device a new secret
          * @description **Roles:** ADMIN. The old secret stops working **at once**; there is no overlap. The device keeps any batch that was not acknowledged and sends it again once it has the new secret, so no punch is lost. The new secret is shown only this once. From a kiosk sign-in (Phase 3) only a `FACE_KIOSK` can be rotated (for a kiosk that lost its storage). Its fingerprint keys stay, because the device ID stays.
          *
-         *     **A new key is a new key:** the device becomes `INACTIVE` and a *different* administrator must switch it on (docs/plan/06, "Two administrators"). Rotating is how a stolen device is dealt with, so it must not be the way one person quietly gets a working key.
+         *     **A new key is a new key:** the device becomes `INACTIVE` again until an administrator switches it on — any administrator, including this one — confirming their password and having checked the device is really on the wall (docs/plan/06, "One administrator, with a password"). Rotating is how a stolen device is dealt with, and the password step and the audit log are what stand behind it now.
          */
         post: operations["rotateDeviceSecret"];
         delete?: never;
@@ -1620,7 +1620,7 @@ export interface paths {
         put?: never;
         /**
          * Calculate a draft payroll run
-         * @description **Roles:** ADMIN, HR_PAYROLL, and **the caller becomes the maker**, so they may never approve this run. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Calculates a new `DRAFT` run for an `OPEN` period from the work segments and pay terms visible right now, and copies every input into its lines. Everyone employed for at least one day of the period who has pay terms effective by its last day gets a line, `PENDING_ENROLLMENT` workers included: being employed and being enrolled in biometrics are different things. A `SUSPENDED` worker, and anyone with no pay terms yet, is left off and listed in `summary.excluded` with the reason, so nobody is silently dropped. Only `CONFIRMED` work segments are paid, and a segment belongs to the period its work date falls in, so a night shift that starts on the last day of the month is paid in the month it started. Calculating again makes **another** draft. Audited.
+         * @description **Roles:** ADMIN, HR_PAYROLL, and the caller becomes the one who calculated it, and so the only one who may submit it. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Calculates a new `DRAFT` run for an `OPEN` period from the work segments and pay terms visible right now, and copies every input into its lines. Everyone employed for at least one day of the period who has pay terms effective by its last day gets a line, `PENDING_ENROLLMENT` workers included: being employed and being enrolled in biometrics are different things. A `SUSPENDED` worker, and anyone with no pay terms yet, is left off and listed in `summary.excluded` with the reason, so nobody is silently dropped. Only `CONFIRMED` work segments are paid, and a segment belongs to the period its work date falls in, so a night shift that starts on the last day of the month is paid in the month it started. Calculating again makes **another** draft. Audited.
          */
         post: operations["createPayrollRun"];
         delete?: never;
@@ -1713,7 +1713,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a run and lock it
-         * @description **Roles:** ADMIN, but **never the person who submitted it** (`403`): the maker is never the checker, and the same rule is a `CHECK` in the database. HR_PAYROLL, SUPERVISOR and GUARD may never approve (`403`). An ADMIN may prepare a run, and then a different ADMIN must approve it. Moves a `PENDING_APPROVAL` run to `LOCKED`, records the approver and the time together, and generates one payslip PDF for every line in the same transaction, so what was sent is exactly what exists. A locked run can never be changed again: a database trigger refuses every update and delete on it and on its lines, and a correction becomes an adjustment line on the next period's run. Audited.
+         * @description **Roles:** ADMIN — including the same administrator who calculated or submitted the run; issue #99 removed the different-ADMIN requirement and the database `CHECK` behind it. HR_PAYROLL, SUPERVISOR and GUARD may never approve (`403`). Password-confirmed. Moves a `PENDING_APPROVAL` run to `LOCKED`, records the approver and the time together, and generates one payslip PDF for every line in the same transaction, so what was sent is exactly what exists. A locked run can never be changed again: a database trigger refuses every update and delete on it and on its lines, and a correction becomes an adjustment line on the next period's run. Audited.
          */
         post: operations["approvePayrollRun"];
         delete?: never;
@@ -1736,7 +1736,7 @@ export interface paths {
         put?: never;
         /**
          * Reject a run with a reason
-         * @description **Roles:** ADMIN, but **never the person who submitted it** (`403`). HR_PAYROLL, SUPERVISOR and GUARD may never reject (`403`). Moves a `PENDING_APPROVAL` run to `REJECTED` and records the checker, the time and the reason they gave. `REJECTED` is terminal and nothing ever moves backwards: the maker fixes the cause, such as a wrong pay term or a missing clock-out still sitting in the exception queue, and calculates a **new** run. The rejected run stays for the record and is never deleted. Audited.
+         * @description **Roles:** ADMIN — including the same administrator who submitted it. HR_PAYROLL, SUPERVISOR and GUARD may never reject (`403`). Moves a `PENDING_APPROVAL` run to `REJECTED` and records the checker, the time and the reason they gave. `REJECTED` is terminal and nothing ever moves backwards: the maker fixes the cause, such as a wrong pay term or a missing clock-out still sitting in the exception queue, and calculates a **new** run. The rejected run stays for the record and is never deleted. Audited.
          */
         post: operations["rejectPayrollRun"];
         delete?: never;
@@ -2405,12 +2405,12 @@ export interface components {
             requestedAt: string;
             /**
              * Format: uuid
-             * @description The second administrator. `null` while waiting, and when nobody else was needed (the company's only administrator, the setup script, or an account older than the rule).
+             * @description Who confirmed the change. Since issue
              */
             confirmedByUserId: string | null;
             /**
              * Format: date-time
-             * @description Empty (`null`) while the account waits for confirmation.
+             * @description Set at the same moment as `requestedAt`, since issue
              */
             confirmedAt: string | null;
         };
@@ -4003,20 +4003,20 @@ export interface components {
             calculatedAt: string;
             /**
              * Format: uuid
-             * @description **The maker**: whoever calculated the draft. They are the only person who may submit it, and they may never approve it.
+             * @description Whoever calculated the draft. They are the only person who may submit it; since issue #99 they may also approve or reject it.
              */
             calculatedByUserId: string;
             /**
              * Format: date-time
-             * @description When the maker submitted it for approval. `null` while the run is `DRAFT`.
+             * @description When it was submitted for approval. `null` while the run is `DRAFT`.
              */
             submittedAt: string | null;
             /**
              * Format: uuid
-             * @description The maker who submitted it. `null` while the run is `DRAFT`.
+             * @description Who submitted it. `null` while the run is `DRAFT`.
              */
             submittedByUserId: string | null;
-            /** @description What the maker wanted the checker to look at, or `null`. */
+            /** @description What the submitter wanted the approver to look at, or `null`. */
             submissionNote: components["schemas"]["ResolutionNote"] | null;
             /**
              * Format: date-time
@@ -4025,10 +4025,10 @@ export interface components {
             approvedAt: string | null;
             /**
              * Format: uuid
-             * @description **The checker**: the ADMIN who approved it. Never the same person as `submittedByUserId` — the server compares the two, and so does a database `CHECK`.
+             * @description The ADMIN who approved it. Since issue #99 this may be the same person as `submittedByUserId`.
              */
             approvedByUserId: string | null;
-            /** @description What the checker looked at before approving, or `null`. */
+            /** @description What the approver looked at before approving, or `null`. */
             approvalNote: components["schemas"]["ResolutionNote"] | null;
             /**
              * Format: date-time
@@ -4037,10 +4037,10 @@ export interface components {
             rejectedAt: string | null;
             /**
              * Format: uuid
-             * @description The ADMIN who rejected it. Never the submitter.
+             * @description The ADMIN who rejected it.
              */
             rejectedByUserId: string | null;
-            /** @description Why the checker rejected it, in their own words. `REJECTED` is terminal: the maker fixes the cause and calculates a new run. */
+            /** @description Why it was rejected, in their own words. `REJECTED` is terminal: whoever calculates the next run fixes the cause. */
             rejectionReason: components["schemas"]["ResolutionNote"] | null;
             /**
              * Format: date-time
@@ -4082,17 +4082,17 @@ export interface components {
         };
         /** @description Submitting a draft for approval. Nothing is required, so `{}` is a valid body. */
         SubmitPayrollRunRequest: {
-            /** @description Anything the checker should know before they look. Shown with the run; never copied into the audit log. */
+            /** @description Anything the approver should know before they look. Shown with the run; never copied into the audit log. */
             note?: components["schemas"]["ResolutionNote"];
         };
         /** @description Approving a run and locking it. Nothing is required, so `{}` is a valid body. */
         ApprovePayrollRunRequest: {
-            /** @description What the checker looked at before approving. Shown with the run. */
+            /** @description What the approver looked at before approving. Shown with the run. */
             note?: components["schemas"]["ResolutionNote"];
         };
-        /** @description Rejecting a run, with the reason the maker needs to act on. */
+        /** @description Rejecting a run, with the reason whoever fixes it needs to act on. */
         RejectPayrollRunRequest: {
-            /** @description Why the run is wrong, written for the maker to act on. `REJECTED` is terminal, so this is what tells them what to fix before calculating a new run. Shown with the run; never copied into the audit log, because a person may type a staff number or an account number into it and the audit log can never be edited. */
+            /** @description Why the run is wrong, written for whoever fixes it to act on. `REJECTED` is terminal, so this is what tells them what to fix before calculating a new run. Shown with the run; never copied into the audit log, because a person may type a staff number or an account number into it and the audit log can never be edited. */
             reason: components["schemas"]["ResolutionNote"];
         };
         /** @description Recording that a locked run has been paid. */

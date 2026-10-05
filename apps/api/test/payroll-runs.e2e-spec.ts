@@ -512,7 +512,7 @@ describe.skipIf(!databaseUrl)('Calculating a payroll run (e2e)', () => {
       expect(run.body.summary.adjustmentLineCount).toBe(0);
     });
 
-    it('records the caller as the maker, which is what stops them approving it', async () => {
+    it('records the caller as who calculated it', async () => {
       const period = await monthWithRates();
       const run = await calculate(period.id).expect(201);
       expect(run.body.calculatedByUserId).toBe(company.hrUserId);

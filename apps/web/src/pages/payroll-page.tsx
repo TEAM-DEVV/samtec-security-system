@@ -36,9 +36,10 @@ const RUN_COLUMNS = 6;
  * Payroll: the months, and every run worked out for them
  * (docs/plan/09-payroll-engine-ghana.md).
  *
- * A month is opened, runs are worked out inside it, one of them is approved by a
- * second person, and then the month is closed. All four happen here, so nobody
- * has to hold the shape of it in their head.
+ * A month is opened, runs are worked out inside it, one of them is approved
+ * by an administrator who confirms their password, and then the month is
+ * closed. All four happen here, so nobody has to hold the shape of it in
+ * their head.
  *
  * Every button this page shows is one the API would accept from this person. The
  * decisions that turn on *who prepared the run* live on the run's own page,

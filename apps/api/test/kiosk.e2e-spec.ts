@@ -65,9 +65,9 @@ describe.skipIf(!databaseUrl)('The kiosk door (e2e)', () => {
   };
 
   /**
-   * Registers a device and has the **second** administrator switch it on: a
-   * new key is born switched off, and whoever issued it may not put it to
-   * work (docs/plan/06, 'Two administrators').
+   * Registers a device and switches it on from the dashboard: a new key is
+   * born switched off, and any administrator — including whoever issued it —
+   * may put it to work (docs/plan/06, 'One administrator, with a password').
    */
   const registerDevice = async (name: string, kind: 'FACE_KIOSK' | 'ZKTECO') => {
     const response = await request(app.getHttpServer())
