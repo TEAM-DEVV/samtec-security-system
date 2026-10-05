@@ -247,6 +247,33 @@ describe.skipIf(!databaseUrl)('adding and changing sites (e2e)', () => {
     await updateSite(randomUUID(), { name: 'Anything' }).expect(404);
   });
 
+  it("answers 404 for another company's site, and leaves it untouched", async () => {
+    const otherCompany = await prisma.company.create({
+      data: { name: `Other sites ${randomUUID()}` },
+    });
+    const theirSite = await prisma.site.create({
+      data: {
+        companyId: otherCompany.id,
+        code: freshCode(),
+        name: 'Their Depot',
+        clientName: 'Their Client Ltd',
+        region: 'ASHANTI',
+        city: 'Kumasi',
+      },
+    });
+
+    await updateSite(theirSite.id, { name: 'Taken over' }).expect(404);
+    await request(app.getHttpServer())
+      .get(`/api/v1/sites/${theirSite.id}`)
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(404);
+
+    const unchanged = await prisma.site.findUniqueOrThrow({ where: { id: theirSite.id } });
+    expect(unchanged.name).toBe('Their Depot');
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: theirSite.id } });
+    expect(audit).toBeNull();
+  });
+
   it('refuses to go INACTIVE while a worker is posted there', async () => {
     const site = await createSite({
       code: freshCode(),

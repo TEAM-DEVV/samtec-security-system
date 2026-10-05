@@ -12,6 +12,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, Site } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
 import { currentAssignmentFilter } from './employees.service.js';
+import { SiteDeactivationChecks } from './site-deactivation-checks.js';
 import type { CreateSiteBody, ListSitesQuery, UpdateSiteBody } from './workforce.schemas.js';
 
 /**
@@ -25,6 +26,7 @@ export class SitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly deactivationChecks: SiteDeactivationChecks,
   ) {}
 
   async list(viewer: SignedInUser, query: ListSitesQuery): Promise<SiteList> {
@@ -133,20 +135,22 @@ export class SitesService {
    * Changes a site's details. Contract: `updateSite`. Only the sent fields
    * change; the code can never be changed here. Switching `status` to
    * `INACTIVE` is refused while anybody is still posted here or any device
-   * here is switched on, so the site cannot quietly go dark under them.
+   * here is switched on, so the site cannot quietly go dark under them. Those
+   * checks and the change run in one transaction, so a worker posted here in
+   * the same instant cannot slip between them.
    */
   async update(viewer: SignedInUser, siteId: string, body: UpdateSiteBody): Promise<ApiSite> {
-    const current = await this.prisma.site.findFirst({
-      where: { id: siteId, companyId: viewer.companyId },
-    });
-    if (!current) {
-      throw new NotFoundException('No site exists with this ID.');
-    }
-    if (body.status === 'INACTIVE' && current.status !== 'INACTIVE') {
-      await this.assertSafeToDeactivate(siteId);
-    }
-
     await this.prisma.$transaction(async (tx) => {
+      const current = await tx.site.findFirst({
+        where: { id: siteId, companyId: viewer.companyId },
+      });
+      if (!current) {
+        throw new NotFoundException('No site exists with this ID.');
+      }
+      if (body.status === 'INACTIVE' && current.status !== 'INACTIVE') {
+        await this.assertSafeToDeactivate(viewer.companyId, siteId, tx);
+      }
+
       await tx.site.update({ where: { id: siteId }, data: body });
       await this.audit.record(
         {
@@ -165,31 +169,31 @@ export class SitesService {
   }
 
   /**
-   * A site may go `INACTIVE` only once nobody is posted there and every
-   * device there is switched off, so nothing is left quietly stranded.
+   * A site may go `INACTIVE` only once nobody is posted there and no other
+   * module objects (the attendance module does while a device here is
+   * switched on; see `SiteDeactivationChecks`), so nothing is left quietly
+   * stranded. The refusal names everything still in the way, in one sentence:
+   * "Move every worker off this site and switch off every device at this
+   * site before making it inactive."
    */
-  private async assertSafeToDeactivate(siteId: string): Promise<void> {
-    const [postedWorker, activeDevice] = await Promise.all([
-      this.prisma.siteAssignment.findFirst({
-        where: { siteId, ...currentAssignmentFilter() },
-        select: { id: true },
-      }),
-      this.prisma.device.findFirst({
-        where: { siteId, status: 'ACTIVE' },
-        select: { id: true },
-      }),
-    ]);
-    if (postedWorker && activeDevice) {
-      throw new ConflictException(
-        'Move every worker off this site and switch off its devices before making it inactive.',
-      );
-    }
+  private async assertSafeToDeactivate(
+    companyId: string,
+    siteId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const reasons: string[] = [];
+    const postedWorker = await tx.siteAssignment.findFirst({
+      where: { siteId, ...currentAssignmentFilter() },
+      select: { id: true },
+    });
     if (postedWorker) {
-      throw new ConflictException('Move every worker off this site before making it inactive.');
+      reasons.push('move every worker off this site');
     }
-    if (activeDevice) {
+    reasons.push(...(await this.deactivationChecks.reasonsToRefuse(companyId, siteId, tx)));
+    if (reasons.length > 0) {
+      const sentence = reasons.join(' and ');
       throw new ConflictException(
-        'Switch off every device at this site before making it inactive.',
+        `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} before making it inactive.`,
       );
     }
   }

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  type OnModuleInit,
 } from '@nestjs/common';
 import type {
   Device as ApiDevice,
@@ -20,6 +21,7 @@ import type { Device, Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../identity/audit.service.js';
 import { openSecret, sealSecret } from '../identity/secret-box.js';
 import { EmployeesService } from '../workforce/employees.service.js';
+import { SiteDeactivationChecks } from '../workforce/site-deactivation-checks.js';
 import { SitesService } from '../workforce/sites.service.js';
 import type {
   ListDevicesQuery,
@@ -49,7 +51,7 @@ const NO_SUCH_DEVICE = 'No device exists with this ID.';
  * AUTH_SECRET. Contract: the `Devices` operations.
  */
 @Injectable()
-export class DevicesService {
+export class DevicesService implements OnModuleInit {
   private readonly secretKey: Buffer;
 
   constructor(
@@ -57,9 +59,37 @@ export class DevicesService {
     private readonly audit: AuditService,
     private readonly sites: SitesService,
     private readonly employees: EmployeesService,
+    private readonly siteDeactivation: SiteDeactivationChecks,
     config: AppConfig,
   ) {
     this.secretKey = deviceSecretKey(config.authSecret);
+  }
+
+  /**
+   * Tells the workforce module that a site with a switched-on device cannot
+   * go inactive. The workforce module owns sites but must not read this
+   * module's `devices` table, so this module answers the question for it.
+   */
+  onModuleInit(): void {
+    this.siteDeactivation.register((companyId, siteId, db) =>
+      this.reasonSiteMustStayActive(companyId, siteId, db),
+    );
+  }
+
+  /**
+   * Why a site cannot go inactive, as far as devices are concerned: one
+   * clause while any device there is still `ACTIVE`, otherwise `null`.
+   */
+  async reasonSiteMustStayActive(
+    companyId: string,
+    siteId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<string | null> {
+    const activeDevice = await db.device.findFirst({
+      where: { companyId, siteId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return activeDevice ? 'switch off every device at this site' : null;
   }
 
   async list(viewer: SignedInUser, query: ListDevicesQuery): Promise<DeviceList> {

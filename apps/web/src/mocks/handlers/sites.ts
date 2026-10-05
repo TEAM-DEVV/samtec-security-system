@@ -203,7 +203,7 @@ export const siteHandlers = [
         const activeDevice = hasActiveDeviceAtSite(site.id);
         if (postedWorker && activeDevice) {
           return conflict(
-            'Move every worker off this site and switch off its devices before making it inactive.',
+            'Move every worker off this site and switch off every device at this site before making it inactive.',
           );
         }
         if (postedWorker) {
