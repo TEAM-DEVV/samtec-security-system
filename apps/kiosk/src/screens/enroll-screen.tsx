@@ -50,6 +50,7 @@ type Stage =
   | { name: 'enrolled'; result: FaceEnrollmentResult }
   | { name: 'finger-asking' }
   | { name: 'finger-sensor' }
+  | { name: 'finger-saving' }
   | { name: 'finger-saved'; passkey: DevicePasskey }
   | { name: 'finger-cancelled' }
   | { name: 'failed'; message: string };
@@ -136,6 +137,9 @@ export function EnrollScreen({
    * was still in flight.
    */
   const [workersLoaded, setWorkersLoaded] = useState(false);
+  // Set when the lists could not be read, so the screen stops saying it is
+  // still reading them: the error underneath is the whole story then.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const cancelled = useRef(false);
@@ -179,6 +183,7 @@ export function EnrollScreen({
       })
       .catch(() => {
         if (live) {
+          setLoadFailed(true);
           setProblem('Could not load the consent wording. Check the connection and try again.');
         }
       });
@@ -324,7 +329,9 @@ export function EnrollScreen({
       if (cancelled.current) {
         return;
       }
-      setStage({ name: 'finger-asking' });
+      // From here the finger is already proven and the save is on its way:
+      // no Cancel, because "not saved" could no longer be promised.
+      setStage({ name: 'finger-saving' });
       const passkey = await callSigned<DevicePasskey>(
         device,
         'kiosk/passkeys',
@@ -452,7 +459,7 @@ export function EnrollScreen({
               ))}
             </select>
           </div>
-          {!workersLoaded && <p className="muted">Reading the worker list…</p>}
+          {!workersLoaded && !loadFailed && <p className="muted">Reading the worker list…</p>}
           {workersLoaded && pickFrom.length === 0 && (
             <p className="notice notice--wait">
               {task === 'enroll'
@@ -684,6 +691,13 @@ export function EnrollScreen({
               Cancel
             </button>
           </div>
+        </>
+      )}
+
+      {stage.name === 'finger-saving' && (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p role="status">Saving their fingerprint…</p>
         </>
       )}
 

@@ -249,6 +249,47 @@ describe('ClockScreen', () => {
     expect(await screen.findByRole('button', { name: 'Another way in' })).toBeInTheDocument();
   });
 
+  it('still offers the fallback when the connection fails while the punch is going in', async () => {
+    // Three real failures, then a face that is recognised but whose punch
+    // cannot be recorded because the connection drops at that moment.
+    answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED, MATCHED];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        url,
+        headers: init.headers as Record<string, string>,
+        body: String(init.body ?? ''),
+      });
+      const next = answers.shift();
+      if (next === undefined) {
+        return Promise.reject(new Error('network down'));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(next.body), {
+          status: next.status,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (attempt > 1) {
+        await user.click(screen.getByRole('button', { name: 'Start again' }));
+      }
+      await user.click(screen.getByRole('button', { name: 'Start shift' }));
+      await screen.findByText('Not recognised. Please try again.');
+    }
+    await user.click(screen.getByRole('button', { name: 'Start again' }));
+    await user.click(screen.getByRole('button', { name: 'Start shift' }));
+
+    // The refusal comes from the punch, not the face, and it still knows which
+    // direction was being recorded, so the way in is a button and not just a
+    // sentence.
+    expect(await screen.findByText('Please try again.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Another way in' })).toBeInTheDocument();
+  });
+
   it('opens the fallback screen with the direction that failed', async () => {
     answers = [NOT_RECOGNISED, NOT_RECOGNISED, NOT_RECOGNISED];
     const user = userEvent.setup();

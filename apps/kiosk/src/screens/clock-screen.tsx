@@ -335,7 +335,7 @@ export function ClockScreen({
       if (run.current !== mine) {
         return;
       }
-      await confirm(mine, attemptId, assertion);
+      await confirm(mine, attemptId, direction, assertion);
     } catch (error) {
       if (run.current !== mine) {
         return;
@@ -344,8 +344,17 @@ export function ClockScreen({
     }
   }
 
-  /** The guard said nothing (or proved their finger), so the punch goes in. */
-  async function confirm(mine: number, attemptId: string, assertion?: unknown) {
+  /**
+   * The guard said nothing (or proved their finger), so the punch goes in. The
+   * direction comes along so that a refusal here can still offer the fallback
+   * for it, once three real failures have unlocked one.
+   */
+  async function confirm(
+    mine: number,
+    attemptId: string,
+    direction: KioskDirection,
+    assertion?: unknown,
+  ) {
     setStage({ name: 'recording' });
     try {
       const punch = await callSigned<KioskPunchResponse>(device, 'kiosk/confirm', {
@@ -361,7 +370,7 @@ export function ClockScreen({
       if (run.current !== mine) {
         return;
       }
-      setStage(refusalFrom(error, failures));
+      setStage(refusalFrom(error, failures, direction));
     }
   }
 
@@ -495,7 +504,7 @@ export function ClockScreen({
         stage={stage}
         showTheNameFor={showTheNameFor}
         onBegin={begin}
-        onConfirm={(attemptId) => void confirm(run.current, attemptId)}
+        onConfirm={(attemptId, direction) => void confirm(run.current, attemptId, direction)}
         onNotMe={notMe}
         onFallback={(direction) => setStage({ name: 'fallback', direction })}
         onRest={rest}
@@ -509,7 +518,7 @@ interface BodyProps {
   stage: Stage;
   showTheNameFor: number;
   onBegin: (direction: KioskDirection) => void;
-  onConfirm: (attemptId: string) => void;
+  onConfirm: (attemptId: string, direction: KioskDirection) => void;
   onNotMe: (attemptId: string, direction?: KioskDirection) => void;
   onFallback: (direction: KioskDirection) => void;
   onRest: () => void;
@@ -532,7 +541,7 @@ function Body({
     if (stage.name !== 'greeting') {
       return;
     }
-    const timer = setTimeout(() => onConfirm(stage.attemptId), showTheNameFor);
+    const timer = setTimeout(() => onConfirm(stage.attemptId, stage.direction), showTheNameFor);
     return () => clearTimeout(timer);
   }, [stage, showTheNameFor, onConfirm]);
 

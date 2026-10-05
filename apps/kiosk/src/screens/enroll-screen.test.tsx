@@ -515,6 +515,81 @@ describe('EnrollScreen · saving a fingerprint', () => {
     expect(screen.getByText(/copy the key to its own cloud account/)).toBeInTheDocument();
   });
 
+  it('offers no Cancel once the finger is proven and the save is on its way', async () => {
+    answers['/kiosk/passkey-options'] = {
+      status: 200,
+      body: { ticket: 'sealed-ticket', options: { challenge: 'from-the-server' } },
+    };
+    passkeys.createPasskey.mockResolvedValue({
+      id: 'new-key',
+      rawId: 'new-key',
+      type: 'public-key',
+    } as unknown as Awaited<ReturnType<typeof passkeys.createPasskey>>);
+    // The save itself never answers, so the screen is caught mid-save.
+    vi.stubGlobal('fetch', (url: string, init: RequestInit = {}) => {
+      sent.push({
+        url,
+        headers: (init.headers ?? {}) as Record<string, string>,
+        body: String(init.body ?? ''),
+      });
+      if (url.includes('/kiosk/passkeys')) {
+        return new Promise<Response>(() => {});
+      }
+      const match = Object.keys(answers).find((path) => url.includes(path));
+      if (match === undefined) {
+        throw new Error(`Unexpected request to ${url}`);
+      }
+      const answer = answers[match];
+      return Promise.resolve(
+        new Response(JSON.stringify(answer?.body), {
+          status: answer?.status ?? 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Save a fingerprint instead (already enrolled)' }),
+    );
+    await user.selectOptions(screen.getByLabelText('Worker'), 'SMT-00002 · Abena Owusu');
+    await user.click(screen.getByRole('button', { name: 'Save their fingerprint' }));
+
+    expect(await screen.findByText('Saving their fingerprint…')).toBeInTheDocument();
+    // "Not saved" could no longer be promised here, so nothing offers it.
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+
+  it('stops saying it is reading the worker list once that read has failed', async () => {
+    vi.stubGlobal('fetch', (url: string, init: RequestInit = {}) => {
+      sent.push({
+        url,
+        headers: (init.headers ?? {}) as Record<string, string>,
+        body: String(init.body ?? ''),
+      });
+      if (url.includes('/employees?status=PENDING_ENROLLMENT')) {
+        return Promise.reject(new Error('network down'));
+      }
+      const match = Object.keys(answers).find((path) => url.includes(path));
+      if (match === undefined) {
+        throw new Error(`Unexpected request to ${url}`);
+      }
+      const answer = answers[match];
+      return Promise.resolve(
+        new Response(JSON.stringify(answer?.body), {
+          status: answer?.status ?? 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    await renderScreen();
+
+    expect(await screen.findByText(/Could not load the consent wording/)).toBeInTheDocument();
+    expect(screen.queryByText('Reading the worker list…')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nobody is waiting/)).not.toBeInTheDocument();
+  });
+
   it('lets an administrator cancel out of a sensor that never answers, and ignores a late answer', async () => {
     answers['/kiosk/passkey-options'] = {
       status: 200,
