@@ -602,6 +602,8 @@ export const payrollHandlers = [
       for (const payslip of state.payslips.filter((row) => row.runId === run.id)) {
         payslip.runStatus = 'PAID';
         payslip.paidAt = run.paidAt;
+        payslip.paidOn = run.paidOn;
+        payslip.paymentReference = run.paymentReference;
       }
       return HttpResponse.json<PayrollRun>(run);
     },
@@ -625,6 +627,30 @@ export const payrollHandlers = [
         headers: {
           'Content-Type': 'text/csv',
           'Content-Disposition': `attachment; filename="payroll-run-${run.id}.csv"`,
+          ...noStore,
+        },
+      });
+    },
+  ),
+
+  /** The company's own receipt, once a run is paid. No password step: nothing on it is unmasked. */
+  http.get<{ runId: string }, never, OrProblem<Uint8Array>>(
+    apiUrl('/payroll/runs/:runId/payment-receipt.pdf'),
+    ({ params, request }) => {
+      const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
+      if (refused) return refused;
+      const bad = idProblem(params.runId, 'runId');
+      if (bad) return bad;
+      const run = findRun(params.runId);
+      if (!run) return notFound('No payroll run exists with this ID.');
+      if (run.status !== 'PAID') {
+        return conflict('A payment receipt exists only once the run has been paid.');
+      }
+      const month = run.periodEndDate.slice(0, 7);
+      return new HttpResponse(paymentReceiptPdfFor(run), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="payroll-payment-receipt-${month}.pdf"`,
           ...noStore,
         },
       });
@@ -1037,6 +1063,8 @@ function payslipFor(line: PayrollLine, run: PayrollRun): Payslip {
     employee: line.employee,
     runStatus: run.status,
     paidAt: run.paidAt,
+    paidOn: run.paidOn,
+    paymentReference: run.paymentReference,
     basicMonthlyPesewas: line.basicMonthlyPesewas,
     daysInPeriod: line.daysInPeriod,
     daysEmployed: line.daysEmployed,
@@ -1191,18 +1219,12 @@ function bankExportFor(run: PayrollRun): string {
 }
 
 /**
- * A very small but genuinely valid PDF, so the download works in the browser
- * during a demo. The real API builds a full payslip with pdfkit.
+ * A very small but genuinely valid one-page PDF of plain text lines, so a
+ * download works in the browser during a demo. The real API builds the real
+ * document by hand too (`payslip-pdf.ts`, `payment-receipt-pdf.ts`), just with
+ * every figure on it; this only needs to be a PDF a reader will open.
  */
-function smallPdf(payslip: Payslip): Uint8Array {
-  const text = [
-    `SAMTEC payslip  ${payslip.employee.staffNumber}`,
-    `${payslip.employee.fullName}`,
-    `Period ${payslip.periodStartDate} to ${payslip.periodEndDate}`,
-    `Gross ${(payslip.grossPesewas / 100).toFixed(2)} GHS`,
-    `Net ${(payslip.netPayPesewas / 100).toFixed(2)} GHS`,
-    'Mock data only.',
-  ];
+function textPdf(text: readonly string[]): Uint8Array {
   const lines = text
     .map((line, index) => {
       // Brackets and backslashes end a PDF string, so they are escaped.
@@ -1228,6 +1250,31 @@ function smallPdf(payslip: Payslip): Uint8Array {
   for (const offset of offsets) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
   return new TextEncoder().encode(pdf);
+}
+
+function smallPdf(payslip: Payslip): Uint8Array {
+  return textPdf([
+    `SAMTEC payslip  ${payslip.employee.staffNumber}`,
+    `${payslip.employee.fullName}`,
+    `Period ${payslip.periodStartDate} to ${payslip.periodEndDate}`,
+    `Gross ${(payslip.grossPesewas / 100).toFixed(2)} GHS`,
+    `Net ${(payslip.netPayPesewas / 100).toFixed(2)} GHS`,
+    'Mock data only.',
+  ]);
+}
+
+/** The company's own receipt, as a small fake PDF: enough to download and open, not to typeset. */
+function paymentReceiptPdfFor(run: PayrollRun): Uint8Array {
+  const totals = totalsOf(state.lines.filter((line) => line.runId === run.id));
+  return textPdf([
+    'Salary payment receipt',
+    `Period ${run.periodStartDate} to ${run.periodEndDate}`,
+    run.paymentReference === null
+      ? `Paid on ${run.paidOn ?? ''}`
+      : `Paid on ${run.paidOn ?? ''}, reference ${run.paymentReference}`,
+    `Total net pay ${(totals.totalNetPayPesewas / 100).toFixed(2)} GHS`,
+    'Mock data only.',
+  ]);
 }
 
 /** Exported for the tests, which check the period length the engine uses. */

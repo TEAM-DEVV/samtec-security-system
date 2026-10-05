@@ -45,6 +45,10 @@ tags:
     description: >-
       Sign-in accounts, managed by administrators: create, change, switch off
       and reset. Built in Phase 1.
+  - name: Company
+    description: >-
+      The company's own record: its name and the bank account its payroll is
+      paid from.
   - name: Employees
     description: Guards and staff on the company payroll. Built in Phase 1.
   - name: Sites
@@ -630,6 +634,76 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+
+  # --- Company ---
+  /company/bank-account:
+    get:
+      tags: [Company]
+      operationId: getCompanyBankAccount
+      summary: The company's own bank account
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. The account the monthly bank file is
+        paid out of, and the one the payment receipt names. The account
+        number is never returned in full: `accountNumberMasked` shows only
+        its last four digits, and the real number is never written to a log
+        or an error message.
+      responses:
+        "200":
+          description: The company's name and its bank account.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyBankAccount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [Company]
+      operationId: setCompanyBankAccount
+      x-needs-password: true
+      summary: Set the company's bank account
+      description: >-
+        **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never change
+        it (`403`). Replaces the whole bank account: send all four fields,
+        with `null` for anything the company does not have, so a detail is
+        only ever cleared on purpose. Nothing sent here is logged or echoed
+        in an error message — a rejected field is named, never quoted — and
+        the account number never appears in a URL or in the audit entry,
+        which records only that the bank account changed and who changed it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCompanyBankAccountRequest"
+            examples:
+              theCompanysAccount:
+                summary: The account payroll is paid from
+                value:
+                  bankName: Akwaaba Bank
+                  branch: Ridge
+                  accountName: Alpha Shield Security Ltd
+                  accountNumber: "1234567890123"
+      responses:
+        "200":
+          description: The stored bank account.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyBankAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /users:
     get:
@@ -3782,6 +3856,50 @@ paths:
                 "SMT-00043","Ama Boateng","","","","+233241234567","96320","963.20","SAMTEC-2026-09-SMT-00043","yes"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /payroll/runs/{runId}/payment-receipt.pdf:
+    parameters:
+      - $ref: "#/components/parameters/PayrollRunId"
+    get:
+      tags: [Payroll]
+      operationId: downloadPayrollPaymentReceiptPdf
+      summary: The company's own receipt for a paid run
+      description: >-
+        **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all
+        (`403`), and so does a GUARD. Not a payslip — this is the company's
+        own record that it paid out salaries, once the run is `PAID`
+        (`409` beforehand): the month, when it was paid, the payment
+        reference, the account it was paid from, and one row per worker paid
+        with their net pay and a masked destination. The paying account's
+        number and every worker's destination are masked to their last four
+        digits, the same as the bank account screen. Never cached, and never
+        logged. **Audited**, the same as the bank export: who downloaded it,
+        for which run, and when.
+      responses:
+        "200":
+          description: The payment receipt.
+          headers:
+            Content-Disposition:
+              description: >-
+                Always `attachment`, with the file name
+                `payroll-payment-receipt-<YYYY-MM>.pdf`.
+              schema:
+                type: string
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7882,6 +8000,68 @@ components:
           description: >-
             Everything owed to the state for the month: both SSNIT shares and
             the income tax deducted.
+    # --- Company ---
+    CompanyBankAccount:
+      type: object
+      description: >-
+        The company's own name and the bank account its payroll is paid
+        from. The account number is never included in full: a GET shows only
+        its last four digits, masked the same way everywhere it appears.
+      required: [companyName, bankName, branch, accountName, accountNumberMasked]
+      properties:
+        companyName:
+          type: string
+          description: The company's name.
+        bankName:
+          type: [string, "null"]
+          description: The bank the payroll account is held at, or `null` if none is on file.
+        branch:
+          type: [string, "null"]
+          description: The branch, or `null`.
+        accountName:
+          type: [string, "null"]
+          description: The name on the account, or `null`.
+        accountNumberMasked:
+          type: [string, "null"]
+          description: >-
+            The account number with everything but its last four digits
+            masked, for example `**** 1234`, or `null` if no account is on
+            file. The real number is never returned by this endpoint.
+          examples: ["**** 0123"]
+
+    SetCompanyBankAccountRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Replaces the company's bank account. All four fields are required:
+        send `null` for anything the company does not have, so a detail is
+        only ever cleared on purpose. Nothing sent here is logged or echoed
+        in an error message — a rejected field is named, never quoted.
+      required: [bankName, branch, accountName, accountNumber]
+      properties:
+        bankName:
+          type: [string, "null"]
+          minLength: 2
+          maxLength: 100
+          pattern: "^[^=+@\\s\"-][^\\t\\r\\n]*$"
+          description: The bank the payroll account is held at, or `null`.
+        branch:
+          type: [string, "null"]
+          minLength: 2
+          maxLength: 100
+          pattern: "^[^=+@\\s\"-][^\\t\\r\\n]*$"
+          description: The branch, or `null`.
+        accountName:
+          type: [string, "null"]
+          minLength: 2
+          maxLength: 100
+          pattern: "^[^=+@\\s\"-][^\\t\\r\\n]*$"
+          description: The name on the account, or `null`.
+        accountNumber:
+          type: [string, "null"]
+          pattern: "^[0-9]{5,20}$"
+          description: The account number, digits only, or `null`.
+
     # --- Payroll (Phase 4) --- Samuel adds payroll schemas here, and nowhere
     # else. Every name carries its module: PayrollPeriod, PayrollRun,
     # PayrollLine, TaxTable, Payslip; operationIds listPayrollRuns,
@@ -8768,6 +8948,8 @@ components:
           employee,
           runStatus,
           paidAt,
+          paidOn,
+          paymentReference,
           basicMonthlyPesewas,
           daysInPeriod,
           daysEmployed,
@@ -8842,6 +9024,19 @@ components:
           description: >-
             When an ADMIN marked the run paid, or `null` while it is only
             locked.
+        paidOn:
+          type: [string, "null"]
+          format: date
+          description: >-
+            The day the money left the company's bank, as the ADMIN recorded
+            it when marking the run paid, or `null` while the run is only
+            locked. Read live from the run, like `runStatus`: the PDF itself
+            is never rebuilt, so this is where the dashboard reads it from.
+        paymentReference:
+          type: [string, "null"]
+          description: >-
+            The bank's reference for that payment, or `null` when none was
+            given or the run is not paid yet.
         basicMonthlyPesewas:
           type: integer
           description: >-

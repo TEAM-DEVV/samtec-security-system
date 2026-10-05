@@ -10,7 +10,11 @@
  *   too.
  * - **The stored file is returned byte for byte.** It is never rebuilt, because
  *   a payslip somebody has already been shown must not change afterwards, and
- *   the stored fingerprint is what proves it has not.
+ *   the stored fingerprint is what proves it has not. Whether a run has since
+ *   been marked paid is still worth saying, so `paidOn` and `paymentReference`
+ *   are read live onto the JSON `Payslip` — the same way `runStatus` and
+ *   `paidAt` already were — and the dashboard prints them beside the
+ *   download; the PDF itself stays exactly what was issued at lock time.
  *
  * Almost every field of a payslip is read from the frozen payroll line rather
  * than copied again, which is why so little is stored: the line cannot change
@@ -33,6 +37,8 @@ const PAYSLIP_INCLUDE = {
     select: {
       status: true,
       paidAt: true,
+      paidOn: true,
+      paymentReference: true,
       periodId: true,
       period: { select: { startsOn: true, endsOn: true } },
       taxTable: { select: { ssnitEmployeeBasisPoints: true, ssnitEmployerBasisPoints: true } },
@@ -253,6 +259,8 @@ function toApiPayslip(row: {
   run: {
     status: 'DRAFT' | 'PENDING_APPROVAL' | 'LOCKED' | 'PAID' | 'REJECTED';
     paidAt: Date | null;
+    paidOn: Date | null;
+    paymentReference: string | null;
     periodId: string;
     period: { startsOn: Date; endsOn: Date };
     taxTable: { ssnitEmployeeBasisPoints: number; ssnitEmployerBasisPoints: number };
@@ -270,9 +278,12 @@ function toApiPayslip(row: {
       staffNumber: row.line.staffNumber,
       fullName: row.line.fullName,
     },
-    // The two live figures: whether the money has actually gone, and when.
+    // The live figures: whether the money has actually gone, when, the day
+    // it left the bank and the bank's reference. Everything else is frozen.
     runStatus: row.run.status,
     paidAt: row.run.paidAt?.toISOString() ?? null,
+    paidOn: row.run.paidOn === null ? null : toIsoDate(row.run.paidOn),
+    paymentReference: row.run.paymentReference,
     basicMonthlyPesewas: row.line.basicMonthlyPesewas,
     daysInPeriod: row.line.daysInPeriod,
     daysEmployed: row.line.daysEmployed,

@@ -22,6 +22,8 @@ export const routes = {
   /** Record that an employee has left. One way only, so it has its own page. */
   terminateEmployee: (employeeId: string) =>
     `/employees/${encodeURIComponent(employeeId)}/terminate`,
+  /** The company's own name and bank account (ADMIN only). */
+  company: '/company',
   /** Sign-in accounts (ADMIN only). */
   users: '/users',
   newUser: '/users/new',

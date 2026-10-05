@@ -62,6 +62,7 @@ about confirmed shifts.
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
 | `run-mapping.ts` | The same for runs and lines, including the totals, which are the exact sums of the lines |
 | `payslip-pdf.ts` | The payslip as a one-page PDF, written directly. No PDF library |
+| `payment-receipt-pdf.ts` | The company's own receipt for a paid run, built the same way: the paying account and every destination masked, who was paid, and the totals |
 | `bank-export.ts` | The bank file, with the quoting and the formula guard that stop a row being forged |
 | `payroll-facts.service.ts` | The read seam for ghost detection: minutes and identifiers, never money |
 | `pay-calculation.ts` | The money, as a pure function: pro-rating, SSNIT, the graduated PAYE bands, net pay. No database, no `this` |

@@ -321,6 +321,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/company/bank-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The company's own bank account
+         * @description **Roles:** ADMIN, HR_PAYROLL. The account the monthly bank file is paid out of, and the one the payment receipt names. The account number is never returned in full: `accountNumberMasked` shows only its last four digits, and the real number is never written to a log or an error message.
+         */
+        get: operations["getCompanyBankAccount"];
+        /**
+         * Set the company's bank account
+         * @description **Roles:** ADMIN. HR_PAYROLL, SUPERVISOR and GUARD may never change it (`403`). Replaces the whole bank account: send all four fields, with `null` for anything the company does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted — and the account number never appears in a URL or in the audit entry, which records only that the bank account changed and who changed it.
+         */
+        put: operations["setCompanyBankAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -1762,6 +1786,29 @@ export interface paths {
          *     The answer is never cached, and no account number is ever written to a log or an error message. **Audited:** who downloaded the file, for which run, and when.
          */
         get: operations["downloadPayrollRunBankExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payroll/runs/{runId}/payment-receipt.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The company's own receipt for a paid run
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Not a payslip — this is the company's own record that it paid out salaries, once the run is `PAID` (`409` beforehand): the month, when it was paid, the payment reference, the account it was paid from, and one row per worker paid with their net pay and a masked destination. The paying account's number and every worker's destination are masked to their last four digits, the same as the bank account screen. Never cached, and never logged. **Audited**, the same as the bank export: who downloaded it, for which run, and when.
+         */
+        get: operations["downloadPayrollPaymentReceiptPdf"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3739,6 +3786,33 @@ export interface components {
             /** @description Everything owed to the state for the month: both SSNIT shares and the income tax deducted. */
             statutoryPesewas: number;
         };
+        /** @description The company's own name and the bank account its payroll is paid from. The account number is never included in full: a GET shows only its last four digits, masked the same way everywhere it appears. */
+        CompanyBankAccount: {
+            /** @description The company's name. */
+            companyName: string;
+            /** @description The bank the payroll account is held at, or `null` if none is on file. */
+            bankName: string | null;
+            /** @description The branch, or `null`. */
+            branch: string | null;
+            /** @description The name on the account, or `null`. */
+            accountName: string | null;
+            /**
+             * @description The account number with everything but its last four digits masked, for example `**** 1234`, or `null` if no account is on file. The real number is never returned by this endpoint.
+             * @example **** 0123
+             */
+            accountNumberMasked: string | null;
+        };
+        /** @description Replaces the company's bank account. All four fields are required: send `null` for anything the company does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
+        SetCompanyBankAccountRequest: {
+            /** @description The bank the payroll account is held at, or `null`. */
+            bankName: string | null;
+            /** @description The branch, or `null`. */
+            branch: string | null;
+            /** @description The name on the account, or `null`. */
+            accountName: string | null;
+            /** @description The account number, digits only, or `null`. */
+            accountNumber: string | null;
+        };
         /**
          * @description Where a payroll month is in its life. There are only two values, and it
          *     never moves backwards.
@@ -4228,6 +4302,13 @@ export interface components {
              * @description When an ADMIN marked the run paid, or `null` while it is only locked.
              */
             paidAt: string | null;
+            /**
+             * Format: date
+             * @description The day the money left the company's bank, as the ADMIN recorded it when marking the run paid, or `null` while the run is only locked. Read live from the run, like `runStatus`: the PDF itself is never rebuilt, so this is where the dashboard reads it from.
+             */
+            paidOn: string | null;
+            /** @description The bank's reference for that payment, or `null` when none was given or the run is not paid yet. */
+            paymentReference: string | null;
             /** @description The full monthly salary from the pay terms used, before any pro-rating. */
             basicMonthlyPesewas: number;
             /** @description Calendar days in the period: the bottom of the pro-rating fraction. */
@@ -4942,6 +5023,8 @@ export type ReportsOverview = components['schemas']['ReportsOverview'];
 export type PresentNow = components['schemas']['PresentNow'];
 export type AbsenceRate = components['schemas']['AbsenceRate'];
 export type PayrollCostMonth = components['schemas']['PayrollCostMonth'];
+export type CompanyBankAccount = components['schemas']['CompanyBankAccount'];
+export type SetCompanyBankAccountRequest = components['schemas']['SetCompanyBankAccountRequest'];
 export type PayrollPeriodStatus = components['schemas']['PayrollPeriodStatus'];
 export type PayrollPeriod = components['schemas']['PayrollPeriod'];
 export type PayrollPeriodList = components['schemas']['PayrollPeriodList'];
@@ -5368,6 +5451,57 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getCompanyBankAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The company's name and its bank account. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyBankAccount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setCompanyBankAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCompanyBankAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored bank account. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyBankAccount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listUsers: {
@@ -7684,6 +7818,36 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    downloadPayrollPaymentReceiptPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The payroll run's ID. */
+                runId: components["parameters"]["PayrollRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The payment receipt. */
+            200: {
+                headers: {
+                    /** @description Always `attachment`, with the file name `payroll-payment-receipt-<YYYY-MM>.pdf`. */
+                    "Content-Disposition"?: string;
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
