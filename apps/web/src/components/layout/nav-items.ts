@@ -1,6 +1,7 @@
 import type { UserRole } from '@samtec/contracts';
 import {
   BarChart3,
+  Building2,
   CalendarClock,
   Clock,
   Home,
@@ -158,6 +159,15 @@ export const navItems: NavItem[] = [
     phase: 1,
     available: true,
     roles: pageRoles.users,
+  },
+  {
+    label: 'Company',
+    description: "The company's name and the bank account its payroll is paid from.",
+    to: routes.company,
+    icon: Building2,
+    phase: 4,
+    available: true,
+    roles: pageRoles.company,
   },
 ];
 

@@ -6,6 +6,7 @@ import { RequireSession } from '@/components/require-session';
 import { pageRoles } from '@/lib/roles';
 import { AttendancePage } from '@/pages/attendance-page';
 import { ChangePasswordPage } from '@/pages/change-password-page';
+import { CompanyPage } from '@/pages/company-page';
 import { DetectionAlertPage } from '@/pages/detection-alert-page';
 import { DetectionPage } from '@/pages/detection-page';
 import { DetectionRulesPage } from '@/pages/detection-rules-page';
@@ -167,6 +168,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireRole roles={pageRoles.users}>
             <UserDetailPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'company',
+        element: (
+          <RequireRole roles={pageRoles.company}>
+            <CompanyPage />
           </RequireRole>
         ),
       },
