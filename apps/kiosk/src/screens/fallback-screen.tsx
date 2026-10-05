@@ -527,12 +527,27 @@ export function FallbackScreen({
       )}
 
       {stage.name === 'sensor' && (
-        // No name here, on purpose: a typed number must never become a name
-        // on a wall. The name appears once the punch is recorded, when the
-        // person has proved a finger — not merely guessed a number.
-        <p className="notice notice--wait" role="status">
-          Touch the fingerprint sensor on this phone.
-        </p>
+        <>
+          {/* No name here, on purpose: a typed number must never become a name
+              on a wall. The name appears once the punch is recorded, when the
+              person has proved a finger — not merely guessed a number. */}
+          <p className="notice notice--wait" role="status">
+            Touch the fingerprint sensor on this phone.
+          </p>
+          <div className="buttons">
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => {
+                run.current += 1;
+                pending.current = null;
+                setStage({ name: 'choosing' });
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
       )}
 
       {stage.name === 'asking' && (
