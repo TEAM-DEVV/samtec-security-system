@@ -24,6 +24,7 @@ import {
   unauthorized,
   validationProblem,
 } from '../helpers';
+import { canSeeSite } from '../scope';
 import { userForRequest } from './auth';
 
 /**
@@ -58,7 +59,12 @@ export const rosterHandlers = [
       if (!isUuid(params.siteId)) {
         return validationProblem('siteId', 'Must be a valid ID.');
       }
-      if (!mockSites.some((site) => site.id === params.siteId)) {
+      // A supervisor sees only their own site's posts; any other site "does
+      // not exist" for them, the same answer the real service gives.
+      if (
+        !mockSites.some((site) => site.id === params.siteId) ||
+        !canSeeSite(user, params.siteId)
+      ) {
         return notFound('No site exists with this ID.');
       }
       const query = new URL(request.url).searchParams;

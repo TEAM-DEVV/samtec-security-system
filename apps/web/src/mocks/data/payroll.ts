@@ -33,7 +33,7 @@ export interface StoredPaymentDetails {
 /** admin@samtec.example and hr@samtec.example in data/users.ts. */
 const ADMIN_USER_ID = '01927c3e-2222-7ccc-9ddd-000000000001';
 const HR_USER_ID = '01927c3e-2222-7ccc-9ddd-000000000002';
-/** admin2@samtec.example: another administrator, who approves what the first prepared. */
+/** admin2@samtec.example in data/users.ts: the company's other administrator. */
 export const OTHER_ADMIN_USER_ID = '01927c3e-2222-7ccc-9ddd-000000000005';
 
 export const AUGUST_PERIOD_ID = '01927c3e-aaaa-7000-8000-000000000008';

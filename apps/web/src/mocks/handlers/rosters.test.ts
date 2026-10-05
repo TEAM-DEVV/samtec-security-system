@@ -6,6 +6,7 @@ import { mockPosts, mockShiftPatterns } from '../data/rosters';
 import { mockSites } from '../data/sites';
 
 const ACC_01 = mockSites.find((site) => site.code === 'ACC-01')?.id ?? '';
+const TEM_01 = mockSites.find((site) => site.code === 'TEM-01')?.id ?? '';
 const MAIN_GATE =
   mockPosts.find((post) => post.siteId === ACC_01 && post.name === 'Main Gate')?.id ?? '';
 const DAY_SHIFT = mockShiftPatterns.find((pattern) => pattern.name === 'Day Shift')?.id ?? '';
@@ -74,6 +75,13 @@ describe('mock rosters API', () => {
 
     const patterns = await fetchClient.GET('/shift-patterns');
     expect(patterns.response.status).toBe(200);
+
+    // Another site's posts "do not exist" for them, so nothing is learned
+    // about a site they are not posted to, even that it has posts.
+    const elsewhere = await fetchClient.GET('/sites/{siteId}/posts', {
+      params: { path: { siteId: TEM_01 } },
+    });
+    expect(elsewhere.response.status).toBe(404);
 
     const refusedPost = await fetchClient.POST('/sites/{siteId}/posts', {
       params: { path: { siteId: ACC_01 } },

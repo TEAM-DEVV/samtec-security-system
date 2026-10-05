@@ -13,8 +13,8 @@ export const MOCK_TWO_FACTOR_CODE = '123456';
  * Fictional sign-in accounts, one for each way signing in can go:
  *
  * - admin@samtec.example has two-factor authentication, so it gets a code challenge.
- * - admin2@samtec.example is a second ADMIN account, so tests and screens can
- *   show one administrator acting on another's work.
+ * - admin2@samtec.example is a second ADMIN account, so the Users page and
+ *   its tests have more than one administrator to list and to change.
  * - hr@samtec.example must set up two-factor authentication before signing in.
  * - supervisor@samtec.example signs straight in.
  * - guard@samtec.example signs straight in, and may see only their own records.
