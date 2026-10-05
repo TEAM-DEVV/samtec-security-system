@@ -10,6 +10,12 @@ export const routes = {
   /** Register a new employee (ADMIN and HR_PAYROLL). */
   newEmployee: '/employees/new',
   sites: '/sites',
+  /** Add a new client site (ADMIN and HR_PAYROLL). */
+  newSite: '/sites/new',
+  /** One site's record: its details, posts, devices and the workers posted there. */
+  site: (siteId: string) => `/sites/${encodeURIComponent(siteId)}`,
+  /** Change one site's record (ADMIN and HR_PAYROLL). */
+  editSite: (siteId: string) => `/sites/${encodeURIComponent(siteId)}/edit`,
   /** One employee's record. */
   employee: (employeeId: string) => `/employees/${encodeURIComponent(employeeId)}`,
   /** Change one employee's record (ADMIN and HR_PAYROLL). */
