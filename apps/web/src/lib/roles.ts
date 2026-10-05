@@ -69,6 +69,8 @@ export const pageRoles = {
   payslips: ['ADMIN', 'HR_PAYROLL', 'GUARD'],
   /** `GET /reports/overview` and the attendance download. A supervisor already reads the attendance board, so they read its figures too. */
   reports: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /** `GET /sites/{siteId}/invoices/{month}.pdf`: the client invoice card on the Reports page. A supervisor sees no payroll-shaped figure, including this one. */
+  invoicing: ['ADMIN', 'HR_PAYROLL'],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 /** SUPERVISOR and GUARD accounts belong to an employee; ADMIN and HR_PAYROLL do not (the contract's `createUser` rule). */

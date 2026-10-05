@@ -53,6 +53,8 @@ describe('pageRoles', () => {
     expect(roleAllowed(pageRoles.payroll, 'SUPERVISOR')).toBe(false);
     expect(roleAllowed(pageRoles.payslips, 'SUPERVISOR')).toBe(false);
     expect(roleAllowed(pageRoles.payrollApproval, 'SUPERVISOR')).toBe(false);
+    // A client invoice is payroll-shaped too, even for a supervisor's own site.
+    expect(roleAllowed(pageRoles.invoicing, 'SUPERVISOR')).toBe(false);
   });
 
   it('lets a payroll officer prepare a run but never approve one', () => {
