@@ -9640,7 +9640,6 @@ components:
         and inside the run's bank export. The row has no ID of its own: it is
         addressed by the employee, the way `EmployeeBiometrics` is.
 
-
         **The account number and the mobile money number never appear here in
         full.** `bankName` and `accountName` travel whole, because neither one
         pays anyone by itself, but `accountNumberEndsWith` and

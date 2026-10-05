@@ -4564,7 +4564,6 @@ export interface components {
         };
         /**
          * @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is.
-         *
          *     **The account number and the mobile money number never appear here in full.** `bankName` and `accountName` travel whole, because neither one pays anyone by itself, but `accountNumberEndsWith` and `momoNumberEndsWith` carry only the last four digits — enough for a person to recognise "yes, that account" without this being one more place the full number can be read from. The `PUT` that sets them still takes the full numbers; the full numbers are then read back only by the run's bank export, never by this shape.
          */
         EmployeePaymentDetails: {
