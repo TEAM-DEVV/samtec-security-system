@@ -193,7 +193,7 @@ This section belongs in Samuel's report and in the client presentation.
 A phase is **done** only when all of these are true:
 
 1. Its exit demo runs end to end.
-2. The four checklists pass on the phase's changes (`/lens-review phase`).
+2. The four review checklists pass on the phase's changes.
 3. CI is green.
 4. The documents in `docs/` still describe what was built.
 5. Security findings are fixed, or accepted in writing with a reason.

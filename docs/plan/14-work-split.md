@@ -305,7 +305,7 @@ It touches the most contended file once, briefly, instead of for two weeks.
   nothing looks related, and run `pnpm check`. A conflict found on day two is
   five minutes; on day ten it is an afternoon.
 - At most two open pull requests each.
-- Run the four review lenses before every pull request (`/lens-review`).
+- Go through the four review lenses before every pull request.
 - `pnpm check` before calling anything finished.
 - Every merge to `main` deploys to TEST by itself, migrations and all.
 - **After the second of our two migrations lands**, one of us runs

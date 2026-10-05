@@ -146,9 +146,9 @@ cd apps/api && TEST_DATABASE_URL='postgresql://samtec:samtec-local-only@localhos
 
 ## Before you open the pull request
 
-Run the four review lenses — `/lens-review` — and fix what they find. They are
-the same four reviewers used on every backend pull request so far, and they
-catch the things tests do not: a missing row-level security line, a refusal
+Go through the four review lenses and fix what they find. They are the same
+four checklists used on every backend pull request so far, and they catch the
+things tests do not: a missing row-level security line, a refusal
 that leaks which reason it was, a transaction that is not really atomic.
 
 Then re-read [Who builds what next](14-work-split.md) — "Staying in sync" —
