@@ -114,7 +114,12 @@ function EmployeeRecord({ employee }: { employee: Employee }) {
               <DetailRow term="Current site">
                 {employee.currentSite ? (
                   <>
-                    {employee.currentSite.name}{' '}
+                    <Link
+                      to={routes.site(employee.currentSite.id)}
+                      className="text-primary underline underline-offset-4 hover:no-underline"
+                    >
+                      {employee.currentSite.name}
+                    </Link>{' '}
                     <span className="font-mono text-muted-foreground text-xs">
                       {employee.currentSite.code}
                     </span>

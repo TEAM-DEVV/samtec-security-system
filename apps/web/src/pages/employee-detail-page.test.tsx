@@ -42,6 +42,15 @@ describe('EmployeeDetailPage', () => {
     expect(screen.getByText('GHA-000000001-1')).toBeInTheDocument();
   });
 
+  it("links the current site's name to the site's own page", async () => {
+    await signInForTests('admin@samtec.example');
+
+    renderDetailPage(KWAME);
+
+    const siteLink = await screen.findByRole('link', { name: 'Ridge Towers Office Complex' });
+    expect(siteLink).toHaveAttribute('href', routes.site('01927c3e-1111-7aaa-8bbb-0c0c0c0c0c01'));
+  });
+
   it('shows the leaving date and "Not posted" for someone who has left', async () => {
     await signInForTests('admin@samtec.example');
 
