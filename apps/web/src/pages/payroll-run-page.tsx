@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, Download, FileText, Receipt, Send, Users, Wallet, X } from 'lucide-react';
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
+import { routes } from '@/app/routes';
 import { LoadErrorAlert } from '@/components/load-error-alert';
 import { PageHeader } from '@/components/page-header';
 import { PaginationNav } from '@/components/pagination-nav';
@@ -200,7 +201,12 @@ export function PayrollRunPage() {
             <ul className="space-y-2 text-sm">
               {summary.excluded.map((left) => (
                 <li key={left.employee.id} className="flex flex-wrap gap-x-2">
-                  <span className="font-medium">{left.employee.fullName}</span>
+                  <Link
+                    to={routes.employee(left.employee.id)}
+                    className="font-medium hover:underline"
+                  >
+                    {left.employee.fullName}
+                  </Link>
                   <span className="text-muted-foreground">{left.employee.staffNumber}</span>
                   <span aria-hidden="true">·</span>
                   <span>{exclusionReasonLabels[left.reason]}</span>

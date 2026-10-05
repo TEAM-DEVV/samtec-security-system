@@ -17,6 +17,7 @@ function renderRunPage(runId: string) {
     <Routes>
       <Route path="/payroll/runs/:runId" element={<PayrollRunPage />} />
       <Route path={routes.payroll} element={<p>Payroll</p>} />
+      <Route path="/employees/:employeeId" element={<p>Employee page</p>} />
     </Routes>,
     { route: routes.payrollRun(runId) },
   );
@@ -110,5 +111,21 @@ describe('PayrollRunPage', () => {
     renderRunPage('01927c3e-bbbb-7000-8000-000000000999');
 
     expect(await screen.findByText(/This run could not be loaded/)).toBeInTheDocument();
+  });
+
+  it('links a worker left out of the run to their own page, so the fix is one click away', async () => {
+    await signInForTests('hr@samtec.example');
+    const user = userEvent.setup();
+    // Selorm (SMT-00010) is hired on 8 September and deliberately has no pay
+    // terms, so only the September run — WAITING_FOR_APPROVAL — excludes him;
+    // he had not started yet when the August run was calculated.
+    renderRunPage(WAITING_FOR_APPROVAL);
+
+    expect(
+      await screen.findByText('No pay terms on file — add them before the next run'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Selorm Agbeko' }));
+
+    expect(await screen.findByText('Employee page')).toBeInTheDocument();
   });
 });
