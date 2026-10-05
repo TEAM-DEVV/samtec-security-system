@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AttendanceModule } from '../attendance/attendance.module.js';
+import { CompanyModule } from '../company/company.module.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import { WorkforceModule } from '../workforce/workforce.module.js';
 import { EmployeePayController } from './employee-pay.controller.js';
@@ -33,9 +34,14 @@ import { TaxTablesService } from './tax-tables.service.js';
  * endpoint lands, rule R3 will refuse a run that pays beyond presence through
  * the shared function in `src/common/paid-beyond-presence.ts`, not by calling
  * detection. Nothing here calls it yet — calculating a run does not submit it.
+ *
+ * It also imports `CompanyModule`, for the one thing the payment receipt
+ * needs that payroll does not own: the company's own name and its bank
+ * account, asked for through `CompanyService` rather than read off
+ * `companies` directly.
  */
 @Module({
-  imports: [IdentityModule, WorkforceModule, AttendanceModule],
+  imports: [IdentityModule, CompanyModule, WorkforceModule, AttendanceModule],
   controllers: [PayrollController, PayslipsController, EmployeePayController],
   providers: [
     PayrollPeriodsService,

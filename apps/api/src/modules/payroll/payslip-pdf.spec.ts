@@ -42,6 +42,8 @@ const PAYSLIP: PayslipForPdf = {
   netPayPesewas: 133_530,
   taxYear: 2026,
   adjustmentNote: null,
+  paidOn: null,
+  paymentReference: null,
 };
 
 /** The document as text, which is how these tests read it. */
@@ -187,6 +189,22 @@ describe('the payslip document', () => {
     expect(text).toContain('This is a correction to an earlier month');
   });
 
+  it('prints nothing new while the run has not been paid yet', () => {
+    const text = asText(PAYSLIP);
+    expect(text).not.toContain('Paid on');
+  });
+
+  it('prints when it was paid and the bank reference, once the run is paid', () => {
+    const text = asText({ ...PAYSLIP, paidOn: '2026-08-28', paymentReference: 'GCB-TRF-2026-08-0031' });
+    expect(text).toContain('Paid on 2026-08-28, reference GCB-TRF-2026-08-0031');
+  });
+
+  it('says only the date when the run was paid with no reference to give', () => {
+    const text = asText({ ...PAYSLIP, paidOn: '2026-08-28', paymentReference: null });
+    expect(text).toContain('Paid on 2026-08-28');
+    expect(text).not.toContain('reference');
+  });
+
   it('reports its own size and fingerprint, which the payslip row records', () => {
     const built = buildPayslipPdf(PAYSLIP);
     expect(built.sizeBytes).toBe(built.bytes.byteLength);
@@ -240,6 +258,8 @@ describe('the layout stays on the page', () => {
     otherDeductionsPesewas: 2_000,
     netPayPesewas: 100_000_000,
     adjustmentNote: 'Days employed corrected after approval.',
+    paidOn: '2026-08-28',
+    paymentReference: 'GCB-TRF-2026-08-0031',
   };
 
   it('puts every line inside the page, on both axes', () => {

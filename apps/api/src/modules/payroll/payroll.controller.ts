@@ -215,6 +215,27 @@ export class PayrollController {
     });
   }
 
+  /**
+   * The company's own receipt that a run's salaries were paid: the paying
+   * account and one row per worker, both masked to their last four digits.
+   * Exists only once the run is `PAID` (`409` beforehand). Unlike the bank
+   * export, no account number ever appears in full here, so this does not
+   * need a fresh password confirmation — but reading it is still audited.
+   */
+  @Get('runs/:runId/payment-receipt.pdf')
+  async paymentReceiptPdf(
+    @Caller() caller: SignedInUser,
+    @Param('runId', { schema: idSchema }) runId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.approval.paymentReceiptPdf(caller, runId);
+    response.setHeader('Cache-Control', 'no-store');
+    return new StreamableFile(Buffer.from(file.bytes), {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${file.fileName}"`,
+    });
+  }
+
   /** A one-page summary for filing. It names nobody's pay. */
   @Get('runs/:runId/summary.pdf')
   async runSummaryPdf(

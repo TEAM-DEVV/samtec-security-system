@@ -30,9 +30,15 @@ import {
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { AttendanceFactsService } from '../attendance/attendance-facts.service.js';
+import { CompanyService } from '../company/company.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { orConflict } from './already-exists.js';
 import { bankExportCsv, netPerEmployee } from './bank-export.js';
+import {
+  buildPaymentReceiptPdf,
+  paymentReceiptFileName,
+  type PaymentReceiptWorkerInput,
+} from './payment-receipt-pdf.js';
 import type {
   ApproveRunBody,
   MarkPaidBody,
@@ -89,6 +95,7 @@ export class PayrollApprovalService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly attendance: AttendanceFactsService,
+    private readonly company: CompanyService,
   ) {}
 
   /**
@@ -335,6 +342,83 @@ export class PayrollApprovalService {
     return { bytes: built.bytes, fileName: runSummaryFileName(toIsoDate(run.period.endsOn)) };
   }
 
+  /**
+   * The company's own receipt that a run's salaries were paid.
+   *
+   * Exists only once the run is `PAID` (`409` beforehand) — there is nothing
+   * to receipt before the money has gone. Every destination on it, and the
+   * paying account itself, is already masked by the time it reaches this
+   * method: payroll never reads an account number in full, it asks
+   * `CompanyService` and `employee_payment_details` for only what it needs and
+   * masks the rest at the edge. Reading it is audited, the same as the bank
+   * export: who asked, for which run, and when.
+   */
+  async paymentReceiptPdf(
+    viewer: SignedInUser,
+    runId: string,
+  ): Promise<{ bytes: Uint8Array; fileName: string }> {
+    const run = await this.byId(viewer, runId);
+    if (run.status !== 'PAID') {
+      throw new ConflictException('A payment receipt exists only once the run has been paid.');
+    }
+    if (run.paidOn === null) {
+      // Unreachable in practice: `markPaid` always sets `paidOn` in the same
+      // update that moves the status to PAID.
+      throw new ConflictException('This run is marked paid but has no payment date on record.');
+    }
+
+    const lines = await this.prisma.payrollLine.findMany({
+      where: { companyId: viewer.companyId, runId },
+      select: { employeeId: true, staffNumber: true, fullName: true, netPayPesewas: true },
+    });
+    // The same definition of "paid" the bank file uses: a bank cannot take a
+    // negative or zero payment, so a line like that never left the account.
+    const rows = netPerEmployee(lines).filter((row) => row.netPayPesewas > 0);
+    const details = await this.prisma.employeePaymentDetails.findMany({
+      where: { companyId: viewer.companyId, employeeId: { in: rows.map((row) => row.employeeId) } },
+    });
+    const detailsByEmployee = new Map(details.map((row) => [row.employeeId, row]));
+
+    const workers: PaymentReceiptWorkerInput[] = [...rows]
+      .sort((left, right) =>
+        left.staffNumber < right.staffNumber ? -1 : left.staffNumber > right.staffNumber ? 1 : 0,
+      )
+      .map((row) => {
+        const detail = detailsByEmployee.get(row.employeeId);
+        return {
+          staffNumber: row.staffNumber,
+          fullName: row.fullName,
+          netPayPesewas: row.netPayPesewas,
+          accountNumber: detail?.accountNumber ?? null,
+          momoNumber: detail?.momoNumber ?? null,
+        };
+      });
+
+    const payingAccount = await this.company.payingAccountFor(viewer.companyId);
+    const built = buildPaymentReceiptPdf({
+      companyName: payingAccount.companyName,
+      periodStartDate: toIsoDate(run.period.startsOn),
+      periodEndDate: toIsoDate(run.period.endsOn),
+      paidOn: toIsoDate(run.paidOn),
+      paymentReference: run.paymentReference,
+      payingBankName: payingAccount.bankName,
+      payingBranch: payingAccount.branch,
+      payingAccountNumberMasked: payingAccount.accountNumberMasked,
+      workers,
+    });
+
+    await this.audit.record({
+      companyId: viewer.companyId,
+      actorUserId: viewer.userId,
+      action: 'payroll.payment_receipt_downloaded',
+      entityType: 'payroll_run',
+      entityId: runId,
+      detail: { periodId: run.periodId, workerCount: workers.length },
+    });
+
+    return { bytes: built.bytes, fileName: paymentReceiptFileName(toIsoDate(run.period.endsOn)) };
+  }
+
   // ---------------------------------------------------------------------------
 
   /**
@@ -456,6 +540,12 @@ export class PayrollApprovalService {
         netPayPesewas: line.netPayPesewas,
         taxYear: line.taxYear,
         adjustmentNote: line.adjustmentNote,
+        // A run cannot be PAID before it is LOCKED, and this writes the
+        // payslip at the moment it locks — so there is never a payment to
+        // stamp yet. `payslips.service.ts` prints the stamp itself, read live
+        // from the run, once one exists; the stored bytes never gain one.
+        paidOn: null,
+        paymentReference: null,
       });
       await tx.payslip.create({
         data: {
