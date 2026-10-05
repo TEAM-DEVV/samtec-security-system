@@ -14,9 +14,9 @@ word you cannot explain if interrupted; everything here is explained in the
 pack.
 
 **The slides.** [SAMTEC-defence-slides.pptx](SAMTEC-defence-slides.pptx) is
-the deck for this script: sixteen slides, one per step below, with the SAY
-text of each step in the speaker notes. Open it in PowerPoint, press F5, and
-follow the script.
+the deck for this script: it follows the same order as the steps below, with
+the SAY text of each step in the speaker notes. Open it in PowerPoint, press
+F5, and follow the script.
 
 **The one rule for the whole day:** when you do not know, say "I don't know,
 but I know where it is written" — and name the document. That is a strong
@@ -97,7 +97,7 @@ Open the kiosk (`pnpm dev:kiosk` locally, pretend camera).
 > and the worker's answer is stored with the version and a fingerprint of that
 > text, so we can always prove what they agreed to — that is the Data
 > Protection Act. Then three face captures, each with a fresh head-turn so a
-> photograph cannot enroll. No photo is ever stored: the face becomes 1,024
+> photograph cannot enroll. No photo is ever stored: the face becomes 512
 > numbers, encrypted before they reach the database."
 
 **DO:** Admin → sign in → consent → Ghana Card digits → three captures →

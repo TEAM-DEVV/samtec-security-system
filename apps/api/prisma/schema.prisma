@@ -177,13 +177,13 @@ model User {
   /// is refused, so an overheard code cannot be replayed.
   twoFactorLastUsedStep    BigInt?   @map("two_factor_last_used_step")
 
-  /// Phase 7: an ADMIN account made, promoted, reset or switched back on by one
-  /// administrator waits for a second to confirm it, and cannot be used until
-  /// then (docs/plan/06, "Two administrators"). All four are empty for every
-  /// other role (a database CHECK). A confirmer is never the requester and
-  /// never the account itself (another CHECK). Empty `adminConfirmedByUserId`
-  /// with a date means nobody else was needed: the company's only
-  /// administrator, the setup script, or an account older than the rule.
+  /// Who asked for this ADMIN account (created, promoted, reset or switched
+  /// back on) and who confirmed it. Since issue #99 (docs/plan/06, "One
+  /// administrator, with a password") any ADMIN does both alone — the two
+  /// pairs name the same person at the same moment, and the account is usable
+  /// as soon as its password is set. All four are still empty for every other
+  /// role (a database CHECK). Rows from before 1 October 2026 may show a
+  /// different confirmer: that is history, kept, not a live rule.
   adminRequestedByUserId String?   @map("admin_requested_by_user_id") @db.Uuid
   adminRequestedAt       DateTime? @map("admin_requested_at") @db.Timestamptz(3)
   adminConfirmedByUserId String?   @map("admin_confirmed_by_user_id") @db.Uuid
@@ -566,14 +566,13 @@ model Device {
   kind                  DeviceKind
   status                DeviceStatus @default(ACTIVE)
   secretEncrypted       String       @map("secret_encrypted")
-  /// Phase 7: a device key can post punches, so one person never issues one
-  /// and switches it on. Whoever registered the device or last rotated its
-  /// secret is recorded here, and somebody else must switch it on (a database
-  /// CHECK, and docs/plan/06, "Two administrators"). Empty on devices made
-  /// before the rule and by the seed, which any administrator may switch on.
+  /// Phase 7: a device key can post punches, so it is born switched off.
+  /// Whoever registered the device or last rotated its secret is recorded
+  /// here; any administrator, including this one, switches it on separately
+  /// (docs/plan/06, "One administrator, with a password"). Empty on devices
+  /// made before the rule and by the seed.
   keyIssuedByUserId     String?      @map("key_issued_by_user_id") @db.Uuid
-  /// Who switched it on. Empty when nobody else was needed: the company had
-  /// one administrator, or the device predates the rule.
+  /// Who switched it on. Empty when the device predates the rule.
   activatedByUserId     String?      @map("activated_by_user_id") @db.Uuid
   /// When it was switched on. Set whenever a device with a recorded issuer is
   /// ACTIVE, so a write that flips the status without going through the rule is
@@ -1319,13 +1318,15 @@ model PayrollRun {
   /// The rates version used, frozen the moment this run refers to it.
   taxTableId         String           @map("tax_table_id") @db.Uuid
   status             PayrollRunStatus @default(DRAFT)
-  /// The maker: whoever calculated the draft. Never the approver.
+  /// Whoever calculated the draft. The only one who may submit it; since
+  /// issue #99 they may also approve or reject it themselves.
   calculatedByUserId String           @map("calculated_by_user_id") @db.Uuid
   calculatedAt       DateTime         @default(now()) @map("calculated_at") @db.Timestamptz(3)
   submittedByUserId  String?          @map("submitted_by_user_id") @db.Uuid
   submittedAt        DateTime?        @map("submitted_at") @db.Timestamptz(3)
   submissionNote     String?          @map("submission_note")
-  /// The checker. A database CHECK refuses the submitter (hard rule 3).
+  /// Whoever approved it. Since issue #99 this may be the same person who
+  /// submitted it; the database CHECK that once refused that is dropped.
   approvedByUserId   String?          @map("approved_by_user_id") @db.Uuid
   approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(3)
   approvalNote       String?          @map("approval_note")

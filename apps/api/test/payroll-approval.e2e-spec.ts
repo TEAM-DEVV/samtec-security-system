@@ -16,8 +16,10 @@ import { openFixtureDb } from './db-fixture.js';
  * (docs/plan/09-payroll-engine-ghana.md, decisions 16, 17, 22 and 23).
  *
  * This is where the money actually leaves, so the tests are mostly about the
- * refusals: the maker is never the checker, a locked run never changes, a
- * rejection is final, and the bank file cannot be forged or read early.
+ * refusals: a locked run never changes, a rejection is final, and the bank
+ * file cannot be forged or read early — and about what no longer refuses:
+ * since issue #99, the same person who prepared a run may approve it too,
+ * password-confirmed.
  *
  * Each run makes its own company, because nothing in payroll may ever be
  * deleted — see `src/modules/payroll/README.md`.

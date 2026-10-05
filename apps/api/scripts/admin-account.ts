@@ -68,9 +68,10 @@ try {
             twoFactorSecretEncrypted: null,
             twoFactorEnabledAt: null,
             twoFactorLastUsedStep: null,
-            // Database access is a stronger check than a second login, so the
-            // script's account never waits for a second administrator — which
-            // is also how an administrator stuck waiting is rescued.
+            // Database access is a stronger check than a login, so the
+            // script's account is confirmed at once with nobody's name on
+            // it — this is also how a company with no working administrator
+            // is rescued.
             ...scriptConfirmed(),
           },
         })

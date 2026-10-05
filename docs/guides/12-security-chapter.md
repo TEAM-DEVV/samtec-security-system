@@ -139,12 +139,12 @@ shapes a ghost makes rather than for a ghost:
 
 Two design decisions are worth defending.
 
-**R3 is meant to be two controls, not one.** The comparison lives in a shared
-file that depends on nothing, so detection can raise an alert with it *and*
-payroll can refuse to submit a run with it, without the two modules importing
-each other. Only the alert exists today: payroll's run endpoints are Phase 4
-and not built. This is stated rather than glossed over, because a reader who
-checks will find one control where the design says two.
+**R3 is two controls, not one.** The comparison lives in a shared file that
+depends on nothing, so detection raises an alert with it on the nightly
+sweep, and payroll independently refuses to submit a run with it —
+`refuseHoursNobodyWorked` in `payroll-approval.service.ts` counts presence
+afresh rather than trusting the line it is judging — without the two modules
+importing each other.
 
 **One rule was built, then thrown away — twice.** An early extra clause for
 R11 would have asked whether the "second administrator" on a decision was

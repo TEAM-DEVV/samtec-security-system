@@ -4,11 +4,11 @@
  *
  * Design: docs/plan/09-payroll-engine-ghana.md, decisions 16, 17, 22 and 23.
  *
- * **The maker is never the checker.** Whoever calculated or submitted a run may
- * never approve or reject it. This service answers 403 for that, the database
- * refuses it with a `CHECK`, and the run records all four names so the refusal
- * can be shown rather than asserted. One of those guards on its own would be a
- * promise; three is a control.
+ * **Whoever prepared a run may approve it.** Issue #99 removed the
+ * maker-checker rule and its database `CHECK`; the run still records all
+ * four names (who calculated, submitted, approved or rejected, and paid it),
+ * and approving, marking paid and the bank export ask that administrator to
+ * confirm their own password first (`@NeedsPassword()`).
  *
  * Every state change rides on a conditional `updateMany` inside a transaction,
  * so two people acting at the same moment get a clear 409 rather than one of
@@ -420,15 +420,6 @@ export class PayrollApprovalService {
   }
 
   // ---------------------------------------------------------------------------
-
-  /**
-   * Refuses to let somebody decide about their own work.
-   *
-   * Both the submitter and the calculator are checked, so a maker cannot route
-   * around the rule by having a colleague press submit for them. The same
-   * comparison is a `CHECK` in the database; this one exists so the answer is
-   * 403 with a sentence rather than a 500 from a constraint.
-   */
 
   /**
    * Rule R3 at the gate: a run may not be submitted if it pays anybody for

@@ -30,10 +30,12 @@ const SHORTEST_NOTE = 3;
  * One payroll run: what it pays, who was left out, and the decision about it
  * (docs/plan/09-payroll-engine-ghana.md).
  *
- * The rule this page exists to make visible is that **the maker is never the
- * checker**. Whoever worked the run out, or sent it for approval, may never
- * approve or reject it. Rather than hiding the buttons and leaving somebody
- * wondering, the page shows why they are not there.
+ * The rule this page exists to make visible is that **only the person who
+ * worked a run out may submit it** for approval, so one name always answers
+ * for the figures. Any administrator — including that same person — may then
+ * approve or reject it, after confirming their password. Rather than hiding
+ * the submit button and leaving somebody wondering, the page shows why it is
+ * not there for anyone else.
  */
 export function PayrollRunPage() {
   const { runId = '' } = useParams<{ runId: string }>();

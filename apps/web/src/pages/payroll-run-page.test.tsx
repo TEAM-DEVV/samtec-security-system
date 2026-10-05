@@ -8,7 +8,7 @@ import { signInForTests } from '@/test/session';
 import { PayrollRunPage } from './payroll-run-page';
 
 // The mock's two runs (src/mocks/data/payroll.ts). Both were prepared by the
-// payroll officer, which is what makes the maker–checker cases below work.
+// payroll officer, which is what makes the "who may decide" cases below work.
 const WAITING_FOR_APPROVAL = '01927c3e-bbbb-7000-8000-000000000002';
 const ALREADY_PAID = '01927c3e-bbbb-7000-8000-000000000001';
 
@@ -24,7 +24,7 @@ function renderRunPage(runId: string) {
 }
 
 /**
- * This page exists to make the maker–checker rule visible, so most of these
+ * This page exists to make clear who may decide what, so most of these
  * tests are about which decision is offered to whom.
  */
 describe('PayrollRunPage', () => {

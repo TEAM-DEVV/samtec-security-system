@@ -144,11 +144,12 @@ export class DevicesService implements OnModuleInit {
             kind: body.kind,
             secretEncrypted: sealSecret(secret, this.secretKey),
             // **Every new key is born switched off** (Phase 7): a device key
-            // can post punches, so one person never both issues one and puts
-            // it to work. Somebody else switches it on, having seen the device
-            // is really on the wall (docs/plan/06, "Two administrators"). This
-            // was already true of a kiosk setting itself up (docs/plan/13 §3);
-            // now it is true of every device.
+            // can post punches, so it starts unable to. Any administrator —
+            // including whoever issued it — switches it on separately, after
+            // confirming their password, having seen the device is really on
+            // the wall (docs/plan/06, "One administrator, with a password").
+            // This was already true of a kiosk setting itself up (docs/plan/13
+            // §3); now it is true of every device.
             status: 'INACTIVE',
             keyIssuedByUserId: viewer.userId,
             // Left out, the column's own default (false) applies: the same
@@ -201,7 +202,7 @@ export class DevicesService implements OnModuleInit {
         // **Locked, then read again.** Whether this is a switch-on depends on
         // the status, and something else may have moved it since — rotating a
         // secret switches a device off. Deciding from the earlier read let a
-        // rotate racing a switch-on skip the two-person gate entirely and
+        // rotate racing a switch-on skip the activation check entirely and
         // leave a live key nobody had approved.
         await tx.$queryRaw`SELECT id FROM devices WHERE id = ${deviceId}::uuid AND company_id = ${viewer.companyId}::uuid FOR UPDATE`;
         const locked = await tx.device.findFirst({

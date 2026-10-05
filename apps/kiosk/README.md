@@ -99,7 +99,8 @@ It accepts any frame. A production build running on it would do **no face check
 at all** — anybody could clock in as whoever the server last matched. So
 `defaultEngine()` in `app.tsx` **throws** in a production build rather than fall
 back to it. The kiosk refuses to run instead of pretending to check faces, and
-that guard stops mattering only when the real Human engine lands.
+that guard is what keeps a misconfigured production build from ever shipping
+with no face check at all.
 
 ## The face engine is behind a seam
 

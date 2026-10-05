@@ -225,7 +225,7 @@ function printEnrollment(): void {
   console.log();
   console.log('  A ghost here is somebody already enrolled, enrolling again under a new record —');
   console.log('  the fraud the whole system exists to stop. A stranger wrongly queried only');
-  console.log('  costs a second administrator a minute, which is why this number is looser');
+  console.log('  costs an administrator a minute, which is why this number is looser');
   console.log(`  (${FACE_THRESHOLDS.duplicate}) than a clock-in (${FACE_THRESHOLDS.match}).`);
   console.log();
 }

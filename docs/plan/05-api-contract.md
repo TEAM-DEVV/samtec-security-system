@@ -54,13 +54,13 @@ Every route below is in `packages/contracts/openapi.yaml`; only the ones marked
 | Biometrics | `GET /biometrics/consent-text`, `GET /employees/{id}/biometrics`, `POST /employees/{id}/biometrics/revoke`, `/biometrics/unblock`, `/biometric-exemption`, `/biometric-exemption/review`, `/biometric-consents/withdraw`, `GET /biometric-collisions`, `POST /biometric-collisions/{credentialId}/resolve` | **Built** |
 | Live attendance | `GET /attendance/punches` (live clock-ins board), `GET /attendance/clock-in-attempts` (ADMIN) | **Built** |
 | Payroll (setup) | periods, tax tables, pay terms, payment details | **Built** |
-| Payroll (runs) | runs (calculate, submit, approve, reject, mark paid), lines, payslips and their PDFs, bank export, statutory summary | In the contract only (Phase 4) — these answer 404 today |
+| Payroll (runs) | runs (calculate, submit, approve, reject, mark paid), lines, payslips and their PDFs, bank export, statutory summary | **Built** |
 | Detection | alerts, resolution, rules, sweep, `GET /detection/daily-sweep` (public, the Vercel Cron entry) | **Built** |
-| Reports | attendance and payroll summaries, CSV and PDF export | Phase 6 |
+| Reports | attendance and payroll summaries, CSV and PDF export, and a client invoice per site and month | **Built** |
 
 ## Security notes for specific endpoints
 
-- **`GET /health`** is public, so it reports only status, time and database state. The API version and environment will come from an admin-only endpoint in Phase 1.
+- **`GET /health`** is public, so it reports only status, time and database state. The API version and environment come from the admin-only `GET /system/info` instead.
 - **Sign-in endpoints** (Phase 1) follow the two-factor and session rules in [Security and review gates](06-security-and-review-gates.md#security-controls): short-lived one-time tokens, a limit on wrong codes, rotating refresh cookies with reuse detection, and an `Origin` check on refresh and logout. Phase 3 adds an `Origin` rule to the sign-in steps themselves: dashboard or kiosk, decided by `CORS_ORIGINS` and `KIOSK_ORIGINS`.
 - **`POST /ingest/punches`** (Phase 2) authenticates each device with its own secret (an HMAC signature), not a user token. It is rate-limited per device, limits body size, and ignores repeated punches.
 - **Kiosk endpoints** (Phase 3) accept only `FACE_KIOSK` devices, and `/ingest/punches` refuses them. The kiosk's enrollment endpoints need an ADMIN's access token **and** the kiosk's signature. A sign-in from a kiosk address (`KIOSK_ORIGINS`) gets no refresh cookie and a token that works only for the kiosk screens; the kiosk's ADMIN routes accept only that token. No answer ever contains a face template, and no kiosk answer contains a match score.

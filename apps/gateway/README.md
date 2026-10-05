@@ -30,7 +30,7 @@ It reads its configuration from `~/.samtec/gateway.json` (or
 terminal's device secret**. The shape is documented at the top of
 [`src/config.ts`](src/config.ts). Each terminal is a `ZKTECO` device
 registered on the dashboard's Devices page: born switched off, switched on
-by a second administrator, like every device key.
+separately by any administrator, including whoever registered it.
 
 Point the terminal's "ADMS" / cloud-server setting at the gateway's address
 and port (8081 by default). The gateway listens on the site's own network

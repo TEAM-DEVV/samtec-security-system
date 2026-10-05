@@ -180,13 +180,12 @@ export function signedPost(
 }
 
 /**
- * Registers a device through the API and switches it on, as two
- * administrators would.
+ * Registers a device through the API and switches it on from the dashboard.
  *
- * Every new key is born switched off, and the person who issued it may not
- * switch it on (Phase 7, docs/plan/06, "Two administrators"), so this needs
- * both administrators — which is why it takes the whole company rather than
- * one token.
+ * Every new key is born switched off; any administrator, including whoever
+ * issued it, may switch it on (Phase 7, docs/plan/06, "One administrator,
+ * with a password"). This takes the whole company, rather than one token, so
+ * it can reach a second admin token from the fixture to do it with.
  */
 export async function registerDevice(
   app: NestExpressApplication,
@@ -207,9 +206,9 @@ export async function registerDevice(
 }
 
 /**
- * Switches a device on as the company's **second** administrator, whoever
- * registered it. Most tests only need a working device; this is the one line
- * that gets them one (docs/plan/06, 'Two administrators').
+ * Switches a device on, as an administrator. Most tests only need a working
+ * device; this is the one line that gets them one (docs/plan/06, 'One
+ * administrator, with a password').
  */
 export async function activateDevice(
   app: NestExpressApplication,

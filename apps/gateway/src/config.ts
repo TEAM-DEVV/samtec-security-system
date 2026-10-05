@@ -25,8 +25,9 @@
  * ```
  *
  * Each terminal is a `ZKTECO` device registered on the dashboard's Devices
- * page — born switched off, switched on by a second administrator, like every
- * device key (docs/plan/06, "Two administrators").
+ * page — born switched off, switched on separately by any administrator,
+ * including whoever registered it (docs/plan/06, "One administrator, with a
+ * password").
  */
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';

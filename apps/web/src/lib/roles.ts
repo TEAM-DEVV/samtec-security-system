@@ -12,8 +12,7 @@ export const roleLabels: Record<UserRole, string> = {
 /** One plain sentence per role, based on the contract's `UserRole` description, for the overview page. */
 export const roleDescriptions: Record<UserRole, string> = {
   ADMIN: 'Full access, including user management and approving payroll runs.',
-  HR_PAYROLL:
-    'Manages employees and prepares payroll runs, but can never approve a run they prepared.',
+  HR_PAYROLL: 'Manages employees and prepares payroll runs, but can never approve one.',
   SUPERVISOR: 'Manages attendance and rosters for the sites they are posted to.',
   GUARD: 'Sees only their own record, attendance and payslips.',
 };

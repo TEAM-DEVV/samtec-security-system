@@ -8,7 +8,7 @@ Security companies lose money when salaries are paid for shifts nobody worked. S
 
 1. Guards are registered with their Ghana Card and their fingerprint or face.
 2. They clock in and out biometrically at the client site.
-3. Pay is calculated only from those verified clock-ins, and a second person approves every payroll.
+3. Pay is calculated only from those verified clock-ins, and the administrator approves every payroll with their own password.
 
 A detection engine flags whatever slips through, such as one fingerprint under two names, pay without attendance, or a guard clocked in at two sites at once.
 

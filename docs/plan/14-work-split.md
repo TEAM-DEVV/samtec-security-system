@@ -50,9 +50,10 @@ Phase 3 gateway endpoints are merged. Neither of us waits for the other.
 
 **Where it stands.** Finished and merged, end to end: the eight tables and
 their safety triggers, the calculation, the 2026 rates, every endpoint,
-submit/approve/reject/mark-paid with the maker–checker rule, the payslip PDF,
-the bank file and the three screens. Rule R3's gate sits on the submit
-endpoint, so the detection sweep is no longer doing that work alone.
+submit/approve/reject/mark-paid — any administrator may approve a run,
+including whoever prepared it, after confirming their password — the
+payslip PDF, the bank file and the three screens. Rule R3's gate sits on the
+submit endpoint, so the detection sweep is no longer doing that work alone.
 
 Kept below because it says where every rule is written down, and the phase has
 to be defended, not just built.
