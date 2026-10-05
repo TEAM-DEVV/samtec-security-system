@@ -58,7 +58,7 @@ about confirmed shifts.
 | `payslips.service.ts` | Reading a payslip, and handing back the stored file |
 | `payslips.controller.ts` | `/payroll/payslips`. The one payroll route a GUARD may reach |
 | `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
-| `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
+| `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place, one request at a time per worker, so a partial update never undoes another) |
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
 | `run-mapping.ts` | The same for runs and lines, including the totals, which are the exact sums of the lines |
 | `payslip-pdf.ts` | The payslip as a one-page PDF, written directly. No PDF library |

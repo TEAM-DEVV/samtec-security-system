@@ -201,6 +201,17 @@ export class EmployeePayService {
     const saved = await this.prisma.$transaction(async (tx) => {
       await this.employees.statusOf(viewer.companyId, employeeId, tx);
 
+      // Two edits of the same worker's details at the same moment must take
+      // turns: each reads what is on file, merges its own fields in and writes
+      // all four back, so without this the later one would quietly undo the
+      // earlier one's change. The lock is PostgreSQL's transaction lock, the
+      // same kind the attendance module uses (`attendance-lock.ts`): the
+      // second request waits here until the first has committed, then reads
+      // the row the first one wrote. Released with the transaction, whatever
+      // happens.
+      await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment-details:${employeeId}`}, 0))`;
+
       const before = await tx.employeePaymentDetails.findUnique({
         where: { employeeId },
         select: { bankName: true, accountName: true, accountNumber: true, momoNumber: true },
