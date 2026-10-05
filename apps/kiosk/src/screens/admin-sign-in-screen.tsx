@@ -9,6 +9,12 @@ const CODE_LENGTH = 6;
 interface AdminSignInScreenProps {
   onSignedIn: (session: AdminSession) => void;
   onCancel: () => void;
+  /**
+   * Shown once, above the form, as though it were this screen's own message.
+   * For when something elsewhere sent an administrator back here — the
+   * fifteen-minute session running out, so far the only such case.
+   */
+  initialNotice?: string;
 }
 
 /**
@@ -26,12 +32,12 @@ interface AdminSignInScreenProps {
  *
  * Design: docs/plan/13-biometrics-design.md section 2.
  */
-export function AdminSignInScreen({ onSignedIn, onCancel }: AdminSignInScreenProps) {
+export function AdminSignInScreen({ onSignedIn, onCancel, initialNotice }: AdminSignInScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [code, setCode] = useState('');
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(initialNotice ?? null);
   const [busy, setBusy] = useState(false);
 
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
