@@ -51,6 +51,7 @@ type Stage =
   | { name: 'finger-asking' }
   | { name: 'finger-sensor' }
   | { name: 'finger-saved'; passkey: DevicePasskey }
+  | { name: 'finger-cancelled' }
   | { name: 'failed'; message: string };
 
 /**
@@ -128,6 +129,13 @@ export function EnrollScreen({
   const [consentText, setConsentText] = useState<BiometricConsentText | null>(null);
   const [waiting, setWaiting] = useState<EmployeeList['items']>([]);
   const [enrolled, setEnrolled] = useState<EmployeeList['items']>([]);
+  /**
+   * Whether the two worker lists have actually come back. Both start empty,
+   * same as a list with nobody on it, so without this flag the "nobody
+   * waiting" message showed for an instant on every visit, while the request
+   * was still in flight.
+   */
+  const [workersLoaded, setWorkersLoaded] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const cancelled = useRef(false);
@@ -166,6 +174,7 @@ export function EnrollScreen({
           setConsentText(text);
           setWaiting(pending.items ?? []);
           setEnrolled(active.items ?? []);
+          setWorkersLoaded(true);
         }
       })
       .catch(() => {
@@ -222,6 +231,10 @@ export function EnrollScreen({
    * different looks at a live face.
    */
   async function captureThreeFaces(consentId: string) {
+    // Re-armed on every attempt, the same as the mount effect above: a flag
+    // left true by an earlier cancelled attempt (this one, or a cancelled
+    // fingerprint) must not silently swallow a fresh one.
+    cancelled.current = false;
     const samples: FaceSample[] = [];
     try {
       if (video.current !== null) {
@@ -291,6 +304,9 @@ export function EnrollScreen({
    * hardware (docs/plan/13 section 4).
    */
   async function saveFinger(workerId: string) {
+    // Re-armed here too (see `captureThreeFaces`): an administrator who
+    // cancelled an earlier fingerprint must still be able to start a new one.
+    cancelled.current = false;
     setProblem(null);
     setStage({ name: 'finger-asking' });
     try {
@@ -300,6 +316,9 @@ export function EnrollScreen({
         { employeeId: workerId },
         admin.accessToken,
       );
+      if (cancelled.current) {
+        return;
+      }
       setStage({ name: 'finger-sensor' });
       const response = await createPasskey(creationOptionsFrom(offered.options));
       if (cancelled.current) {
@@ -312,6 +331,9 @@ export function EnrollScreen({
         { employeeId: workerId, ticket: offered.ticket, response },
         admin.accessToken,
       );
+      if (cancelled.current) {
+        return;
+      }
       setStage({ name: 'finger-saved', passkey });
     } catch (error) {
       if (cancelled.current) {
@@ -325,6 +347,28 @@ export function EnrollScreen({
             : 'Please try again.',
       });
     }
+  }
+
+  /**
+   * Abandons the fingerprint step: the sensor or the server may still answer
+   * later, but the same guard `captureThreeFaces` uses makes sure that answer
+   * is ignored. The face enrollment this led here from, if any, is a separate
+   * record already saved on the server and is untouched by this.
+   */
+  function cancelFingerprint() {
+    cancelled.current = true;
+    setStage({ name: 'finger-cancelled' });
+  }
+
+  /**
+   * Stops the camera and abandons a capture in progress. The consent already
+   * recorded is not touched, so "Try the face again" on the stage this leads
+   * to goes straight back to the camera.
+   */
+  function cancelCapturing() {
+    cancelled.current = true;
+    engine.stop();
+    setStage({ name: 'failed', message: 'Capture cancelled.' });
   }
 
   /** One head turn, then one centred frame, or `null` when the time runs out. */
@@ -408,7 +452,8 @@ export function EnrollScreen({
               ))}
             </select>
           </div>
-          {pickFrom.length === 0 && (
+          {!workersLoaded && <p className="muted">Reading the worker list…</p>}
+          {workersLoaded && pickFrom.length === 0 && (
             <p className="notice notice--wait">
               {task === 'enroll'
                 ? 'Nobody is waiting to be enrolled. Register the worker on the dashboard first.'
@@ -542,6 +587,11 @@ export function EnrollScreen({
               {stage.hint}
             </p>
           )}
+          <div className="buttons">
+            <button type="button" className="button button--quiet" onClick={cancelCapturing}>
+              Cancel
+            </button>
+          </div>
         </>
       )}
 
@@ -615,6 +665,11 @@ export function EnrollScreen({
         <>
           <div className="spinner" aria-hidden="true" />
           <p role="status">Talking to the system…</p>
+          <div className="buttons">
+            <button type="button" className="button button--quiet" onClick={cancelFingerprint}>
+              Cancel
+            </button>
+          </div>
         </>
       )}
 
@@ -624,6 +679,45 @@ export function EnrollScreen({
             The worker now touches the fingerprint sensor on this phone, with a finger already saved
             in the phone&rsquo;s settings.
           </p>
+          <div className="buttons">
+            <button type="button" className="button button--quiet" onClick={cancelFingerprint}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+
+      {stage.name === 'finger-cancelled' && (
+        <>
+          <h1>Fingerprint not saved</h1>
+          <p className="notice notice--wait" role="status">
+            {chosen?.fullName ?? 'This worker'}’s face enrollment is already saved. Try the
+            fingerprint again whenever the sensor is ready.
+          </p>
+          <div className="buttons">
+            <button
+              type="button"
+              className="button button--in"
+              onClick={() => void saveFinger(employeeId)}
+            >
+              Try the fingerprint again
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setEmployeeId('');
+                setAgreed(false);
+                setRecordedConsentId(null);
+                setStage({ name: 'choosing' });
+              }}
+            >
+              Enrol somebody else
+            </button>
+            <button type="button" className="button button--quiet" onClick={onDone}>
+              Done
+            </button>
+          </div>
         </>
       )}
 

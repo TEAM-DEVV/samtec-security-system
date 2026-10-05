@@ -155,6 +155,54 @@ describe('EnrollScreen', () => {
     );
   });
 
+  it('does not say nobody is waiting until the list has actually come back', async () => {
+    // The employees request never resolves, so the loading state is held open
+    // as long as the test wants: without the fix this message appears while
+    // `waiting` is still its initial empty array, before anybody can tell a
+    // real empty list apart from one that has not arrived yet.
+    let resolvePending: ((response: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      resolvePending = resolve;
+    });
+    vi.stubGlobal('fetch', (url: string, init: RequestInit = {}) => {
+      sent.push({
+        url,
+        headers: (init.headers ?? {}) as Record<string, string>,
+        body: String(init.body ?? ''),
+      });
+      if (url.includes('/employees?status=PENDING_ENROLLMENT')) {
+        return pending;
+      }
+      const match = Object.keys(answers).find((path) => url.includes(path));
+      if (match === undefined) {
+        throw new Error(`Unexpected request to ${url}`);
+      }
+      const answer = answers[match];
+      return Promise.resolve(
+        new Response(JSON.stringify(answer?.body), {
+          status: answer?.status ?? 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+
+    await renderScreen();
+    await screen.findByLabelText('Worker');
+
+    expect(screen.getByText('Reading the worker list…')).toBeInTheDocument();
+    expect(screen.queryByText(/Nobody is waiting to be enrolled/)).not.toBeInTheDocument();
+
+    resolvePending?.(
+      new Response(JSON.stringify({ items: [], nextCursor: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    expect(await screen.findByText(/Nobody is waiting to be enrolled/)).toBeInTheDocument();
+    expect(screen.queryByText('Reading the worker list…')).not.toBeInTheDocument();
+  });
+
   it('shows the consent words exactly as the server sent them', async () => {
     const user = userEvent.setup();
     await renderScreen();
@@ -362,6 +410,26 @@ describe('EnrollScreen', () => {
     expect(sent.filter((one) => one.url.includes('/kiosk/face-enrollments'))).toHaveLength(2);
   });
 
+  it('cancels a face capture in progress, keeping the consent already recorded', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+    await reachConsent(user);
+    await user.type(screen.getByLabelText(/Last 4 digits/), '1234');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: /Record consent/ }));
+
+    await screen.findByText(/Capture 1 of 3/);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // The consent survives the cancel: retrying goes straight back to the
+    // camera, the same promise a genuinely failed capture makes.
+    await user.click(await screen.findByRole('button', { name: 'Try the face again' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Enrolled' }, { timeout: 12_000 }),
+    ).toBeInTheDocument();
+    expect(sent.filter((one) => one.url.includes('/kiosk/consents'))).toHaveLength(1);
+  });
+
   it('shows the server’s own refusal rather than inventing one', async () => {
     answers['/kiosk/consents'] = {
       status: 400,
@@ -445,5 +513,48 @@ describe('EnrollScreen · saving a fingerprint', () => {
     });
     // A synced key is called out for the records, as the contract asks.
     expect(screen.getByText(/copy the key to its own cloud account/)).toBeInTheDocument();
+  });
+
+  it('lets an administrator cancel out of a sensor that never answers, and ignores a late answer', async () => {
+    answers['/kiosk/passkey-options'] = {
+      status: 200,
+      body: { ticket: 'sealed-ticket', options: { challenge: 'from-the-server' } },
+    };
+    let resolveSensor: (value: Awaited<ReturnType<typeof passkeys.createPasskey>>) => void =
+      () => {};
+    passkeys.createPasskey.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSensor = resolve;
+        }) as ReturnType<typeof passkeys.createPasskey>,
+    );
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Save a fingerprint instead (already enrolled)' }),
+    );
+    await user.selectOptions(screen.getByLabelText('Worker'), 'SMT-00002 · Abena Owusu');
+    await user.click(screen.getByRole('button', { name: 'Save their fingerprint' }));
+    await screen.findByText(/touches the fingerprint sensor/);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Fingerprint not saved' }),
+    ).toBeInTheDocument();
+    // Said plainly, because this is the one thing an administrator walking
+    // away from a stuck sensor needs to hear.
+    expect(screen.getByText(/already saved/)).toBeInTheDocument();
+
+    // The sensor finally answers, long after the administrator gave up on it.
+    const lateRegistration = { id: 'late-key', rawId: 'late-key', type: 'public-key' };
+    resolveSensor(
+      lateRegistration as unknown as Awaited<ReturnType<typeof passkeys.createPasskey>>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByRole('heading', { name: 'Fingerprint not saved' })).toBeInTheDocument();
+    expect(sent.some((one) => one.url.includes('/kiosk/passkeys'))).toBe(false);
   });
 });
