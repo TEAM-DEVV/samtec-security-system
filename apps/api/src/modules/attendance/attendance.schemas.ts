@@ -16,7 +16,11 @@ const instant = z.iso.datetime({ offset: true });
 
 // --- Devices ------------------------------------------------------------------
 
-export const listDevicesQuerySchema = z.strictObject({ limit, cursor: cursor.optional() });
+export const listDevicesQuerySchema = z.strictObject({
+  limit,
+  cursor: cursor.optional(),
+  siteId: z.uuid().optional(),
+});
 export type ListDevicesQuery = z.infer<typeof listDevicesQuerySchema>;
 
 const deviceName = z.string().min(2).max(60);

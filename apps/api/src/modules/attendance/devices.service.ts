@@ -68,7 +68,11 @@ export class DevicesService {
       throw fieldProblem('cursor', 'The cursor is not valid. Start again from the first page.');
     }
     const rows = await this.prisma.device.findMany({
-      where: { companyId: viewer.companyId, ...(afterName ? { name: { gt: afterName } } : {}) },
+      where: {
+        companyId: viewer.companyId,
+        ...(afterName ? { name: { gt: afterName } } : {}),
+        ...(query.siteId ? { siteId: query.siteId } : {}),
+      },
       orderBy: { name: 'asc' },
       take: query.limit + 1,
     });
