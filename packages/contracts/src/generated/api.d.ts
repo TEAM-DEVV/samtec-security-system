@@ -5458,6 +5458,7 @@ export interface operations {
             /** @description The company's name and its bank account. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5484,6 +5485,7 @@ export interface operations {
             /** @description The stored bank account. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
