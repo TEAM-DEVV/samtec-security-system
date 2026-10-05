@@ -79,4 +79,17 @@ Everything else — every decision and the reason behind it — is written down 
 
 ## Right now
 
-**Phases 0 and 1 are done, and the Phase 2 (attendance) backend is complete.** Sign-in, the workforce and user management run against the live API. Devices, signed clock-ins, pairing into worked shifts and the exception queue are in, with a 30-day replay for the exit demo ([The attendance demo](docs/guides/10-attendance-demo.md)). The dashboard's attendance screens come next. The mock accounts are listed in the [frontend guide](docs/guides/03-frontend-guide.md). See the [roadmap](docs/plan/07-roadmap.md).
+**Every phase is built, and the shared test system is live.** Sign-in with
+two-factor codes, employees and sites, kiosk enrolment with a face and a
+fingerprint, signed clock-ins paired into worked shifts, Ghanaian payroll with
+payslips, the bank file and a payment receipt, client invoices, ghost detection
+with eleven rules, and the audit log all run against the hosted test system
+([The TEST environment](docs/guides/09-test-environment.md)).
+
+For the defence: [the defence pack](docs/guides/13-defence-pack.md),
+[the script](docs/guides/15-defence-script.md) and the deck
+`docs/guides/SAMTEC-defence-slides.pptx`. To test on a phone, follow
+[Test the kiosk on your phone](docs/guides/16-phone-testing.md).
+
+What remains is operation, not building: a pilot with real volunteers to tune
+the face thresholds, and a production environment for a paying client.
