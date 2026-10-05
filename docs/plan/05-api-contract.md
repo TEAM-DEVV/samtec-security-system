@@ -23,7 +23,7 @@ CI runs `pnpm contracts:check`, which fails if the YAML is invalid or if someone
 
 ## Conventions
 
-- **Base path:** `/api/v1`. JSON, except two Phase 4 downloads: a payroll run bank file (`text/csv`) and a payslip (`application/pdf`). Every error, including on those two, is still `application/problem+json`. IDs are UUID version 7.
+- **Base path:** `/api/v1`. JSON, except a handful of downloads: a payroll run's bank file (`text/csv`), and a payslip, a run summary and a payment receipt (each `application/pdf`). Every error, including on those, is still `application/problem+json`. IDs are UUID version 7.
 - **Money:** integer pesewas, with field names ending in `Pesewas`.
 - **Time:** timestamps in UTC (ISO 8601); calendar dates as `YYYY-MM-DD`.
 - **Errors:** Problem Details (RFC 9457) with `type`, `title`, `status`, `detail`, `traceId`, and `errors` for validation. Stack traces never leave the server. When several problems apply, the answer follows the order the API checks them: `401` (not signed in), `403` (wrong role), `400` (a bad ID or body), `404` (not found or not yours), `400` (a field that is wrong for this record, such as a device's kind), `403` (a sensitive action with no fresh password confirmation), then `409` (a clash with the current state). The mock API follows the same order.
