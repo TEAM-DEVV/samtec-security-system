@@ -207,7 +207,7 @@ describe('mock payroll API: who may see what', () => {
   });
 });
 
-describe('mock payroll API: the maker is never the checker', () => {
+describe('mock payroll API: submitting and approving a run', () => {
   it('lets the maker submit, and refuses anybody else', async () => {
     await signInForTests('hr@samtec.example');
     const draft = await fetchClient.POST('/payroll/runs', {
@@ -236,7 +236,7 @@ describe('mock payroll API: the maker is never the checker', () => {
     expect(submitted.data?.submissionNote).toBe('Ready for checking.');
   });
 
-  it('refuses the submitter approving their own run, and lets a second person do it', async () => {
+  it('lets the administrator who calculated and submitted a run approve it too', async () => {
     await signInForTests('admin@samtec.example');
     const draft = await fetchClient.POST('/payroll/runs', {
       body: { periodId: SEPTEMBER_PERIOD_ID },
@@ -247,13 +247,6 @@ describe('mock payroll API: the maker is never the checker', () => {
       body: {},
     });
 
-    // The same administrator prepared and submitted it, so they may not approve.
-    const ownRun = await fetchClient.POST('/payroll/runs/{runId}/approve', {
-      params: { path: { runId } },
-      body: {},
-    });
-    expect(ownRun.response.status).toBe(403);
-
     // HR may never approve at all, whoever submitted it.
     await signInForTests('hr@samtec.example');
     const wrongRole = await fetchClient.POST('/payroll/runs/{runId}/approve', {
@@ -262,14 +255,15 @@ describe('mock payroll API: the maker is never the checker', () => {
     });
     expect(wrongRole.response.status).toBe(403);
 
-    // A different administrator can, which is the whole point of the rule.
-    await signInForTests('admin2@samtec.example');
-    const secondPerson = await fetchClient.POST('/payroll/runs/{runId}/approve', {
+    // The company has one administrator who acts alone, so the same
+    // administrator who prepared and submitted the run may also approve it.
+    await signInForTests('admin@samtec.example');
+    const sameAdmin = await fetchClient.POST('/payroll/runs/{runId}/approve', {
       params: { path: { runId } },
       body: { note: 'Checked the overtime lines.' },
     });
-    expect(secondPerson.data?.status).toBe('LOCKED');
-    expect(secondPerson.data?.approvedByUserId).not.toBe(secondPerson.data?.calculatedByUserId);
+    expect(sameAdmin.data?.status).toBe('LOCKED');
+    expect(sameAdmin.data?.approvedByUserId).toBe(sameAdmin.data?.calculatedByUserId);
   });
 
   it('locks a run on approval, makes its payslips, and then marks it paid', async () => {
@@ -814,7 +808,7 @@ describe('mock payroll API: a run that is sent back', () => {
     expect(resubmitted.response.status).toBe(409);
   });
 
-  it('refuses the person who submitted it, even to reject', async () => {
+  it('lets the administrator who submitted it reject it too', async () => {
     await signInForTests('admin@samtec.example');
     const draft = await fetchClient.POST('/payroll/runs', {
       body: { periodId: SEPTEMBER_PERIOD_ID },
@@ -826,9 +820,10 @@ describe('mock payroll API: a run that is sent back', () => {
     });
     const ownRun = await fetchClient.POST('/payroll/runs/{runId}/reject', {
       params: { path: { runId } },
-      body: { reason: 'Trying to send back my own run.' },
+      body: { reason: 'Rejecting my own run: the company has one administrator.' },
     });
-    expect(ownRun.response.status).toBe(403);
+    expect(ownRun.data?.status).toBe('REJECTED');
+    expect(ownRun.data?.rejectedByUserId).toBe(ownRun.data?.submittedByUserId);
   });
 });
 

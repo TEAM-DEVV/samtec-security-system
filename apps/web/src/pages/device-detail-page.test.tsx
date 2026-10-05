@@ -1,10 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
 import { fetchClient } from '@/lib/api';
+import { env } from '@/lib/env';
 import { mockDevices } from '@/mocks/data/devices';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { DeviceDetailPage } from './device-detail-page';
@@ -108,5 +111,29 @@ describe('DeviceDetailPage', () => {
 
     expect(screen.getByRole('checkbox')).toBeChecked();
     expect(screen.queryByLabelText('Serial number')).not.toBeInTheDocument();
+  });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('admin@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/devices/:deviceId`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderDevicePage(TERMINAL_ID);
+
+    expect(await screen.findByText('The device could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

@@ -56,9 +56,10 @@ import { needsPassword, userForRequest } from './auth';
  * - A SUPERVISOR sees no payroll at all, and a GUARD sees only their own
  *   payslips. Another guard's payslip answers 404, never 403, so nobody can
  *   learn which payslips exist.
- * - The maker is never the checker. Only the person who calculated a run may
- *   submit it, and the person who submitted it may never approve or reject it.
- *   Both are second-person rules, so they answer 403 (docs/plan/05-api-contract.md).
+ * - Only the person who calculated a run may submit it, a second-person rule
+ *   that answers 403 (docs/plan/05-api-contract.md). Since 1 October 2026 the
+ *   company has one administrator acting alone, so that administrator may
+ *   approve or reject a run even if they calculated or submitted it.
  * - A run only moves forward, a locked run never changes, and a period never
  *   reopens. A clash with the current state answers 409.
  * - Bank and mobile money details are personal data: they appear only on the
@@ -519,11 +520,8 @@ export const payrollHandlers = [
       if (bad) return bad;
       const run = findRun(params.runId);
       if (!run) return notFound('No payroll run exists with this ID.');
-      // The maker is never the checker: a second-person rule, so 403. The
-      // maker is whoever created AND submitted it, so both are compared.
-      if (run.submittedByUserId === user.id || run.calculatedByUserId === user.id) {
-        return forbidden();
-      }
+      // One administrator acts alone: they may approve a run even if they
+      // calculated or submitted it themselves.
       if (run.status !== 'PENDING_APPROVAL') {
         return conflict('Only a run waiting for approval can be approved.');
       }
@@ -571,9 +569,8 @@ export const payrollHandlers = [
       if (bad) return bad;
       const run = findRun(params.runId);
       if (!run) return notFound('No payroll run exists with this ID.');
-      if (run.submittedByUserId === user.id || run.calculatedByUserId === user.id) {
-        return forbidden();
-      }
+      // One administrator acts alone: they may reject a run even if they
+      // calculated or submitted it themselves.
       if (run.status !== 'PENDING_APPROVAL') {
         return conflict('Only a run waiting for approval can be rejected.');
       }

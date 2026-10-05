@@ -1,6 +1,9 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { env } from '@/lib/env';
+import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
 import { DetectionPage } from './detection-page';
@@ -66,5 +69,29 @@ describe('DetectionPage', () => {
     expect(await screen.findAllByRole('link', { name: 'Open' })).toHaveLength(3);
     expect(screen.queryByRole('button', { name: 'Run the rules now' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Rules' })).toBeInTheDocument();
+  });
+
+  it('shows the API error with a way to try again', async () => {
+    await signInForTests('admin@samtec.example');
+    server.use(
+      http.get(`${env.apiBaseUrl}/detection/alerts`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: 'The database is not available.',
+            traceId: 'trace-test-500',
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<DetectionPage />);
+
+    expect(await screen.findByText('The alerts could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('The database is not available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
