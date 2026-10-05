@@ -1,10 +1,11 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { routes } from '@/app/routes';
 import { env } from '@/lib/env';
+import { MOCK_PASSWORD } from '@/mocks/data/users';
 import { server } from '@/mocks/node';
 import { renderWithProviders } from '@/test/render';
 import { signInForTests } from '@/test/session';
@@ -314,5 +315,164 @@ describe('EmployeeDetailPage', () => {
     await userEvent.setup().click(screen.getByRole('link', { name: 'Employees' }));
 
     expect(await screen.findByText('Employee list')).toBeInTheDocument();
+  });
+
+  it('never shows the registered-worker notice on an ordinary visit', async () => {
+    await signInForTests('admin@samtec.example');
+    renderDetailPage(KWAME);
+
+    await screen.findByRole('heading', { name: 'Kwame Kofi Mensah' });
+    expect(screen.queryByText(/Worker registered/)).not.toBeInTheDocument();
+  });
+
+  describe('the Pay card', () => {
+    it('shows an administrator pay terms and payment details already on file', async () => {
+      await signInForTests('admin@samtec.example');
+      renderDetailPage(KWAME);
+
+      expect(await screen.findByText('Pay')).toBeInTheDocument();
+      expect(screen.getByText('Pay terms')).toBeInTheDocument();
+      expect(screen.getByText('Payment details')).toBeInTheDocument();
+      // Kwame already has pay terms and a bank account on file (src/mocks/data/payroll.ts),
+      // account number "10...0001" — shown only as its last four digits.
+      expect(await screen.findByText('Akwaaba Bank')).toBeInTheDocument();
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
+      expect(screen.queryByText(/No pay terms yet/)).not.toBeInTheDocument();
+      // The full account number never appears anywhere on the page.
+      expect(document.body.textContent).not.toMatch(/1000000000001/);
+    });
+
+    it('shows a supervisor no Pay card at all', async () => {
+      await signInForTests('supervisor@samtec.example');
+      renderDetailPage(KWAME);
+
+      await screen.findByRole('heading', { name: 'Kwame Kofi Mensah' });
+      expect(screen.queryByText('Pay')).not.toBeInTheDocument();
+      expect(screen.queryByText('Pay terms')).not.toBeInTheDocument();
+      expect(screen.queryByText('Payment details')).not.toBeInTheDocument();
+    });
+
+    it('shows a calm notice when a worker has no pay terms yet', async () => {
+      await signInForTests('admin@samtec.example');
+      renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000010'); // Selorm Agbeko, SMT-00010
+
+      expect(
+        await screen.findByText(
+          'No pay terms yet. Add them, or this worker is left out of every payroll run.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows "Not on file" for a worker nobody has entered payment details for', async () => {
+      await signInForTests('admin@samtec.example');
+      // Afua Darko, SMT-00011: beyond the first ten employees, so the mock has
+      // never stored a payment details row for her at all (src/mocks/data/payroll.ts).
+      renderDetailPage('01927c3e-5a4b-7c8d-9e0f-000000000011');
+
+      await screen.findByText('Payment details');
+      expect(await screen.findAllByText('Not on file')).toHaveLength(4);
+    });
+
+    it('saves pay terms to the pesewa, converting from the cedis typed into the form', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit pay terms' }));
+      const basicPay = screen.getByLabelText('Basic monthly pay (GH₵)');
+      await user.clear(basicPay);
+      await user.type(basicPay, '1234.56');
+      await user.click(screen.getByRole('button', { name: 'Save pay terms' }));
+
+      // 1,234.56 cedis is exactly 123456 pesewas. formatCedis only ever shows
+      // this for that exact integer, so reading it back proves the amount sent
+      // was 123456, not a float one rounding error away from it.
+      expect(await screen.findByText('GH₵ 1,234.56')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save pay terms' })).not.toBeInTheDocument();
+    });
+
+    it('rejects an amount with more than two decimal places before sending it', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit pay terms' }));
+      const basicPay = screen.getByLabelText('Basic monthly pay (GH₵)');
+      await user.clear(basicPay);
+      await user.type(basicPay, '12.999');
+      await user.click(screen.getByRole('button', { name: 'Save pay terms' }));
+
+      expect(await screen.findByText(/at most two decimal places/)).toBeInTheDocument();
+      // Still on the form: nothing was sent.
+      expect(screen.getByRole('button', { name: 'Save pay terms' })).toBeInTheDocument();
+    });
+
+    it('asks for the administrator password before saving new payment details', async () => {
+      await signInForTests('admin@samtec.example', { confirmPassword: false });
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      const accountNumber = screen.getByLabelText('Account number');
+      await user.clear(accountNumber);
+      await user.type(accountNumber, '55501234567');
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Confirm with your password' });
+      await user.type(within(dialog).getByLabelText('Password'), MOCK_PASSWORD);
+      await user.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      });
+      // Never the full number back, only its last four digits.
+      expect(await screen.findByText('Bank account ending 4567')).toBeInTheDocument();
+    });
+
+    it('keeps the account number on file when its box is left empty', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      // Only the account name is touched; the account number box stays empty.
+      const accountName = screen.getByLabelText('Account name');
+      await user.clear(accountName);
+      await user.type(accountName, 'Corrected Name');
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      expect(await screen.findByText('Corrected Name')).toBeInTheDocument();
+      // Never touched, so it must still be exactly what it was.
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
+    });
+
+    it('removes a number on file only through its own checkbox, never by leaving the box empty', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Remove the account number on file' }));
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      // Mobile money was already "Not on file"; the account number now joins
+      // it, but the bank name, never touched, survives.
+      expect(await screen.findAllByText('Not on file')).toHaveLength(2);
+      expect(screen.getByText('Akwaaba Bank')).toBeInTheDocument();
+    });
+
+    it('closes the form without saving when nothing was touched', async () => {
+      await signInForTests('admin@samtec.example');
+      const user = userEvent.setup();
+      renderDetailPage(KWAME);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit payment details' }));
+      await user.click(screen.getByRole('button', { name: 'Save payment details' }));
+
+      expect(
+        screen.queryByRole('button', { name: 'Save payment details' }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Bank account ending 0001')).toBeInTheDocument();
+    });
   });
 });

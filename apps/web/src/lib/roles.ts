@@ -49,6 +49,12 @@ export const pageRoles = {
   liveBoard: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
   /** `GET /employees/{id}/biometrics`: the Biometrics panel on an employee's page. */
   biometrics: ['ADMIN', 'HR_PAYROLL', 'SUPERVISOR'],
+  /**
+   * `GET`/`PUT /employees/{id}/pay-terms` and `.../payment-details`: the Pay
+   * card on an employee's page. A supervisor runs rosters and never money, and
+   * a guard reads only their own payslips, so neither sees this card.
+   */
+  employeePay: ['ADMIN', 'HR_PAYROLL'],
   /** Every biometric change: wipe a face, record a withdrawal, ask for or decide an exemption. */
   biometricChanges: ['ADMIN'],
   /** `GET /biometric-collisions` and deciding one: the duplicate-enrollment queue. */

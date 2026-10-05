@@ -16,7 +16,7 @@
  * This module never writes the `employees` table. It asks the workforce
  * module whether a worker exists, which also decides the 404.
  */
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   EmployeePaymentDetails as ApiPaymentDetails,
   EmployeePayTerms as ApiPayTerms,
@@ -160,7 +160,28 @@ export class EmployeePayService {
   }
 
   /**
-   * Sets where a worker's salary is sent, replacing whatever was there.
+   * Where a worker's salary is sent, for the dashboard's Pay card.
+   *
+   * The row only starts to exist once a `PUT` saves something into it, so a
+   * worker nobody has entered details for yet answers 404 rather than an
+   * object full of nulls — that is how the dashboard tells "nothing saved"
+   * from "saved as blank".
+   */
+  async getPaymentDetails(viewer: SignedInUser, employeeId: string): Promise<ApiPaymentDetails> {
+    await this.employees.statusOf(viewer.companyId, employeeId, this.prisma);
+    const details = await this.prisma.employeePaymentDetails.findUnique({ where: { employeeId } });
+    if (details === null) {
+      throw new NotFoundException('No payment details are on file for this employee yet.');
+    }
+    return toApiPaymentDetails(details);
+  }
+
+  /**
+   * Sets where a worker's salary is sent. A **partial update**: a field left
+   * out of `body` keeps whatever is already on file for it, `null` clears it,
+   * a string sets it. The first call for a worker with nothing on file yet
+   * creates the row, and a field left out of that first call is simply
+   * absent — there is nothing yet to keep, so it lands the same as `null`.
    *
    * The audit entry records **that** the details changed and who changed them,
    * never the values — not even a hash of the account number. A Ghanaian bank
@@ -180,27 +201,48 @@ export class EmployeePayService {
     const saved = await this.prisma.$transaction(async (tx) => {
       await this.employees.statusOf(viewer.companyId, employeeId, tx);
 
+      // Two edits of the same worker's details at the same moment must take
+      // turns: each reads what is on file, merges its own fields in and writes
+      // all four back, so without this the later one would quietly undo the
+      // earlier one's change. The lock is PostgreSQL's transaction lock, the
+      // same kind the attendance module uses (`attendance-lock.ts`): the
+      // second request waits here until the first has committed, then reads
+      // the row the first one wrote. Released with the transaction, whatever
+      // happens.
+      await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment-details:${employeeId}`}, 0))`;
+
       const before = await tx.employeePaymentDetails.findUnique({
         where: { employeeId },
         select: { bankName: true, accountName: true, accountNumber: true, momoNumber: true },
       });
+
+      // A field left out of the body keeps whatever was on file for it; with
+      // no row yet, there is nothing to keep, so it lands the same as `null`.
+      const bankName = body.bankName === undefined ? (before?.bankName ?? null) : body.bankName;
+      const accountName =
+        body.accountName === undefined ? (before?.accountName ?? null) : body.accountName;
+      const accountNumber =
+        body.accountNumber === undefined ? (before?.accountNumber ?? null) : body.accountNumber;
+      const momoNumber =
+        body.momoNumber === undefined ? (before?.momoNumber ?? null) : body.momoNumber;
 
       const details = await tx.employeePaymentDetails.upsert({
         where: { employeeId },
         create: {
           companyId: viewer.companyId,
           employeeId,
-          bankName: body.bankName,
-          accountName: body.accountName,
-          accountNumber: body.accountNumber,
-          momoNumber: body.momoNumber,
+          bankName,
+          accountName,
+          accountNumber,
+          momoNumber,
           updatedByUserId: viewer.userId,
         },
         update: {
-          bankName: body.bankName,
-          accountName: body.accountName,
-          accountNumber: body.accountNumber,
-          momoNumber: body.momoNumber,
+          bankName,
+          accountName,
+          accountNumber,
+          momoNumber,
           updatedByUserId: viewer.userId,
         },
       });
@@ -215,13 +257,16 @@ export class EmployeePayService {
           entityId: details.id,
           detail: {
             employeeId,
-            // Which fields moved, never what they moved to.
+            // Which fields moved, never what they moved to. Compared against
+            // the merged result, not the raw body, so a field the caller left
+            // out — and which therefore did not move — is never reported as
+            // changed just because the body did not mention it.
             bankAccountChanged:
               before === null ||
-              before.bankName !== body.bankName ||
-              before.accountName !== body.accountName ||
-              before.accountNumber !== body.accountNumber,
-            momoChanged: before === null || before.momoNumber !== body.momoNumber,
+              before.bankName !== bankName ||
+              before.accountName !== accountName ||
+              before.accountNumber !== accountNumber,
+            momoChanged: before === null || before.momoNumber !== momoNumber,
           },
         },
         tx,

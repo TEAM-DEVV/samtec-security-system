@@ -1967,10 +1967,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Where an employee's salary is paid
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. Reads back what the `PUT` on this same address last stored, for the dashboard's Pay card — **except the account number and the mobile money number, which come back only as their last four digits** (`accountNumberEndsWith`, `momoNumberEndsWith`); see `EmployeePaymentDetails` for why. **This is personal data**, so the answer carries `Cache-Control: no-store` and is never logged or put in an error message, exactly like the `PUT`. A worker nobody has entered details for yet answers `404` rather than an object full of nulls, because the row only starts to exist once something is saved into it; an employee this caller may not see also answers `404`.
+         */
+        get: operations["getEmployeePaymentDetails"];
         /**
          * Set where an employee's salary is paid
-         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, and unlike pay terms this row **is** edited in place, which is why the answer is `200`: what you send replaces what was there. Send all four fields, with `null` for anything the worker does not have, so a detail is only ever cleared on purpose and never by being left out. A worker with no details is simply missing from the bank file; nothing else changes. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. There is no `GET`: these details exist to be paid into, and the only other place they are read is the run's bank export.
+         * @description **Roles:** ADMIN, HR_PAYROLL. A SUPERVISOR sees no payroll at all (`403`), and so does a GUARD. The bank account and mobile money number the bank export pays into. One row per employee, edited in place — never a new row, unlike pay terms — which is why the answer is `200`. **This is a partial update, not a replacement.** For each field: leave it out of the body to keep what is on file for it, send `null` to clear it, or send a string to set it, so fixing one typo never touches the other three. The first call for a worker with nothing on file yet creates the row, and a field left out of that first call is simply absent, exactly as if it had been sent as `null`. **This is personal data.** It is never written to a log, never put in an error message and never returned by any list endpoint, so no run, line or payslip carries it; a rejected field is named, never quoted. The audit entry records that the details changed and who changed them, never the values, and the answer carries `Cache-Control: no-store`. The full numbers go in here, but **this answer masks them the same way the matching `GET` does**: `accountNumberEndsWith` and `momoNumberEndsWith`, never the numbers themselves. The full numbers are read back only by the run's bank export.
          */
         put: operations["setEmployeePaymentDetails"];
         post?: never;
@@ -4558,7 +4562,10 @@ export interface components {
             /** @description A monthly deduction taken after tax, in pesewas. Send `0` for none. */
             otherDeductionPesewas: number;
         };
-        /** @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is. */
+        /**
+         * @description Where an employee's salary is paid: one row per employee, edited in place. **Personal data** — it is never logged, never put in an error message and never returned by a list endpoint, so it appears only here and inside the run's bank export. The row has no ID of its own: it is addressed by the employee, the way `EmployeeBiometrics` is.
+         *     **The account number and the mobile money number never appear here in full.** `bankName` and `accountName` travel whole, because neither one pays anyone by itself, but `accountNumberEndsWith` and `momoNumberEndsWith` carry only the last four digits — enough for a person to recognise "yes, that account" without this being one more place the full number can be read from. The `PUT` that sets them still takes the full numbers; the full numbers are then read back only by the run's bank export, never by this shape.
+         */
         EmployeePaymentDetails: {
             /**
              * Format: uuid
@@ -4569,10 +4576,10 @@ export interface components {
             bankName: string | null;
             /** @description The name on the account, exactly as the bank holds it, or `null`. */
             accountName: string | null;
-            /** @description The account number the bank export pays into, or `null`. */
-            accountNumber: string | null;
-            /** @description The mobile money number, or `null`. Written `+233` and nine digits, like every other phone number in the contract. */
-            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+            /** @description The last four digits of the account number the bank export pays into, or `null` if none is on file. Never the full number. */
+            accountNumberEndsWith: string | null;
+            /** @description The last four digits of the mobile money number, or `null` if none is on file. Never the full number. */
+            momoNumberEndsWith: string | null;
             /**
              * Format: date-time
              * @description When these details were last changed.
@@ -4584,16 +4591,16 @@ export interface components {
              */
             updatedByUserId: string;
         };
-        /** @description Replaces an employee's payment details. All four fields are required: send `null` for anything the worker does not have, so a detail is only ever cleared on purpose. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
+        /** @description Changes one or more of an employee's payment details. **This is a partial update, not a replacement.** For each field: leave it out of the body to keep what is on file for it, send `null` to clear it, or send a string to set it. A first call for an employee with nothing on file yet creates the row, and a field left out of that first call is simply absent, exactly as if it had been sent as `null`. Nothing sent here is logged or echoed in an error message — a rejected field is named, never quoted. */
         SetEmployeePaymentDetailsRequest: {
-            /** @description The bank the salary is paid into, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
-            bankName: string | null;
-            /** @description The name on the account, exactly as the bank holds it, or `null`. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
-            accountName: string | null;
-            /** @description The account number, digits only, or `null`. */
-            accountNumber: string | null;
-            /** @description The mobile money number in `+233` form, or `null`. */
-            momoNumber: components["schemas"]["GhanaPhoneNumber"] | null;
+            /** @description The bank the salary is paid into. Leave this out to keep what is on file, or send `null` to clear it. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with a space, `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. A leading space is refused too, because a spreadsheet trims it away on import and would then run whatever was hiding behind it. */
+            bankName?: string | null;
+            /** @description The name on the account, exactly as the bank holds it. Leave this out to keep what is on file, or send `null` to clear it. Because this value is written into the bank file, it may not contain a tab or a line break, and may not begin with `=`, `+`, `-`, `@` or a quote, which a spreadsheet would read as a formula. */
+            accountName?: string | null;
+            /** @description The account number, digits only. Leave this out to keep what is on file, or send `null` to clear it. */
+            accountNumber?: string | null;
+            /** @description The mobile money number in `+233` form. Leave this out to keep what is on file, or send `null` to clear it. */
+            momoNumber?: components["schemas"]["GhanaPhoneNumber"] | null;
         };
         /**
          * @description The rule that fired (docs/plan/08-ghost-detection-engine.md).
@@ -8103,6 +8110,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getEmployeePaymentDetails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The employee's ID. */
+                employeeId: components["parameters"]["EmployeeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored payment details. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePaymentDetails"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     setEmployeePaymentDetails: {

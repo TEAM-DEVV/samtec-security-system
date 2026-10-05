@@ -30,6 +30,7 @@ import {
   mockPeriods,
   mockRuns,
   mockTaxTable,
+  type StoredPaymentDetails,
   summaryOf,
   totalsOf,
 } from '../data/payroll';
@@ -109,6 +110,26 @@ function newId(prefix: string): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Masks a stored row down to what `EmployeePaymentDetails` actually promises:
+ * the bank name and the account name in full, the account number and the
+ * mobile money number as their last four digits only. Mirrors
+ * `toApiPaymentDetails` in the real API's `payroll-mapping.ts` — the mock's
+ * bank export still reads the full numbers straight off `state.paymentDetails`,
+ * never through this function.
+ */
+function toMaskedPaymentDetails(row: StoredPaymentDetails): EmployeePaymentDetails {
+  return {
+    employeeId: row.employeeId,
+    bankName: row.bankName,
+    accountName: row.accountName,
+    accountNumberEndsWith: row.accountNumber === null ? null : row.accountNumber.slice(-4),
+    momoNumberEndsWith: row.momoNumber === null ? null : row.momoNumber.slice(-4),
+    updatedAt: row.updatedAt,
+    updatedByUserId: row.updatedByUserId,
+  };
 }
 
 /** Signed in with one of these roles, or the matching 401/403. */
@@ -997,6 +1018,28 @@ export const payrollHandlers = [
     },
   ),
 
+  http.get<{ employeeId: string }, never, OrProblem<EmployeePaymentDetails>>(
+    apiUrl('/employees/:employeeId/payment-details'),
+    ({ params, request }) => {
+      const { refused } = signedInAs(request, ['ADMIN', 'HR_PAYROLL']);
+      if (refused) return refused;
+      const bad = idProblem(params.employeeId, 'employeeId');
+      if (bad) return bad;
+      if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
+        return notFound('No employee exists with this ID.');
+      }
+      // The row only starts to exist once a PUT saves something into it: 404,
+      // never an object of nulls, so the dashboard can tell the two apart.
+      const details = state.paymentDetails.find((row) => row.employeeId === params.employeeId);
+      if (details === undefined) {
+        return notFound('No payment details are on file for this employee yet.');
+      }
+      return HttpResponse.json<EmployeePaymentDetails>(toMaskedPaymentDetails(details), {
+        headers: noStore,
+      });
+    },
+  ),
+
   http.put<{ employeeId: string }, Record<string, unknown>, OrProblem<EmployeePaymentDetails>>(
     apiUrl('/employees/:employeeId/payment-details'),
     async ({ params, request }) => {
@@ -1018,21 +1061,32 @@ export const payrollHandlers = [
       if (!mockEmployees.some((employee) => employee.id === params.employeeId)) {
         return notFound('No employee exists with this ID.');
       }
-      const details: EmployeePaymentDetails = {
-        employeeId: params.employeeId,
-        bankName: (body.bankName as string | null) ?? null,
-        accountName: (body.accountName as string | null) ?? null,
-        accountNumber: (body.accountNumber as string | null) ?? null,
-        momoNumber: (body.momoNumber as string | null) ?? null,
-        updatedAt: now(),
-        updatedByUserId: user.id,
-      };
       const existing = state.paymentDetails.findIndex(
         (row) => row.employeeId === params.employeeId,
       );
+      const before = existing === -1 ? undefined : state.paymentDetails[existing];
+      // A partial update: a field left out of the body (`undefined`) keeps
+      // whatever was stored; with no row yet, there is nothing to keep, so it
+      // lands the same as `null`.
+      const field = (name: 'bankName' | 'accountName' | 'accountNumber' | 'momoNumber') =>
+        body[name] === undefined ? (before?.[name] ?? null) : (body[name] as string | null);
+      const details: StoredPaymentDetails = {
+        employeeId: params.employeeId,
+        bankName: field('bankName'),
+        accountName: field('accountName'),
+        accountNumber: field('accountNumber'),
+        momoNumber: field('momoNumber'),
+        updatedAt: now(),
+        updatedByUserId: user.id,
+      };
       if (existing === -1) state.paymentDetails.push(details);
       else state.paymentDetails[existing] = details;
-      return HttpResponse.json<EmployeePaymentDetails>(details, { headers: noStore });
+      // The full numbers are stored (the mock's bank export needs them), but
+      // never echoed back: the PUT answers with the same masked shape the GET
+      // does.
+      return HttpResponse.json<EmployeePaymentDetails>(toMaskedPaymentDetails(details), {
+        headers: noStore,
+      });
     },
   ),
 ];
@@ -1142,8 +1196,9 @@ function bandsProblem(value: unknown) {
   return undefined;
 }
 
+/** `undefined` (the field was left out) is always fine: a partial update keeps it. */
 function nullableTextProblem(value: unknown, path: string, shape: RegExp) {
-  if (value === null) return undefined;
+  if (value === null || value === undefined) return undefined;
   return typeof value === 'string' && shape.test(value)
     ? undefined
     : validationProblem(path, 'This value is not in the right format.');

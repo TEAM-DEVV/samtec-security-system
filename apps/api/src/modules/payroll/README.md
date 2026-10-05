@@ -58,7 +58,7 @@ about confirmed shifts.
 | `payslips.service.ts` | Reading a payslip, and handing back the stored file |
 | `payslips.controller.ts` | `/payroll/payslips`. The one payroll route a GUARD may reach |
 | `tax-tables.service.ts` | The statutory rates, as versions that are never edited |
-| `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place) |
+| `employee-pay.service.ts` | Pay history (append-only) and payment details (edited in place, one request at a time per worker, so a partial update never undoes another) |
 | `payroll-mapping.ts` | Database rows to contract shapes, as pure functions |
 | `run-mapping.ts` | The same for runs and lines, including the totals, which are the exact sums of the lines |
 | `payslip-pdf.ts` | The payslip as a one-page PDF, written directly. No PDF library |
@@ -78,20 +78,63 @@ The rules the **database** enforces live in the migration
 
 ## A trap for the payment details screen
 
-**There is no `GET` for payment details, and that is deliberate** — the fewer
-places a bank account number can be read, the fewer places it can leak. But it
-has a consequence the screen must handle, because the API cannot.
+**`GET /employees/{id}/payment-details` exists, but it was refused for a long
+time on purpose** — the fewer places a bank account number can be read, the
+fewer places it can leak. It was added only once the dashboard needed to show
+a worker's current bank destination and say "Not on file" for an empty one,
+which cannot be done honestly without reading it back from somewhere. If you
+are looking at this file because that trade-off needs revisiting, that is the
+history: it was not an oversight the first time.
 
-`PUT /employees/{id}/payment-details` requires all four fields and replaces all
-four. A screen cannot pre-fill the form, because nothing will tell it what is
-there now. So a form that sends only the mobile money number, leaving the bank
-fields as empty strings or `null`, **silently wipes the bank account** — and
-nothing will report an error, because clearing a field is a legitimate thing to
-ask for.
+**Neither the `GET` nor the `PUT` ever answers with a full account number or
+mobile money number, on purpose.** `bankName` and `accountName` come back
+whole, because neither pays anyone by itself, but the contract's
+`EmployeePaymentDetails` carries only `accountNumberEndsWith` and
+`momoNumberEndsWith` — the last four digits, or `null`. `toApiPaymentDetails`
+in `payroll-mapping.ts` is where the masking happens: it takes the full
+numbers out of the Prisma row and never puts them in the shape it returns. The
+`PUT` still takes the full numbers in, and the database still stores them in
+full, because the bank export needs them — `BankDestination` in
+`bank-export.ts` reads them straight from the database and never through this
+masked mapping — but the `PUT`'s own answer is masked exactly like the `GET`'s,
+so setting a destination is not a second way to read one back in full.
 
-The screen therefore has to say plainly that saving replaces every payment
-detail, and ask for all of them together. Do not solve this by adding a `GET`;
-solve it in the form.
+What stayed from the original design otherwise: the `GET` answers to exactly
+the roles the `PUT` does (never a SUPERVISOR, never a GUARD), the answer
+carries `Cache-Control: no-store` like the `PUT`, the row is never written to
+a log or an error message, and it is still never returned by any list — it is
+a single record addressed by one employee's ID, nothing more. A worker nobody
+has entered details for yet answers `404`, not an object of nulls, so the
+dashboard — and anyone reading a response — can tell "nothing saved" from
+"saved as blank" without that answer ever holding four real-looking nulls.
+
+**`PUT /employees/{id}/payment-details` is a partial update, not a
+replacement — this changed after the masking above shipped.** It first
+required all four fields and replaced all four, which meant a screen that
+could not pre-fill the account number or the mobile money number (the `GET`
+never gives it enough to) had no honest way to let someone fix only the
+account name: leaving the number boxes empty and saving wiped them, silently.
+So `SetEmployeePaymentDetailsRequest` made every field optional as well as
+nullable: **leave a field out to keep what is on file for it, send `null` to
+clear it, send a string to set it.** `EmployeePayService.setPaymentDetails`
+reads the stored row first and fills in any field the body left out from it
+(or from nothing, for a first call that creates the row — a left-out field
+there is simply absent, the same as `null`), then upserts the merged result.
+The audit entry's `bankAccountChanged`/`momoChanged` flags are compared
+against that merged result too, never against the raw body, so a field the
+caller left out is never misreported as having changed just because the body
+did not mention it.
+
+The dashboard still cannot pre-fill the account number or the mobile money
+number, so those two boxes still start empty — but an empty box now means
+"leave this alone", matching what the body sends when the person never
+touches it. Clearing one on purpose needs a separate "Remove" checkbox next
+to its box, which sends `null` for exactly that field regardless of anything
+typed into the (now disabled) box beside it. Bank name and account name still
+pre-fill from the `GET` and still work the old way: typing over the box
+changes it, clearing the box and saving clears it, because those two can
+always be read back in full, so there is nothing dishonest about treating an
+empty box as "make it empty".
 
 ## Writing tests that touch these tables
 

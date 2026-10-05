@@ -136,6 +136,10 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
         .set(...bearer(token.guard))
         .expect(403);
       await api()
+        .get(`/api/v1/employees/${company.active.id}/payment-details`)
+        .set(...bearer(token.guard))
+        .expect(403);
+      await api()
         .put(`/api/v1/employees/${company.active.id}/payment-details`)
         .set(...bearer(token.guard))
         .send({ bankName: null, accountName: null, accountNumber: null, momoNumber: null })
@@ -737,8 +741,66 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
 
       // Personal data, so no browser or proxy may cache the answer.
       expect(saved.headers['cache-control']).toBe('no-store');
-      expect(saved.body.accountNumber).toBe('1234567890');
+      expect(saved.body.accountNumberEndsWith).toBe('7890');
       expect(saved.body.updatedByUserId).toBe(company.hrUserId);
+      // The PUT takes the full number but never hands it back, even here.
+      expect(JSON.stringify(saved.body)).not.toContain('1234567890');
+    });
+
+    it('reads the destination back for the dashboard, masked the same way the PUT answers', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '5551234567', momoNumber: null }))
+        .expect(200);
+
+      const read = await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(read.headers['cache-control']).toBe('no-store');
+      expect(read.body.accountNumberEndsWith).toBe('4567');
+      expect(read.body.bankName).toBe('Akwaaba Bank');
+      // Never the full number, not even to the roles allowed to set it.
+      expect(JSON.stringify(read.body)).not.toContain('5551234567');
+    });
+
+    it('never answers with a full account number or mobile money number, from either endpoint', async () => {
+      const worker = await freshWorker();
+      const saved = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '19283746501', momoNumber: '+233209998877' }))
+        .expect(200);
+      expect(saved.body.accountNumberEndsWith).toBe('6501');
+      expect(saved.body.momoNumberEndsWith).toBe('8877');
+      expect(JSON.stringify(saved.body)).not.toContain('19283746501');
+      expect(JSON.stringify(saved.body)).not.toContain('+233209998877');
+
+      const read = await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(200);
+      expect(read.body.accountNumberEndsWith).toBe('6501');
+      expect(read.body.momoNumberEndsWith).toBe('8877');
+      expect(JSON.stringify(read.body)).not.toContain('19283746501');
+      expect(JSON.stringify(read.body)).not.toContain('+233209998877');
+    });
+
+    it('answers 404 for a worker nobody has entered details for yet, not an object of nulls', async () => {
+      const worker = await freshWorker();
+      await api()
+        .get(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(404);
+    });
+
+    it('answers 404 reading a worker of another company, same as setting them', async () => {
+      await api()
+        .get(`/api/v1/employees/${other.active.id}/payment-details`)
+        .set(...bearer(token.hr))
+        .expect(404);
     });
 
     it('replaces the destination in place, because only the latest one matters', async () => {
@@ -761,11 +823,96 @@ describe.skipIf(!databaseUrl)('Payroll setup (e2e)', () => {
           }),
         )
         .expect(200);
-      // Every field is replaced, not merged: sending null really does clear it.
+      // Every field here is sent explicitly, so every field here is applied:
+      // sending null really does clear it.
       expect(changed.body.bankName).toBeNull();
       expect(changed.body.accountName).toBeNull();
-      expect(changed.body.accountNumber).toBeNull();
-      expect(changed.body.momoNumber).toBe('+233241234567');
+      expect(changed.body.accountNumberEndsWith).toBeNull();
+      expect(changed.body.momoNumberEndsWith).toBe('4567');
+    });
+
+    it('keeps a field that is left out of the body, because this is a partial update', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655' }))
+        .expect(200);
+
+      // Only the account name is mentioned; the bank name and the account
+      // number must stay exactly as they were.
+      const fixed = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ accountName: 'Corrected Name' })
+        .expect(200);
+      expect(fixed.body.accountName).toBe('Corrected Name');
+      expect(fixed.body.bankName).toBe('Akwaaba Bank');
+      expect(fixed.body.accountNumberEndsWith).toBe('4655');
+    });
+
+    it('clears a field sent as null without touching the fields left out', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655' }))
+        .expect(200);
+
+      const cleared = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ accountNumber: null })
+        .expect(200);
+      expect(cleared.body.accountNumberEndsWith).toBeNull();
+      expect(cleared.body.bankName).toBe('Akwaaba Bank');
+      expect(cleared.body.accountName).toBe('Test Worker');
+    });
+
+    it('creates the row from a partial first call, leaving everything else absent', async () => {
+      const worker = await freshWorker();
+      const created = await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ momoNumber: '+233241234567' })
+        .expect(200);
+      expect(created.body.momoNumberEndsWith).toBe('4567');
+      expect(created.body.bankName).toBeNull();
+      expect(created.body.accountName).toBeNull();
+      expect(created.body.accountNumberEndsWith).toBeNull();
+    });
+
+    it('does not call the bank fields changed when a partial update only touches momo', async () => {
+      const worker = await freshWorker();
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send(details({ accountNumber: '1928374655', momoNumber: null }))
+        .expect(200);
+
+      await api()
+        .put(`/api/v1/employees/${worker}/payment-details`)
+        .set(...bearer(token.hr))
+        .send({ momoNumber: '+233241234567' })
+        .expect(200);
+
+      const row = await prisma.employeePaymentDetails.findUniqueOrThrow({
+        where: { employeeId: worker },
+      });
+      const entries = await prisma.auditLog.findMany({
+        where: {
+          entityType: 'employee_payment_details',
+          entityId: row.id,
+          action: 'payroll.payment_details_changed',
+        },
+      });
+      expect(entries).toHaveLength(1);
+      const written = JSON.stringify(entries[0]?.detail);
+      expect(written).toMatch(/"momoChanged":true/);
+      // The bank fields were left out of this call, not changed, so the merge
+      // must compare against what ended up stored, never against the raw
+      // body (which would see `undefined` and wrongly call them changed).
+      expect(written).toMatch(/"bankAccountChanged":false/);
     });
 
     it('refuses a bank name a spreadsheet would run as a formula', async () => {

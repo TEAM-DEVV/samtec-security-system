@@ -97,20 +97,30 @@ export function toApiPayTerms(row: EmployeePayTerms): ApiPayTerms {
 }
 
 /**
- * Where a worker's money is sent.
+ * Where a worker's money is sent, masked for the dashboard's `GET` and `PUT`.
  *
- * This is the one payroll shape that is personal data in the sense of Act 843,
- * so it is returned by exactly two endpoints — the one that sets it, and the
- * bank export — and by no list. It never goes in a log or an error message.
+ * This is the one payroll shape that is personal data in the sense of Act
+ * 843. `bankName` and `accountName` travel whole, because neither one pays
+ * anyone by itself, but the account number and the mobile money number do
+ * not leave this function whole: only their last four digits do. The full
+ * numbers live in exactly one other place, the run's bank export, which reads
+ * them straight from the database (`BankDestination` in `bank-export.ts`) and
+ * never through this mapping. Nothing here ever goes in a log or an error
+ * message either way.
  */
 export function toApiPaymentDetails(row: EmployeePaymentDetails): ApiPaymentDetails {
   return {
     employeeId: row.employeeId,
     bankName: row.bankName,
     accountName: row.accountName,
-    accountNumber: row.accountNumber,
-    momoNumber: row.momoNumber,
+    accountNumberEndsWith: lastFourDigits(row.accountNumber),
+    momoNumberEndsWith: lastFourDigits(row.momoNumber),
     updatedAt: row.updatedAt.toISOString(),
     updatedByUserId: row.updatedByUserId,
   };
+}
+
+/** The last four characters of a value already known to be digits, or `null` when there is none. */
+function lastFourDigits(value: string | null): string | null {
+  return value === null ? null : value.slice(-4);
 }

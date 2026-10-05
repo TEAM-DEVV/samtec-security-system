@@ -313,17 +313,23 @@ const bankText = z
     'This may not start with a space, a quote, or any of = + - @, because a spreadsheet would read it as a formula.',
   );
 
-/** Contract: `SetEmployeePaymentDetailsRequest`. Send `null` for anything absent. */
+/**
+ * Contract: `SetEmployeePaymentDetailsRequest`. A partial update: leave a
+ * field out to keep what is on file for it, send `null` to clear it, send a
+ * string to set it. Every field is therefore optional as well as nullable.
+ */
 export const setPaymentDetailsSchema = z.strictObject({
-  bankName: bankText.nullable(),
-  accountName: bankText.nullable(),
+  bankName: bankText.nullable().optional(),
+  accountName: bankText.nullable().optional(),
   accountNumber: z
     .string()
     .regex(/^[0-9]{5,20}$/, 'An account number is 5 to 20 digits.')
-    .nullable(),
+    .nullable()
+    .optional(),
   momoNumber: z
     .string()
     .regex(/^\+233\d{9}$/, 'A mobile money number looks like +233241234567.')
-    .nullable(),
+    .nullable()
+    .optional(),
 });
 export type SetPaymentDetailsBody = z.infer<typeof setPaymentDetailsSchema>;

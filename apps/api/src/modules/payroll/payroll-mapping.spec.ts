@@ -196,13 +196,19 @@ describe('where the money is sent', () => {
       employeeId: 'employee-1',
       bankName: 'Akwaaba Bank',
       accountName: 'Kwame Mensah',
-      accountNumber: '1234567890',
-      momoNumber: null,
+      accountNumberEndsWith: '7890',
+      momoNumberEndsWith: null,
       updatedAt: '2026-03-05T14:30:00.000Z',
       updatedByUserId: USER,
     });
     expect(Object.keys(mapped)).not.toContain('id');
     expect(Object.keys(mapped)).not.toContain('companyId');
+  });
+
+  it('never carries the full account number or mobile money number, only the last four digits', () => {
+    const mapped = toApiPaymentDetails(row);
+    expect(JSON.stringify(mapped)).not.toContain('1234567890');
+    expect(mapped.accountNumberEndsWith).toBe('7890');
   });
 
   it('keeps a mobile money number and an absent bank apart', () => {
@@ -213,7 +219,19 @@ describe('where the money is sent', () => {
       accountNumber: null,
       momoNumber: '+233241234567',
     });
-    expect(momoOnly.accountNumber).toBeNull();
-    expect(momoOnly.momoNumber).toBe('+233241234567');
+    expect(momoOnly.accountNumberEndsWith).toBeNull();
+    expect(momoOnly.momoNumberEndsWith).toBe('4567');
+  });
+
+  it('answers null for either number when nothing is on file', () => {
+    const empty = toApiPaymentDetails({
+      ...row,
+      bankName: null,
+      accountName: null,
+      accountNumber: null,
+      momoNumber: null,
+    });
+    expect(empty.accountNumberEndsWith).toBeNull();
+    expect(empty.momoNumberEndsWith).toBeNull();
   });
 });
