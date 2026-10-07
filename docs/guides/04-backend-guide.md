@@ -282,6 +282,7 @@ Rules:
 
 - Never edit a migration that is already on `main`. Create a new one instead.
 - `pnpm db:migrate` and `pnpm db:reset` are for your **own computer** only. For a shared or hosted database, use `pnpm db:deploy`, which only applies migrations and never deletes anything.
+- To apply migrations you pulled from `main`, use `pnpm db:deploy` locally as well. `pnpm db:migrate` first replays every migration in a throwaway "shadow" database, and `20260930130000_db_hygiene` enables row-level security on `_prisma_migrations`, a table the shadow database does not have at that point, so the replay fails with `P3006`. Use `db:migrate` only to create a new migration from a schema change: it writes the migration file even when the shadow replay complains, and `db:deploy` then applies it.
 - `pnpm db:reset` deletes everything in your local database, reapplies all migrations and reseeds. It asks you to confirm first. It is handy when your local data is a mess, or when a migration changed before merging.
 - `pnpm db:seed` refuses a database that is not on your computer, unless you run it with `ALLOW_REMOTE_SEED=yes` on purpose.
 - Money columns are integers (pesewas). Timestamps use `@db.Timestamptz(3)`. People and money records are never deleted; add a status instead.
