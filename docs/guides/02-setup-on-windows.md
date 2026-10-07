@@ -105,12 +105,12 @@ The first start takes a minute while it prepares the database files. Wait for `P
 
 ```bash
 cp apps/api/.env.example apps/api/.env
-pnpm db:migrate
+pnpm db:deploy
 pnpm db:seed
 ```
 
 - The first command creates the API's settings file. The example values already match the local database.
-- `db:migrate` creates the tables.
+- `db:deploy` creates the tables by applying every migration in order. (Not `db:migrate`: that command first rebuilds the migrations in a throwaway "shadow" database, and one of ours turns on row-level security for Prisma's own bookkeeping table, which the shadow database does not have yet. `db:migrate` is for making a new migration after you change the schema; see the backend guide.)
 - `db:seed` loads a fictional company with 5 sites and 50 employees.
 
 **Terminal 2: start the API and the dashboard together.**
@@ -143,7 +143,8 @@ Run these from the repository root.
 | Run all tests | `pnpm test` |
 | Fix formatting automatically | `pnpm lint:fix` |
 | Check everything like CI | `pnpm check` |
-| Apply new database migrations after pulling | `pnpm db:migrate` |
+| Apply new database migrations after pulling | `pnpm db:deploy` |
+| Make a new migration after changing `schema.prisma` | `pnpm db:migrate` (see the backend guide) |
 | Wipe and refill my local database | `pnpm db:reset` (it asks you to confirm) |
 | Browse the database in a web page | `pnpm db:studio` |
 
@@ -165,7 +166,7 @@ Never commit `.env`, and never paste the connection string into chats, issues or
 | Problem | Fix |
 |---|---|
 | `pnpm: command not found` | Close and reopen the terminal. If it persists, run `npm install --global pnpm@12.4.1` again. |
-| PowerShell says "running scripts is disabled on this system" | Use Git Bash as described in step 4. |
+| PowerShell says "running scripts is disabled on this system" | Type `pnpm.cmd` instead of `pnpm` (for example `pnpm.cmd db:start`), or use Git Bash as described in step 4. |
 | `Port 5173 is already in use` | Another dashboard is running. Close that terminal or press Ctrl+C in it. |
 | `pnpm db:start` fails on port 54329 | The database is already running in another terminal. |
 | `Can't reach database server` | Start the database with `pnpm db:start` in another terminal. |
@@ -173,6 +174,7 @@ Never commit `.env`, and never paste the connection string into chats, issues or
 | The dashboard says it cannot reach the API | Start the API with `pnpm dev` or `pnpm dev:api`. If it is running, check that `CORS_ORIGINS` in `apps/api/.env` is `http://localhost:5173`. Or use mock data with `pnpm dev:web`. |
 | The page says **The mock API could not start** | Open http://localhost:5173 in Chrome, Edge or Firefox, not in a private window or a preview browser built into another app. |
 | `pnpm db:migrate` says a migration was modified or is missing | Your local database was built from an older version of the migrations. Run `pnpm db:reset` and confirm. |
+| `pnpm db:migrate` fails with `P3006` and `relation "_prisma_migrations" does not exist` | That is the shadow-database quirk described in step 8. Use `pnpm db:deploy` to apply migrations; keep `db:migrate` for creating a new one. |
 | Installs are very slow | Antivirus scanning slows down `node_modules`. It is only slow the first time. |
 
 Next: [Frontend guide](03-frontend-guide.md) or [Backend guide](04-backend-guide.md).
